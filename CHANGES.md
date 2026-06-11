@@ -208,7 +208,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 ---
 
 ### [C-07] `turno-cancel-reschedule`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x] completado`
 - **Scope**: Cancelación y reprogramación con sincronización de calendario
   - Endpoints:
     - `PUT /turnos/{id}/cancelar` — estado `CANCELADO`, elimina evento de Google Calendar, libera slot
@@ -230,16 +230,21 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 > C-07 y C-08 pueden ejecutarse en paralelo.
 
 ### [C-08] `telegram-bot-webhook`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x] completado`
 - **Scope**: Webhook de Telegram + enrutador de mensajes + respuestas básicas
-  - Endpoint: `POST /webhooks/telegram` — recibe updates del Bot API, valida `TELEGRAM_BOT_TOKEN`
+  - Endpoint: `POST /webhooks/telegram` — recibe updates del Bot API, valida `X-Telegram-Bot-Api-Secret-Token`
   - Router conversacional: parsea texto y botones inline, enruta a acciones
+  - Estado conversacional en memoria (`dict` por `chat_id`) con `asyncio.Lock` por chat
   - Acciones básicas:
-    - "Quiero un turno" → llama `GET /turnos/disponibles` y presenta opciones
-    - Selección de fecha/hora → llama `POST /turnos` (reserva temporal)
-    - Confirmación de datos → llama `PUT /turnos/{id}/confirmar`
-    - "Cancelar" / "Reprogramar" → enruta a endpoints correspondientes
-  - Tests: webhook signature validation, routing table, mock de respuestas Telegram
+    - "Quiero un turno" / `/start` → muestra fechas disponibles con `InlineKeyboardMarkup`
+    - Selección de fecha → muestra horarios disponibles
+    - Selección de hora → llama `reservar_turno` (reserva temporal)
+    - Ingreso de datos paciente → CSV simple: Nombre, Apellido, DNI, Teléfono
+    - Confirmación → llama `confirmar_turno` y limpia estado
+    - "Cancelar" / "Reprogramar" → resetea estado o placeholder
+  - Formato de mensajes: MarkdownV2 con `escape_markdown`, splitting > 4096 chars
+  - Bot: `python-telegram-bot` `Bot` + `run_in_threadpool` para no bloquear event loop
+  - Tests: webhook validation (7 tests), routing table (10 tests), service integration (9 tests), message formatting (9 tests), E2E flow (5 tests), bot sending (2 tests)
 - **Dependencias**: C-06
 - **Governance**: MEDIO
 - **Leer antes**:
@@ -338,8 +343,8 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 | C-04 | 1 — Dominio Core | `[x]` | BAJO | C-02 |
 | C-05 | 1 — Dominio Core | `[x]` | ALTO | C-02 |
 | C-06 | 2 — Ciclo de Turnos | `[x]` | CRITICO | C-03, C-04, C-05 |
-| C-07 | 2 — Ciclo de Turnos | `[ ]` | ALTO | C-06 |
-| C-08 | 3 — Integraciones | `[ ]` | MEDIO | C-06 |
+| C-07 | 2 — Ciclo de Turnos | `[x]` | ALTO | C-06 |
+| C-08 | 3 — Integraciones | `[x]` | MEDIO | C-06 |
 | C-09 | 3 — Integraciones | `[ ]` | BAJO | C-08 |
 | C-10 | 4 — Automatizaciones | `[ ]` | MEDIO | C-06, C-08 |
 | C-11 | 4 — Automatizaciones | `[ ]` | ALTO | C-06, C-07, C-08 |

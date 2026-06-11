@@ -11,6 +11,7 @@ class Settings(BaseSettings):
 
     database_url: str
     telegram_bot_token: str
+    telegram_webhook_secret: str = ""
     google_calendar_credentials: str = "{}"
     google_calendar_id: str = "primary"
     google_calendar_max_retries: int = 3

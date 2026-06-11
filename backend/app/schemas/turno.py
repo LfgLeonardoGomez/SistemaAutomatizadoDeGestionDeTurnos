@@ -24,6 +24,12 @@ class ConfirmarTurnoRequest(BaseModel):
     email: Optional[str] = None
 
 
+class ReprogramarTurnoRequest(BaseModel):
+    nueva_fecha: date
+    nueva_hora_inicio: time
+    paciente_data: Optional[ConfirmarTurnoRequest] = None
+
+
 class TurnoResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

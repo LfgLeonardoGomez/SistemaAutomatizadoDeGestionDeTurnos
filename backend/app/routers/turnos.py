@@ -9,18 +9,23 @@ from app.dependencies import DbDep
 from app.schemas.turno import (
     ReservaTurnoRequest,
     ConfirmarTurnoRequest,
+    ReprogramarTurnoRequest,
     TurnoResponse,
     SlotResponse,
 )
 from app.services.turno_service import (
     reservar_turno,
     confirmar_turno,
+    cancelar_turno,
+    reprogramar_turno,
     consultar_disponibilidad,
 )
 from app.exceptions import (
     TurnoNoDisponibleError,
     TurnoExpiradoError,
     PacienteConTurnoActivoError,
+    TurnoNoEncontradoError,
+    TurnoYaCanceladoError,
 )
 
 router = APIRouter(prefix="/turnos", tags=["turnos"])
@@ -73,6 +78,48 @@ async def confirmar_turno_endpoint(
     except TurnoNoDisponibleError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=exc.message)
     except TurnoExpiradoError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message)
+    except PacienteConTurnoActivoError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message)
+    return TurnoResponse.model_validate(turno)
+
+
+@router.put("/{turno_id}/cancelar", response_model=TurnoResponse)
+async def cancelar_turno_endpoint(
+    db: DbDep,
+    turno_id: int,
+) -> TurnoResponse:
+    """Cancela un turno confirmado."""
+    try:
+        turno = await cancelar_turno(db, turno_id=turno_id)
+    except TurnoNoEncontradoError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=exc.message)
+    except TurnoYaCanceladoError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message)
+    return TurnoResponse.model_validate(turno)
+
+
+@router.put("/{turno_id}/reprogramar", response_model=TurnoResponse)
+async def reprogramar_turno_endpoint(
+    db: DbDep,
+    turno_id: int,
+    data: ReprogramarTurnoRequest,
+) -> TurnoResponse:
+    """Reprograma un turno confirmado a un nuevo slot."""
+    try:
+        paciente_data = data.paciente_data.model_dump() if data.paciente_data else None
+        turno = await reprogramar_turno(
+            db,
+            turno_id=turno_id,
+            nueva_fecha=data.nueva_fecha,
+            nueva_hora_inicio=data.nueva_hora_inicio,
+            paciente_data=paciente_data,
+        )
+    except TurnoNoEncontradoError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=exc.message)
+    except TurnoYaCanceladoError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message)
+    except TurnoNoDisponibleError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message)
     except PacienteConTurnoActivoError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message)

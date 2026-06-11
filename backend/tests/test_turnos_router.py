@@ -246,3 +246,250 @@ class TestTurnosRouter:
             },
         )
         assert response.status_code == status.HTTP_409_CONFLICT
+
+    # -----------------------------------------------------------------------
+    # PUT /turnos/{id}/cancelar
+    # -----------------------------------------------------------------------
+    @pytest.mark.asyncio
+    async def test_put_turnos_cancelar_exitoso(self, api_client, db_session):
+        """Scenario: cancelar turno confirmado → 200, estado CANCELADO."""
+        await _seed_profesional(db_session)
+        r1 = api_client.post(
+            "/turnos",
+            json={"fecha": "2026-06-15", "hora_inicio": "09:00"},
+        )
+        turno_id = r1.json()["id"]
+
+        # Confirmar turno
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_123"
+            mock_calendar_cls.return_value = mock_service
+            api_client.put(
+                f"/turnos/{turno_id}/confirmar",
+                json={"nombre": "Juan", "apellido": "Perez", "dni": "12345678", "telefono": "555-1234"},
+            )
+
+        # Cancelar turno
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_calendar_cls.return_value = mock_service
+            response = api_client.put(f"/turnos/{turno_id}/cancelar")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["estado"] == "CANCELADO"
+        assert data["id"] == turno_id
+
+    @pytest.mark.asyncio
+    async def test_put_turnos_cancelar_no_existe(self, api_client, db_session):
+        """Scenario: cancelar turno inexistente → 404."""
+        response = api_client.put("/turnos/99999/cancelar")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @pytest.mark.asyncio
+    async def test_put_turnos_cancelar_ya_cancelado(self, api_client, db_session):
+        """Scenario: cancelar turno ya cancelado → 409."""
+        await _seed_profesional(db_session)
+        r1 = api_client.post(
+            "/turnos",
+            json={"fecha": "2026-06-15", "hora_inicio": "09:00"},
+        )
+        turno_id = r1.json()["id"]
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_123"
+            mock_calendar_cls.return_value = mock_service
+            api_client.put(
+                f"/turnos/{turno_id}/confirmar",
+                json={"nombre": "Juan", "apellido": "Perez", "dni": "12345678", "telefono": "555-1234"},
+            )
+
+        # Primera cancelación
+        api_client.put(f"/turnos/{turno_id}/cancelar")
+
+        # Segunda cancelación
+        response = api_client.put(f"/turnos/{turno_id}/cancelar")
+        assert response.status_code == status.HTTP_409_CONFLICT
+
+    # -----------------------------------------------------------------------
+    # PUT /turnos/{id}/reprogramar
+    # -----------------------------------------------------------------------
+    @pytest.mark.asyncio
+    async def test_put_turnos_reprogramar_exitoso(self, api_client, db_session):
+        """Scenario: reprogramar turno confirmado → 200, nuevo CONFIRMADO."""
+        await _seed_profesional(db_session)
+        r1 = api_client.post(
+            "/turnos",
+            json={"fecha": "2026-06-15", "hora_inicio": "09:00"},
+        )
+        turno_id = r1.json()["id"]
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_old"
+            mock_calendar_cls.return_value = mock_service
+            api_client.put(
+                f"/turnos/{turno_id}/confirmar",
+                json={"nombre": "Juan", "apellido": "Perez", "dni": "12345678", "telefono": "555-1234"},
+            )
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_new"
+            mock_calendar_cls.return_value = mock_service
+            response = api_client.put(
+                f"/turnos/{turno_id}/reprogramar",
+                json={"nueva_fecha": "2026-06-16", "nueva_hora_inicio": "10:00"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["estado"] == "CONFIRMADO"
+        assert data["fecha"] == "2026-06-16"
+        assert data["hora_inicio"] == "10:00:00"
+
+    @pytest.mark.asyncio
+    async def test_put_turnos_reprogramar_no_existe(self, api_client, db_session):
+        """Scenario: reprogramar turno inexistente → 404."""
+        response = api_client.put(
+            "/turnos/99999/reprogramar",
+            json={"nueva_fecha": "2026-06-16", "nueva_hora_inicio": "10:00"},
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @pytest.mark.asyncio
+    async def test_put_turnos_reprogramar_slot_no_disponible(self, api_client, db_session):
+        """Scenario: reprogramar a slot ocupado → 409."""
+        await _seed_profesional(db_session)
+
+        # Ocupar slot 10:00
+        r_ocupado = api_client.post(
+            "/turnos",
+            json={"fecha": "2026-06-15", "hora_inicio": "10:00"},
+        )
+        t_ocupado_id = r_ocupado.json()["id"]
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_ocupado"
+            mock_calendar_cls.return_value = mock_service
+            api_client.put(
+                f"/turnos/{t_ocupado_id}/confirmar",
+                json={"nombre": "Ana", "apellido": "Garcia", "dni": "87654321", "telefono": "555-9999"},
+            )
+
+        # Crear turno a reprogramar
+        r1 = api_client.post(
+            "/turnos",
+            json={"fecha": "2026-06-15", "hora_inicio": "09:00"},
+        )
+        turno_id = r1.json()["id"]
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_old"
+            mock_calendar_cls.return_value = mock_service
+            api_client.put(
+                f"/turnos/{turno_id}/confirmar",
+                json={"nombre": "Juan", "apellido": "Perez", "dni": "12345678", "telefono": "555-1234"},
+            )
+
+        response = api_client.put(
+            f"/turnos/{turno_id}/reprogramar",
+            json={"nueva_fecha": "2026-06-15", "nueva_hora_inicio": "10:00"},
+        )
+        assert response.status_code == status.HTTP_409_CONFLICT
+
+    @pytest.mark.asyncio
+    async def test_put_turnos_reprogramar_paciente_activo(self, api_client, db_session):
+        """Scenario: reprogramar con paciente que tiene otro turno activo → 409."""
+        await _seed_profesional(db_session)
+        paciente = await _seed_paciente(db_session, dni="11111111")
+
+        # Turno 1 confirmado del paciente
+        r1 = api_client.post(
+            "/turnos",
+            json={"fecha": "2026-06-15", "hora_inicio": "09:00", "paciente_id": paciente.id},
+        )
+        t1_id = r1.json()["id"]
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_t1"
+            mock_calendar_cls.return_value = mock_service
+            api_client.put(
+                f"/turnos/{t1_id}/confirmar",
+                json={"nombre": paciente.nombre, "apellido": paciente.apellido, "dni": paciente.dni, "telefono": paciente.telefono},
+            )
+
+        # Turno 2 de otro paciente
+        r2 = api_client.post(
+            "/turnos",
+            json={"fecha": "2026-06-15", "hora_inicio": "10:00"},
+        )
+        t2_id = r2.json()["id"]
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_t2"
+            mock_calendar_cls.return_value = mock_service
+            api_client.put(
+                f"/turnos/{t2_id}/confirmar",
+                json={"nombre": "Ana", "apellido": "Garcia", "dni": "22222222", "telefono": "555-9999"},
+            )
+
+        # Reprogramar t2 con datos del paciente que ya tiene t1 activo
+        response = api_client.put(
+            f"/turnos/{t2_id}/reprogramar",
+            json={
+                "nueva_fecha": "2026-06-15",
+                "nueva_hora_inicio": "11:00",
+                "paciente_data": {
+                    "nombre": paciente.nombre,
+                    "apellido": paciente.apellido,
+                    "dni": paciente.dni,
+                    "telefono": paciente.telefono,
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_409_CONFLICT
+
+    @pytest.mark.asyncio
+    async def test_put_turnos_reprogramar_con_paciente_data(self, api_client, db_session):
+        """Scenario: reprogramar pasando paciente_data explícito → 200."""
+        await _seed_profesional(db_session)
+        r1 = api_client.post(
+            "/turnos",
+            json={"fecha": "2026-06-15", "hora_inicio": "09:00"},
+        )
+        turno_id = r1.json()["id"]
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_old"
+            mock_calendar_cls.return_value = mock_service
+            api_client.put(
+                f"/turnos/{turno_id}/confirmar",
+                json={"nombre": "Juan", "apellido": "Perez", "dni": "12345678", "telefono": "555-1234"},
+            )
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_new"
+            mock_calendar_cls.return_value = mock_service
+            response = api_client.put(
+                f"/turnos/{turno_id}/reprogramar",
+                json={
+                    "nueva_fecha": "2026-06-16",
+                    "nueva_hora_inicio": "10:00",
+                    "paciente_data": {
+                        "nombre": "Juan",
+                        "apellido": "Perez",
+                        "dni": "12345678",
+                        "telefono": "555-1234",
+                    },
+                },
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["estado"] == "CONFIRMADO"
+        assert data["fecha"] == "2026-06-16"

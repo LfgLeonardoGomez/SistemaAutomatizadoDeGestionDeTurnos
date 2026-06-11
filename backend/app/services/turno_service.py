@@ -19,6 +19,8 @@ from app.exceptions import (
     TurnoNoDisponibleError,
     TurnoExpiradoError,
     PacienteConTurnoActivoError,
+    TurnoNoEncontradoError,
+    TurnoYaCanceladoError,
 )
 
 logger = logging.getLogger(__name__)
@@ -215,6 +217,111 @@ async def liberar_reservas_vencidas(db: AsyncSession) -> int:
         logger.debug("No hay reservas temporales vencidas para liberar")
 
     return count
+
+
+async def cancelar_turno(db: AsyncSession, turno_id: int) -> Turno:
+    """
+    Cancela un turno confirmado.
+
+    - Bloquea la fila con SELECT FOR UPDATE.
+    - Valida que el turno exista y esté CONFIRMADO.
+    - Actualiza estado a CANCELADO y hace COMMIT.
+    - Elimina evento de Google Calendar en best-effort (no bloquea la transacción).
+    """
+    result = await db.execute(
+        select(Turno).where(Turno.id == turno_id).with_for_update()
+    )
+    turno = result.scalar_one_or_none()
+    if turno is None:
+        raise TurnoNoEncontradoError()
+    if turno.estado == "CANCELADO":
+        raise TurnoYaCanceladoError()
+    if turno.estado != "CONFIRMADO":
+        raise TurnoYaCanceladoError("El turno no puede ser cancelado porque no está confirmado")
+
+    turno.estado = "CANCELADO"
+    await db.commit()
+    await db.refresh(turno)
+
+    # Eliminar evento de Google Calendar (best-effort, no bloquea)
+    google_event_id = getattr(turno, "google_event_id", None)
+    if google_event_id:
+        try:
+            calendar = CalendarService()
+            await run_in_threadpool(calendar.delete_event, google_event_id)
+        except Exception as exc:
+            logger.error(f"Fallo al eliminar evento de Calendar para turno {turno.id}: {exc}")
+            # No revertimos la cancelación; DB es fuente de verdad
+
+    return turno
+
+
+async def reprogramar_turno(
+    db: AsyncSession,
+    turno_id: int,
+    nueva_fecha: date,
+    nueva_hora_inicio: time,
+    paciente_data: Optional[dict[str, Any]] = None,
+    settings: Optional[Settings] = None,
+) -> Turno:
+    """
+    Reprograma un turno confirmado.
+
+    - Cancela el turno anterior (reutiliza cancelar_turno).
+    - Reserva un nuevo slot con reservar_turno.
+    - Confirma el nuevo turno con confirmar_turno.
+    - Si cancelar_turno no logra eliminar el evento de Calendar, se loguea.
+    - Si confirmar_turno no logra crear el evento de Calendar, se loguea.
+    - Retorna el nuevo turno CONFIRMADO.
+    """
+    result = await db.execute(
+        select(Turno).where(Turno.id == turno_id).with_for_update()
+    )
+    turno_viejo = result.scalar_one_or_none()
+    if turno_viejo is None:
+        raise TurnoNoEncontradoError()
+    if turno_viejo.estado == "CANCELADO":
+        raise TurnoYaCanceladoError()
+    if turno_viejo.estado != "CONFIRMADO":
+        raise TurnoYaCanceladoError("El turno no puede ser reprogramado porque no está confirmado")
+
+    # Reutilizar datos del paciente si no se proporcionan
+    if paciente_data is None:
+        if turno_viejo.paciente_id is None:
+            raise TurnoError("El turno no tiene paciente asociado")
+        result = await db.execute(
+            select(Paciente).where(Paciente.id == turno_viejo.paciente_id)
+        )
+        paciente = result.scalar_one_or_none()
+        if paciente is None:
+            raise TurnoError("Paciente no encontrado")
+        paciente_data = {
+            "nombre": paciente.nombre,
+            "apellido": paciente.apellido,
+            "dni": paciente.dni,
+            "telefono": paciente.telefono,
+        }
+
+    # Cancelar turno anterior (libera slot y elimina calendar event best-effort)
+    await cancelar_turno(db, turno_viejo.id)
+
+    # Reservar nuevo slot
+    nuevo_turno = await reservar_turno(
+        db,
+        fecha=nueva_fecha,
+        hora_inicio=nueva_hora_inicio,
+        paciente_id=turno_viejo.paciente_id,
+        settings=settings,
+    )
+
+    # Confirmar nuevo turno
+    confirmado = await confirmar_turno(
+        db,
+        turno_id=nuevo_turno.id,
+        paciente_data=paciente_data,
+    )
+
+    return confirmado
 
 
 async def consultar_disponibilidad(
