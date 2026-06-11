@@ -28,6 +28,13 @@ def _get_sessionmaker():
     return _async_session
 
 
+def _reset_engine_and_sessionmaker() -> None:
+    """Reset cached engine and sessionmaker (useful for tests)."""
+    global _engine, _async_session
+    _engine = None
+    _async_session = None
+
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     session = _get_sessionmaker()()
     try:

@@ -189,7 +189,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 ## FASE 2 — Ciclo de Turnos
 
 ### [C-06] `turno-reservation`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x] completado
 - **Scope**: Reserva temporal, confirmación y creación de evento en calendario
   - Endpoints:
     - `GET /turnos/disponibles?fecha=YYYY-MM-DD` — lista slots libres
@@ -337,7 +337,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 | C-03 | 1 — Dominio Core | `[x]` | MEDIO | C-02 |
 | C-04 | 1 — Dominio Core | `[x]` | BAJO | C-02 |
 | C-05 | 1 — Dominio Core | `[x]` | ALTO | C-02 |
-| C-06 | 2 — Ciclo de Turnos | `[ ]` | CRITICO | C-03, C-04, C-05 |
+| C-06 | 2 — Ciclo de Turnos | `[x]` | CRITICO | C-03, C-04, C-05 |
 | C-07 | 2 — Ciclo de Turnos | `[ ]` | ALTO | C-06 |
 | C-08 | 3 — Integraciones | `[ ]` | MEDIO | C-06 |
 | C-09 | 3 — Integraciones | `[ ]` | BAJO | C-08 |

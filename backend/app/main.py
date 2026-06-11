@@ -47,9 +47,25 @@ app = FastAPI(
 
 from app.routers import pacientes
 from app.routers.profesional import router as profesional_router
+from app.routers.turnos import router as turnos_router
+from app.exception_handlers import (
+    turno_no_disponible_handler,
+    turno_expirado_handler,
+    paciente_con_turno_activo_handler,
+)
+from app.exceptions import (
+    TurnoNoDisponibleError,
+    TurnoExpiradoError,
+    PacienteConTurnoActivoError,
+)
 
 app.include_router(pacientes.router)
 app.include_router(profesional_router)
+app.include_router(turnos_router)
+
+app.add_exception_handler(TurnoNoDisponibleError, turno_no_disponible_handler)
+app.add_exception_handler(TurnoExpiradoError, turno_expirado_handler)
+app.add_exception_handler(PacienteConTurnoActivoError, paciente_con_turno_activo_handler)
 
 
 @app.get("/health", response_model=HealthResponse)
