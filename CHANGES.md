@@ -118,7 +118,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 > Los changes C-03, C-04 y C-05 pueden proponerse en paralelo tras C-02.
 
 ### [C-02] `core-models`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x] completado`
 - **Scope**: Modelos SQLAlchemy + migración inicial + seed mínimo
   - Modelos: `Paciente`, `Profesional`, `Turno`, `ReservaTemporal`, `ListaDeEspera`
   - `Turno.estado`: ENUM (`DISPONIBLE`, `RESERVADO_TEMPORAL`, `CONFIRMADO`, `CANCELADO`, `COMPLETADO`)
@@ -332,8 +332,8 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 
 | Change | Fase | Estado | Governance | Depende de |
 |--------|------|--------|------------|------------|
-| C-01 | 0 — Cimientos | `[ ]` | BAJO | — |
-| C-02 | 1 — Dominio Core | `[ ]` | CRITICO | C-01 |
+| C-01 | 0 — Cimientos | `[x]` | BAJO | — |
+| C-02 | 1 — Dominio Core | `[x]` | CRITICO | C-01 |
 | C-03 | 1 — Dominio Core | `[ ]` | MEDIO | C-02 |
 | C-04 | 1 — Dominio Core | `[ ]` | BAJO | C-02 |
 | C-05 | 1 — Dominio Core | `[ ]` | ALTO | C-02 |
