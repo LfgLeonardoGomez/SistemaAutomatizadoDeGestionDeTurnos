@@ -255,7 +255,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 ---
 
 ### [C-09] `n8n-workflows`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado
 - **Scope**: Workflows exportables de n8n para orquestar flujos conversacionales
   - Archivos JSON exportables: `flujo-reserva.json`, `flujo-cancelacion.json`, `flujo-recordatorio.json`, `flujo-lista-espera.json`
   - Cada workflow: Webhook Trigger → HTTP Request a FastAPI → Format Response → Telegram Send Message
@@ -345,7 +345,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 | C-06 | 2 — Ciclo de Turnos | `[x]` | CRITICO | C-03, C-04, C-05 |
 | C-07 | 2 — Ciclo de Turnos | `[x]` | ALTO | C-06 |
 | C-08 | 3 — Integraciones | `[x]` | MEDIO | C-06 |
-| C-09 | 3 — Integraciones | `[ ]` | BAJO | C-08 |
+| C-09 | 3 — Integraciones | `[x]` | BAJO | C-08 |
 | C-10 | 4 — Automatizaciones | `[ ]` | MEDIO | C-06, C-08 |
 | C-11 | 4 — Automatizaciones | `[ ]` | ALTO | C-06, C-07, C-08 |
 | C-12 | 5 — Panel Profesional | `[ ]` | BAJO | C-03, C-06, C-07, C-08 |

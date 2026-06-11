@@ -1,0 +1,113 @@
+{
+  "name": "flujo-lista-espera",
+  "nodes": [
+    {
+      "id": "webhook-trigger-lista-espera",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "lista-espera",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lista-espera",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "http-placeholder-lista-espera",
+      "name": "HTTP Request - Placeholder Lista Espera",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [450, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.FASTAPI_BASE_URL }}/lista-espera/siguiente",
+        "options": {}
+      },
+      "notes": "PLACEHOLDER: Este endpoint se implementará en C-11 (core-lista-espera-model). Actualmente retornará 404 hasta que el backend exponga /lista-espera/siguiente."
+    },
+    {
+      "id": "format-lista-espera",
+      "name": "Format Response - Lista Espera",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300],
+      "parameters": {
+        "mode": "runOnceForAll",
+        "language": "javaScript",
+        "jsCode": "// PLACEHOLDER para C-11\n// Este nodo deberá recibir el siguiente paciente en lista de espera y enviarle una notificación.\n\nconst paciente = $input.all()[0].json;\n\nif (!paciente || !paciente.id) {\n  return [{\n    json: {\n      text: 'No hay pacientes en lista de espera.',\n      paciente: null\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    chat_id: paciente.telegram_id,\n    text: `Se liberó un turno!\\n\\nFecha: ${paciente.fecha_solicitada}\\nHora: ${paciente.hora_preferida}\\n\\n¿Querés reservarlo?`,\n    inline_buttons: [\n      { text: 'Reservar turno', callback_data: `reservar_lista_${paciente.id}` },\n      { text: 'No, gracias', callback_data: `rechazar_lista_${paciente.id}` }\n    ]\n  }\n}];"
+      }
+    },
+    {
+      "id": "telegram-lista-espera",
+      "name": "Telegram - Notificar Lista Espera",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [850, 300],
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.text }}",
+        "options": {
+          "reply_markup": {
+            "inline_keyboard": [
+              "={{ $json.inline_buttons.map(b => [{text: b.text, callback_data: b.callback_data}]) }}"
+            ]
+          }
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram Bot Credentials"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Placeholder Lista Espera",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Placeholder Lista Espera": {
+      "main": [
+        [
+          {
+            "node": "Format Response - Lista Espera",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response - Lista Espera": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Notificar Lista Espera",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    "placeholder",
+    "c-11"
+  ],
+  "pinData": {}
+}

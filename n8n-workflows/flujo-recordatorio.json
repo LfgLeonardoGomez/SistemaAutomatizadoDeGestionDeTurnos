@@ -1,0 +1,109 @@
+{
+  "name": "flujo-recordatorio",
+  "nodes": [
+    {
+      "id": "schedule-trigger-recordatorio",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "value": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "http-placeholder-recordatorio",
+      "name": "HTTP Request - Placeholder Recordatorio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [450, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.FASTAPI_BASE_URL }}/turnos/pendientes",
+        "options": {}
+      },
+      "notes": "PLACEHOLDER: Este endpoint se implementará en C-10 (scheduler-skeleton). Actualmente retornará 404 hasta que el backend exponga /turnos/pendientes."
+    },
+    {
+      "id": "format-recordatorio",
+      "name": "Format Response - Recordatorio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300],
+      "parameters": {
+        "mode": "runOnceForAll",
+        "language": "javaScript",
+        "jsCode": "// PLACEHOLDER para C-10\n// Este nodo deberá iterar sobre los turnos pendientes y enviar mensajes a cada paciente.\n\nconst turnos = $input.all()[0].json || [];\n\nif (!Array.isArray(turnos) || turnos.length === 0) {\n  return [{\n    json: {\n      text: 'No hay turnos pendientes para recordar.',\n      turnos: []\n    }\n  }];\n}\n\nreturn turnos.map(turno => ({\n  json: {\n    chat_id: turno.paciente_telegram_id,\n    text: `Recordatorio de turno\\n\\nFecha: ${turno.fecha}\\nHora: ${turno.hora_inicio}\\nProfesional: ${turno.profesional_nombre}`\n  }\n}));"
+      }
+    },
+    {
+      "id": "telegram-recordatorio",
+      "name": "Telegram - Enviar Recordatorio",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [850, 300],
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.text }}"
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram Bot Credentials"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Placeholder Recordatorio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Placeholder Recordatorio": {
+      "main": [
+        [
+          {
+            "node": "Format Response - Recordatorio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response - Recordatorio": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Enviar Recordatorio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    "placeholder",
+    "c-10"
+  ],
+  "pinData": {}
+}
