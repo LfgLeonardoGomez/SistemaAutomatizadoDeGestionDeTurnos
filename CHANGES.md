@@ -137,7 +137,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 ---
 
 ### [C-03] `professional-config`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` archivado
 - **Scope**: Configuración del profesional + cálculo de disponibilidad
   - Endpoints: `GET /profesional/configuracion`, `PUT /profesional/configuracion`
   - Campos editables: `horario_inicio`, `horario_fin`, `dias_atencion`, `duracion_turno`
@@ -154,7 +154,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 ---
 
 ### [C-04] `patient-management`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x] completado`
 - **Scope**: Registro e identificación de pacientes
   - Endpoints: `POST /pacientes`, `GET /pacientes/{id}`, `GET /pacientes/{id}/turnos`
   - Validación: DNI único, teléfono requerido, datos mínimos (nombre, apellido, DNI, teléfono)
@@ -170,7 +170,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 ---
 
 ### [C-05] `google-calendar-service`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x] completado`
 - **Scope**: Cliente de Google Calendar API para sincronización de eventos
   - Servicio `calendar_service.py`: wrapper con retries y backoff exponencial
   - Métodos: `create_event(turno)`, `update_event(turno)`, `delete_event(event_id)`
@@ -334,9 +334,9 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 |--------|------|--------|------------|------------|
 | C-01 | 0 — Cimientos | `[x]` | BAJO | — |
 | C-02 | 1 — Dominio Core | `[x]` | CRITICO | C-01 |
-| C-03 | 1 — Dominio Core | `[ ]` | MEDIO | C-02 |
-| C-04 | 1 — Dominio Core | `[ ]` | BAJO | C-02 |
-| C-05 | 1 — Dominio Core | `[ ]` | ALTO | C-02 |
+| C-03 | 1 — Dominio Core | `[x]` | MEDIO | C-02 |
+| C-04 | 1 — Dominio Core | `[x]` | BAJO | C-02 |
+| C-05 | 1 — Dominio Core | `[x]` | ALTO | C-02 |
 | C-06 | 2 — Ciclo de Turnos | `[ ]` | CRITICO | C-03, C-04, C-05 |
 | C-07 | 2 — Ciclo de Turnos | `[ ]` | ALTO | C-06 |
 | C-08 | 3 — Integraciones | `[ ]` | MEDIO | C-06 |

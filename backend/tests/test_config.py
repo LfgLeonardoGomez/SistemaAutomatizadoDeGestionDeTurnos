@@ -53,3 +53,22 @@ class TestSettings:
         settings = Settings()
         assert settings.reserva_temporal_minutos == 10
         assert settings.recordatorio_horas_antes == 24
+
+    def test_settings_calendar_retry_vars(self, monkeypatch):
+        """Scenario: Calendar retry variables are loaded correctly."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", "{}")
+        monkeypatch.setenv("GOOGLE_CALENDAR_ID", "my_calendar")
+        monkeypatch.setenv("GOOGLE_CALENDAR_MAX_RETRIES", "5")
+        monkeypatch.setenv("GOOGLE_CALENDAR_BASE_DELAY", "2.0")
+        monkeypatch.setenv("GOOGLE_CALENDAR_MAX_DELAY", "20.0")
+        monkeypatch.setenv("N8N_WEBHOOK_URL", "")
+        monkeypatch.setenv("ENV", "test")
+
+        from app.config import Settings
+        settings = Settings()
+        assert settings.google_calendar_id == "my_calendar"
+        assert settings.google_calendar_max_retries == 5
+        assert settings.google_calendar_base_delay == 2.0
+        assert settings.google_calendar_max_delay == 20.0

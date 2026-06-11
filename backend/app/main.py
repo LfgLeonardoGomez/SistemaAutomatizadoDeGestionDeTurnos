@@ -45,6 +45,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+from app.routers import pacientes
+from app.routers.profesional import router as profesional_router
+
+app.include_router(pacientes.router)
+app.include_router(profesional_router)
+
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:

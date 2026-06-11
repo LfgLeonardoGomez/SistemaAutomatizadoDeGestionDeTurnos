@@ -58,3 +58,21 @@ async def db_session(async_engine) -> AsyncGenerator[AsyncSession, None]:
     async with async_session() as session:
         yield session
         await session.rollback()
+
+
+@pytest.fixture
+def api_client(db_session, monkeypatch):
+    """TestClient with get_db overridden to use the in-memory db_session."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+
+    from app.dependencies import get_db
+    from app.main import app
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as test_client:
+        yield test_client
+    del app.dependency_overrides[get_db]
