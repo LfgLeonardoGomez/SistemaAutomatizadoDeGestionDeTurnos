@@ -15,7 +15,7 @@ from app.dependencies import _get_sessionmaker
 from app.schemas.paciente import PacienteCreate
 from app.services.availability_service import calcular_disponibilidad
 from app.services.paciente_service import crear_o_obtener_paciente
-from app.services.turno_service import reservar_turno, confirmar_turno, reprogramar_turno
+from app.services.turno_service import reservar_turno, confirmar_turno, reprogramar_turno, cancelar_turno, confirmar_asistencia_turno
 from app.exceptions import TurnoNoDisponibleError, TurnoYaCanceladoError
 logger = logging.getLogger(__name__)
 
@@ -308,6 +308,30 @@ async def notificar_expiracion(chat_id: int, turno_id: int) -> str:
     return f"⚠️ Tu reserva temporal \(turno {turno_id}\) ha expirado\. Volvé a intentar con /start"
 
 
+def format_recordatorio_mensaje(turno: dict, paciente: dict) -> str:
+    """Format reminder message with MarkdownV2."""
+    fecha = escape_markdown_v2(str(turno.get("fecha", "")))
+    hora = escape_markdown_v2(str(turno.get("hora_inicio", "")))
+    nombre = escape_markdown_v2(paciente.get("nombre", ""))
+    apellido = escape_markdown_v2(paciente.get("apellido", ""))
+    return (
+        f"📅 *Recordatorio de turno*\n\n"
+        f"*Fecha:* {fecha}\n"
+        f"*Hora:* {hora}\n"
+        f"*Paciente:* {nombre} {apellido}\n\n"
+        f"¿Confirmás tu asistencia?"
+    )
+
+
+def format_recordatorio_keyboard(turno_id: int) -> InlineKeyboardMarkup:
+    """Build inline keyboard for reminder actions."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("Confirmar asistencia", callback_data=f"reminder:confirmar:{turno_id}")],
+        [InlineKeyboardButton("Cancelar", callback_data=f"reminder:cancelar:{turno_id}")],
+        [InlineKeyboardButton("Reprogramar", callback_data=f"reminder:reprogramar:{turno_id}")],
+    ])
+
+
 def format_lista_espera_keyboard(turno_id: int) -> InlineKeyboardMarkup:
     """Build inline keyboard for waiting list accept/reject."""
     return InlineKeyboardMarkup([
@@ -531,13 +555,29 @@ async def procesar_mensaje(db, update: dict[str, Any]) -> None:
                 return
 
             if tipo == "reminder":
-                # Placeholder for reminder callbacks
                 subtipo, turno_id_str = valor.split(":", 1)
                 turno_id = int(turno_id_str)
                 if subtipo == "confirmar":
-                    texto = f"Recordatorio confirmado para turno {turno_id}"
+                    try:
+                        await confirmar_asistencia_turno(db, turno_id)
+                        texto = (
+                            f"✅ *Asistencia confirmada*\n\n"
+                            f"Gracias por confirmar\\. Te esperamos en tu turno\\."
+                        )
+                    except Exception as exc:
+                        logger.exception("Error confirmando asistencia desde recordatorio")
+                        texto = format_error(str(exc))
                 elif subtipo == "cancelar":
-                    texto = await accion_cancelar_turno(db, chat_id)
+                    try:
+                        turno_cancelado = await cancelar_turno(db, turno_id)
+                        texto = (
+                            f"❌ *Turno cancelado*\n\n"
+                            f"Fecha: {escape_markdown_v2(str(turno_cancelado.fecha))}\n"
+                            f"Hora: {escape_markdown_v2(str(turno_cancelado.hora_inicio))}"
+                        )
+                    except Exception as exc:
+                        logger.exception("Error cancelando turno desde recordatorio")
+                        texto = format_error(str(exc))
                 elif subtipo == "reprogramar":
                     texto, keyboard = await accion_iniciar_reprogramacion(db, chat_id, turno_id)
                     if keyboard:

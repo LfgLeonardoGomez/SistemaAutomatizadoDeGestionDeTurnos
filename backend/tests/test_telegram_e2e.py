@@ -1,6 +1,6 @@
 import pytest
 from datetime import date, time
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch, MagicMock
 
 from app.services.telegram_service import (
     _get_state,
@@ -257,3 +257,85 @@ class TestTelegramE2E:
                 })
                 mock_cb.assert_awaited_once()
                 mock_send.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_e2e_recordatorio_confirmar_asistencia(self, db_session):
+        """Paciente presiona Confirmar asistencia desde recordatorio."""
+        from app.models.paciente import Paciente
+        from app.models.turno import Turno
+
+        db_session.add(Profesional(
+            nombre="Dr", especialidad="Od", duracion_turno=30,
+            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+        ))
+        await db_session.commit()
+
+        paciente = Paciente(nombre="Juan", apellido="P", dni="123", telefono="555", telegram_chat_id="12345")
+        db_session.add(paciente)
+        await db_session.commit()
+
+        turno = Turno(
+            fecha=date(2026, 6, 15), hora_inicio=time(9, 0), hora_fin=time(9, 30),
+            estado="CONFIRMADO", profesional_id=1, paciente_id=paciente.id,
+        )
+        db_session.add(turno)
+        await db_session.commit()
+
+        chat_id = 444
+        with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock()) as mock_send:
+            with patch("app.services.telegram_service.responder_callback_query", new=AsyncMock()):
+                await procesar_mensaje(db_session, {
+                    "update_id": 1,
+                    "callback_query": {
+                        "id": "cq1",
+                        "from": {"id": chat_id, "is_bot": False, "first_name": "Test"},
+                        "message": {"message_id": 1, "chat": {"id": chat_id}, "text": "msg"},
+                        "data": f"reminder:confirmar:{turno.id}",
+                    },
+                })
+        args = mock_send.call_args[0]
+        assert "gracias" in args[1].lower() or "confirmada" in args[1].lower()
+
+    @pytest.mark.asyncio
+    async def test_e2e_recordatorio_cancelar(self, db_session):
+        """Paciente presiona Cancelar desde recordatorio."""
+        from app.models.paciente import Paciente
+        from app.models.turno import Turno
+        from sqlalchemy import select
+
+        db_session.add(Profesional(
+            nombre="Dr", especialidad="Od", duracion_turno=30,
+            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+        ))
+        await db_session.commit()
+
+        paciente = Paciente(nombre="Juan", apellido="P", dni="124", telefono="555", telegram_chat_id="12345")
+        db_session.add(paciente)
+        await db_session.commit()
+
+        turno = Turno(
+            fecha=date(2026, 6, 15), hora_inicio=time(9, 0), hora_fin=time(9, 30),
+            estado="CONFIRMADO", profesional_id=1, paciente_id=paciente.id, google_event_id="event_123",
+        )
+        db_session.add(turno)
+        await db_session.commit()
+
+        chat_id = 333
+        with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock()) as mock_send:
+            with patch("app.services.telegram_service.responder_callback_query", new=AsyncMock()):
+                with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+                    mock_service = MagicMock()
+                    mock_calendar_cls.return_value = mock_service
+                    await procesar_mensaje(db_session, {
+                        "update_id": 1,
+                        "callback_query": {
+                            "id": "cq1",
+                            "from": {"id": chat_id, "is_bot": False, "first_name": "Test"},
+                            "message": {"message_id": 1, "chat": {"id": chat_id}, "text": "msg"},
+                            "data": f"reminder:cancelar:{turno.id}",
+                        },
+                    })
+
+        result = await db_session.execute(select(Turno).where(Turno.id == turno.id))
+        turno_db = result.scalar_one()
+        assert turno_db.estado == "CANCELADO"

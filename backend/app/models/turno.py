@@ -33,6 +33,9 @@ class Turno(Base):
     google_event_id: Mapped[Optional[str]] = mapped_column(
         String(255), nullable=True
     )
+    recordatorio_enviado: Mapped[bool] = mapped_column(
+        default=False, nullable=False
+    )
     creado_en: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(timezone.utc)
     )

@@ -301,7 +301,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 > C-10, C-11 y C-12 pueden proponerse en paralelo tras C-13. C-09 puede ejecutarse en paralelo con C-13.
 
 ### [C-10] `recordatorios`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x] completado`
 - **Scope**: Recordatorios automáticos 24h antes del turno
   - Scheduler APScheduler: job que corre cada hora (o configurado por `RECORDATORIO_HORAS_ANTES`)
   - Query: turnos `CONFIRMADO` con `fecha/hora` dentro de las próximas 24h y sin `recordatorio_enviado`

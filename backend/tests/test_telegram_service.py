@@ -25,6 +25,9 @@ from app.services.telegram_service import (
     enviar_notificacion_lista_espera,
     accion_aceptar_lista_espera,
     accion_rechazar_lista_espera,
+    format_recordatorio_mensaje,
+    format_recordatorio_keyboard,
+    procesar_mensaje,
 )
 
 
@@ -262,3 +265,144 @@ class TestListaEsperaTelegram:
     async def test_accion_rechazar_lista_espera_sin_registro(self, db_session):
         texto = await accion_rechazar_lista_espera(db_session, 123, 999)
         assert "Error" in texto
+
+
+class TestRecordatorioFormatting:
+    """Tests for reminder message formatting."""
+
+    def test_format_recordatorio_mensaje_contiene_fecha_y_hora(self):
+        turno = {"fecha": date(2026, 6, 15), "hora_inicio": time(9, 0)}
+        paciente = {"nombre": "Juan", "apellido": "Perez"}
+        texto = format_recordatorio_mensaje(turno, paciente)
+        assert "2026" in texto
+        assert "09:00" in texto
+        assert "Juan" in texto
+
+    def test_format_recordatorio_mensaje_escapa_markdown(self):
+        turno = {"fecha": date(2026, 6, 15), "hora_inicio": time(9, 0)}
+        paciente = {"nombre": "Juan.Perez", "apellido": "Garcia"}
+        texto = format_recordatorio_mensaje(turno, paciente)
+        # Dots should be escaped for MarkdownV2
+        assert "Juan\\.Perez" in texto
+
+    def test_format_recordatorio_keyboard_tres_botones(self):
+        kb = format_recordatorio_keyboard(42)
+        assert len(kb.inline_keyboard) == 3
+        assert kb.inline_keyboard[0][0].callback_data == "reminder:confirmar:42"
+        assert kb.inline_keyboard[1][0].callback_data == "reminder:cancelar:42"
+        assert kb.inline_keyboard[2][0].callback_data == "reminder:reprogramar:42"
+
+
+class TestRecordatorioCallbacks:
+    """Tests for reminder callback routing."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_and_env(self, monkeypatch):
+        _reset_state()
+        _reset_bot()
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+
+    @pytest.mark.asyncio
+    async def test_callback_reminder_confirmar(self, db_session):
+        from app.models.profesional import Profesional
+        from app.models.paciente import Paciente
+        from app.models.turno import Turno
+        from unittest.mock import patch
+
+        p = Profesional(
+            nombre="Dr", especialidad="Od", duracion_turno=30,
+            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+        )
+        db_session.add(p)
+        await db_session.commit()
+
+        paciente = Paciente(nombre="Juan", apellido="P", dni="123", telefono="555")
+        db_session.add(paciente)
+        await db_session.commit()
+
+        turno = Turno(
+            fecha=date(2026, 6, 15), hora_inicio=time(9, 0), hora_fin=time(9, 30),
+            estado="CONFIRMADO", profesional_id=p.id, paciente_id=paciente.id,
+        )
+        db_session.add(turno)
+        await db_session.commit()
+
+        with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock()) as mock_enviar:
+            with patch("app.services.telegram_service.responder_callback_query", new=AsyncMock()):
+                update = {
+                    "callback_query": {
+                        "id": "cq1",
+                        "data": f"reminder:confirmar:{turno.id}",
+                        "message": {"chat": {"id": 123}},
+                    }
+                }
+                await procesar_mensaje(db_session, update)
+                mock_enviar.assert_awaited()
+                args = mock_enviar.call_args[0]
+                assert "gracias" in args[1].lower() or "confirmada" in args[1].lower()
+
+    @pytest.mark.asyncio
+    async def test_callback_reminder_cancelar(self, db_session):
+        from app.models.profesional import Profesional
+        from app.models.paciente import Paciente
+        from app.models.turno import Turno
+        from unittest.mock import patch
+
+        p = Profesional(
+            nombre="Dr", especialidad="Od", duracion_turno=30,
+            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+        )
+        db_session.add(p)
+        await db_session.commit()
+
+        paciente = Paciente(nombre="Juan", apellido="P", dni="123", telefono="555")
+        db_session.add(paciente)
+        await db_session.commit()
+
+        turno = Turno(
+            fecha=date(2026, 6, 15), hora_inicio=time(9, 0), hora_fin=time(9, 30),
+            estado="CONFIRMADO", profesional_id=p.id, paciente_id=paciente.id,
+        )
+        db_session.add(turno)
+        await db_session.commit()
+
+        with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock()) as mock_enviar:
+            with patch("app.services.telegram_service.responder_callback_query", new=AsyncMock()):
+                update = {
+                    "callback_query": {
+                        "id": "cq1",
+                        "data": f"reminder:cancelar:{turno.id}",
+                        "message": {"chat": {"id": 123}},
+                    }
+                }
+                await procesar_mensaje(db_session, update)
+                mock_enviar.assert_awaited()
+                args = mock_enviar.call_args[0]
+                assert "cancelada" in args[1].lower() or "cancelado" in args[1].lower()
+
+    @pytest.mark.asyncio
+    async def test_callback_reminder_reprogramar(self, db_session):
+        from app.models.profesional import Profesional
+        from unittest.mock import patch
+
+        p = Profesional(
+            nombre="Dr", especialidad="Od", duracion_turno=30,
+            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+        )
+        db_session.add(p)
+        await db_session.commit()
+
+        with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock()) as mock_enviar:
+            with patch("app.services.telegram_service.responder_callback_query", new=AsyncMock()):
+                update = {
+                    "callback_query": {
+                        "id": "cq1",
+                        "data": "reminder:reprogramar:5",
+                        "message": {"chat": {"id": 123}},
+                    }
+                }
+                await procesar_mensaje(db_session, update)
+                mock_enviar.assert_awaited()
+                state = _get_state(123)
+                assert state["estado"] == "reprogramando_esperando_fecha"

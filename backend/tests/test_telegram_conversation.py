@@ -167,11 +167,13 @@ class TestConversationRouter:
         }
         with patch("app.services.telegram_service.responder_callback_query", new=AsyncMock()) as mock_cb:
             with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock()) as mock_send:
-                await procesar_mensaje(None, update)
-                mock_cb.assert_awaited_once()
-                mock_send.assert_awaited_once()
-                args = mock_send.call_args
-                assert "99" in args[0][1]
+                with patch("app.services.telegram_service.confirmar_asistencia_turno", new=AsyncMock()) as mock_confirmar:
+                    await procesar_mensaje(None, update)
+                    mock_cb.assert_awaited_once()
+                    mock_send.assert_awaited_once()
+                    mock_confirmar.assert_awaited_once_with(None, 99)
+                    args = mock_send.call_args
+                    assert "gracias" in args[0][1].lower() or "confirmada" in args[0][1].lower()
 
     @pytest.mark.asyncio
     async def test_patient_data_collection_transitions_state(self):

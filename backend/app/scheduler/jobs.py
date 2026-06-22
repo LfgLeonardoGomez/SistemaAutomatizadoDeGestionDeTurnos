@@ -8,6 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import _get_sessionmaker
 from app.services.turno_service import liberar_reservas_vencidas, marcar_turnos_completados
 from app.services.lista_espera_service import procesar_timeouts_lista_espera
+from app.services.notificacion_service import (
+    obtener_turnos_para_recordar,
+    enviar_recordatorio_telegram,
+    marcar_recordatorio_enviado,
+)
 from app.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -57,6 +62,38 @@ async def _procesar_timeouts_lista_espera_job(session: Optional[AsyncSession] = 
         logger.exception(f"Error en job procesar_timeouts_lista_espera: {exc}")
 
 
+async def _enviar_recordatorios_job(session: Optional[AsyncSession] = None) -> None:
+    """Job periódico: envía recordatorios de turnos confirmados próximos."""
+    try:
+        settings = Settings()
+        horas_antes = settings.recordatorio_horas_antes
+
+        if session is None:
+            async_session = _get_sessionmaker()
+            async with async_session() as sess:
+                turnos = await obtener_turnos_para_recordar(sess, horas_antes=horas_antes)
+                for turno in turnos:
+                    try:
+                        ok = await enviar_recordatorio_telegram(turno)
+                        if ok:
+                            await marcar_recordatorio_enviado(sess, turno.id)
+                    except Exception as exc:
+                        logger.error(f"Error enviando recordatorio para turno {turno.id}: {exc}")
+        else:
+            turnos = await obtener_turnos_para_recordar(session, horas_antes=horas_antes)
+            for turno in turnos:
+                try:
+                    ok = await enviar_recordatorio_telegram(turno)
+                    if ok:
+                        await marcar_recordatorio_enviado(session, turno.id)
+                except Exception as exc:
+                    logger.error(f"Error enviando recordatorio para turno {turno.id}: {exc}")
+
+        logger.info(f"Job enviar_recordatorios completado: {len(turnos)} recordatorios procesados")
+    except Exception as exc:
+        logger.exception(f"Error en job enviar_recordatorios: {exc}")
+
+
 def init_scheduler(app: FastAPI) -> None:
     scheduler = AsyncIOScheduler()
     scheduler.start()
@@ -91,6 +128,17 @@ def init_scheduler(app: FastAPI) -> None:
         replace_existing=True,
     )
     logger.info("Job procesar_timeouts_lista_espera registrado (intervalo 1 minuto)")
+
+    # Job de envío de recordatorios — intervalo configurable (default 60 min)
+    intervalo = app.state.settings.recordatorio_job_interval_minutos if hasattr(app.state, "settings") else 60
+    scheduler.add_job(
+        _enviar_recordatorios_job,
+        "interval",
+        id="enviar_recordatorios",
+        minutes=intervalo,
+        replace_existing=True,
+    )
+    logger.info(f"Job enviar_recordatorios registrado (intervalo {intervalo} minutos)")
 
 
 def shutdown_scheduler(app: FastAPI) -> None:

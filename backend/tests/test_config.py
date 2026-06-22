@@ -47,12 +47,14 @@ class TestSettings:
         monkeypatch.setenv("N8N_WEBHOOK_URL", "https://n8n.example.com/webhook")
         monkeypatch.delenv("RESERVA_TEMPORAL_MINUTOS", raising=False)
         monkeypatch.delenv("RECORDATORIO_HORAS_ANTES", raising=False)
+        monkeypatch.delenv("RECORDATORIO_JOB_INTERVAL_MINUTOS", raising=False)
         monkeypatch.setenv("ENV", "development")
 
         from app.config import Settings
         settings = Settings()
         assert settings.reserva_temporal_minutos == 10
         assert settings.recordatorio_horas_antes == 24
+        assert settings.recordatorio_job_interval_minutos == 60
 
     def test_settings_calendar_retry_vars(self, monkeypatch):
         """Scenario: Calendar retry variables are loaded correctly."""
@@ -72,3 +74,17 @@ class TestSettings:
         assert settings.google_calendar_max_retries == 5
         assert settings.google_calendar_base_delay == 2.0
         assert settings.google_calendar_max_delay == 20.0
+
+    def test_settings_recordatorio_job_interval_custom(self, monkeypatch):
+        """Scenario: RECORDATORIO_JOB_INTERVAL_MINUTOS custom value."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", "{}")
+        monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
+        monkeypatch.setenv("RECORDATORIO_JOB_INTERVAL_MINUTOS", "30")
+        monkeypatch.setenv("N8N_WEBHOOK_URL", "")
+        monkeypatch.setenv("ENV", "test")
+
+        from app.config import Settings
+        settings = Settings()
+        assert settings.recordatorio_job_interval_minutos == 30

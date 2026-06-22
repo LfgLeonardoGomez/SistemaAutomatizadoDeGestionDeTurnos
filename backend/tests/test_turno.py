@@ -170,3 +170,56 @@ class TestTurnoModel:
         await db_session.refresh(turno)
         assert turno.paciente_id == paciente.id
         assert turno.estado == "CONFIRMADO"
+
+    @pytest.mark.asyncio
+    async def test_turno_recordatorio_enviado_default_false(self, db_session):
+        """Scenario: Turno tiene recordatorio_enviado default False."""
+        profesional = Profesional(
+            nombre="Dr. Recordatorio",
+            especialidad="Test",
+            duracion_turno=30,
+            horario_inicio="08:00",
+            horario_fin="18:00",
+            dias_atencion=["Lunes"],
+        )
+        db_session.add(profesional)
+        await db_session.flush()
+
+        turno = Turno(
+            fecha=date(2026, 6, 15),
+            hora_inicio=time(9, 0),
+            hora_fin=time(9, 30),
+            profesional_id=profesional.id,
+        )
+        db_session.add(turno)
+        await db_session.commit()
+        await db_session.refresh(turno)
+
+        assert turno.recordatorio_enviado is False
+
+    @pytest.mark.asyncio
+    async def test_turno_recordatorio_enviado_puede_ser_true(self, db_session):
+        """Scenario: Turno puede tener recordatorio_enviado True."""
+        profesional = Profesional(
+            nombre="Dr. Recordatorio",
+            especialidad="Test",
+            duracion_turno=30,
+            horario_inicio="08:00",
+            horario_fin="18:00",
+            dias_atencion=["Lunes"],
+        )
+        db_session.add(profesional)
+        await db_session.flush()
+
+        turno = Turno(
+            fecha=date(2026, 6, 15),
+            hora_inicio=time(9, 0),
+            hora_fin=time(9, 30),
+            profesional_id=profesional.id,
+            recordatorio_enviado=True,
+        )
+        db_session.add(turno)
+        await db_session.commit()
+        await db_session.refresh(turno)
+
+        assert turno.recordatorio_enviado is True

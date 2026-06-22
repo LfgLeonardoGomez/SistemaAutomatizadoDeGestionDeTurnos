@@ -21,5 +21,6 @@ class Settings(BaseSettings):
     reserva_temporal_minutos: int = 10
     lista_espera_minutos: int = 5
     recordatorio_horas_antes: int = 24
+    recordatorio_job_interval_minutos: int = 60
     completado_job_interval_minutos: int = 5
     env: str = "development"

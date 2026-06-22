@@ -15,6 +15,9 @@ class Paciente(Base):
     apellido: Mapped[str] = mapped_column(String(255), nullable=False)
     dni: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     telefono: Mapped[str] = mapped_column(String(50), nullable=False)
+    telegram_chat_id: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True
+    )
     creado_en: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(timezone.utc)
     )

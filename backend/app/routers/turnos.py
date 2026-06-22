@@ -20,6 +20,7 @@ from app.services.turno_service import (
     reprogramar_turno,
     consultar_disponibilidad,
     marcar_turnos_completados,
+    confirmar_asistencia_turno,
 )
 from app.exceptions import (
     TurnoNoDisponibleError,
@@ -152,4 +153,19 @@ async def completar_turno_endpoint(
     turno.estado = "COMPLETADO"
     await db.commit()
     await db.refresh(turno)
+    return TurnoResponse.model_validate(turno)
+
+
+@router.put("/{turno_id}/confirmar-asistencia", response_model=TurnoResponse)
+async def confirmar_asistencia_endpoint(
+    db: DbDep,
+    turno_id: int,
+) -> TurnoResponse:
+    """Confirma la asistencia de un turno ya confirmado (idempotente)."""
+    try:
+        turno = await confirmar_asistencia_turno(db, turno_id=turno_id)
+    except TurnoNoEncontradoError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=exc.message)
+    except TurnoYaCanceladoError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message)
     return TurnoResponse.model_validate(turno)

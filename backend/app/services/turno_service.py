@@ -389,6 +389,28 @@ async def reprogramar_turno(
     return confirmado
 
 
+async def confirmar_asistencia_turno(db: AsyncSession, turno_id: int) -> Turno:
+    """
+    Confirma la asistencia de un turno ya CONFIRMADO.
+
+    - Busca el turno por ID.
+    - Valida que esté en estado CONFIRMADO.
+    - No modifica el estado (permanece CONFIRMADO).
+    - Retorna el turno actualizado.
+    """
+    result = await db.execute(
+        select(Turno).where(Turno.id == turno_id).with_for_update()
+    )
+    turno = result.scalar_one_or_none()
+    if turno is None:
+        raise TurnoNoEncontradoError()
+    if turno.estado != "CONFIRMADO":
+        raise TurnoYaCanceladoError("El turno no puede confirmar asistencia porque no está confirmado")
+    await db.commit()
+    await db.refresh(turno)
+    return turno
+
+
 async def consultar_disponibilidad(
     db: AsyncSession,
     fecha: date,

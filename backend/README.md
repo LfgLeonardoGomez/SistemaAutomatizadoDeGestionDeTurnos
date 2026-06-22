@@ -54,7 +54,22 @@ alembic upgrade head
 ## Scheduler
 
 APScheduler (`AsyncIOScheduler`) se inicializa en el lifespan de FastAPI.
-Los jobs de negocio se agregarán en changes futuros (C-06, C-10).
+Jobs registrados:
+- `liberar_reservas_vencidas` — cada 1 minuto
+- `marcar_turnos_completados` — cada 5 minutos (configurable)
+- `procesar_timeouts_lista_espera` — cada 1 minuto
+- `enviar_recordatorios` — cada 60 minutos (configurable vía `RECORDATORIO_JOB_INTERVAL_MINUTOS`)
+
+## Variables de entorno
+
+| Variable | Default | Descripción |
+|----------|---------|-------------|
+| `DATABASE_URL` | — | URL de PostgreSQL (asyncpg) |
+| `TELEGRAM_BOT_TOKEN` | — | Token del bot de Telegram |
+| `RECORDATORIO_HORAS_ANTES` | `24` | Ventana de horas para enviar recordatorios |
+| `RECORDATORIO_JOB_INTERVAL_MINUTOS` | `60` | Intervalo del job de recordatorios |
+| `RESERVA_TEMPORAL_MINUTOS` | `10` | Minutos de expiración de reserva temporal |
+| `COMPLETADO_JOB_INTERVAL_MINUTOS` | `5` | Intervalo del job de turnos completados |
 
 ## Estructura de paquetes
 

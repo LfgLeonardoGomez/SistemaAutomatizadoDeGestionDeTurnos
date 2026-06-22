@@ -1,6 +1,6 @@
 import pytest
 from datetime import date, time, datetime, timedelta
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 from app.models.profesional import Profesional
 from app.models.turno import Turno
@@ -87,6 +87,7 @@ class TestSchedulerJob:
         job_ids = [j.id for j in jobs]
         assert "liberar_reservas_vencidas" in job_ids
         assert "marcar_turnos_completados" in job_ids
+        assert "enviar_recordatorios" in job_ids
 
     @pytest.mark.asyncio
     async def test_scheduler_job_marcar_turnos_completados(self, db_session, monkeypatch):
@@ -158,3 +159,146 @@ class TestSchedulerJob:
                 await _marcar_turnos_completados_job(session=db_session)
 
         assert "Error en job marcar_turnos_completados" in caplog.text
+
+    # -----------------------------------------------------------------------
+    # _enviar_recordatorios_job
+    # -----------------------------------------------------------------------
+    @pytest.mark.asyncio
+    async def test_scheduler_job_enviar_recordatorios_dos_turnos(self, db_session, monkeypatch):
+        """Scenario: job encuentra 2 turnos y envía 2 mensajes."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
+        monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
+
+        from app.scheduler.jobs import _enviar_recordatorios_job
+        from app.models.paciente import Paciente
+        from app.models.turno import Turno
+
+        p = await _seed_profesional(db_session)
+        paciente = Paciente(
+            nombre="Juan", apellido="Perez", dni="11111111", telefono="555-1234",
+            telegram_chat_id="12345",
+        )
+        db_session.add(paciente)
+        await db_session.commit()
+
+        ahora = datetime.now()
+        for i in range(2):
+            turno = Turno(
+                fecha=ahora.date(),
+                hora_inicio=(ahora + timedelta(hours=i + 1)).time(),
+                hora_fin=(ahora + timedelta(hours=i + 1, minutes=30)).time(),
+                estado="CONFIRMADO",
+                profesional_id=p.id,
+                paciente_id=paciente.id,
+                recordatorio_enviado=False,
+            )
+            db_session.add(turno)
+        await db_session.commit()
+
+        with patch("app.scheduler.jobs.enviar_recordatorio_telegram", new=AsyncMock(return_value=True)) as mock_enviar:
+            await _enviar_recordatorios_job(session=db_session)
+            assert mock_enviar.await_count == 2
+
+        # Verificar que los turnos fueron marcados
+        result = await db_session.execute(select(Turno).where(Turno.paciente_id == paciente.id))
+        turnos = result.scalars().all()
+        assert all(t.recordatorio_enviado is True for t in turnos)
+
+    @pytest.mark.asyncio
+    async def test_scheduler_job_enviar_recordatorios_sin_candidatos(self, db_session, monkeypatch):
+        """Scenario: job no encuentra turnos y no envía nada."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
+        monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
+
+        from app.scheduler.jobs import _enviar_recordatorios_job
+
+        with patch("app.scheduler.jobs.enviar_recordatorio_telegram", new=AsyncMock(return_value=True)) as mock_enviar:
+            await _enviar_recordatorios_job(session=db_session)
+            assert mock_enviar.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_scheduler_job_enviar_recordatorios_maneja_excepcion(self, db_session, monkeypatch, caplog):
+        """Scenario: job maneja excepción de Telegram sin detenerse."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
+        monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
+
+        from app.scheduler.jobs import _enviar_recordatorios_job
+        from app.models.paciente import Paciente
+        from app.models.turno import Turno
+        import logging
+
+        p = await _seed_profesional(db_session)
+        paciente = Paciente(
+            nombre="Juan", apellido="Perez", dni="22222222", telefono="555-1234",
+            telegram_chat_id="12345",
+        )
+        db_session.add(paciente)
+        await db_session.commit()
+
+        ahora = datetime.now()
+        turno = Turno(
+            fecha=ahora.date(),
+            hora_inicio=(ahora + timedelta(hours=1)).time(),
+            hora_fin=(ahora + timedelta(hours=1, minutes=30)).time(),
+            estado="CONFIRMADO",
+            profesional_id=p.id,
+            paciente_id=paciente.id,
+            recordatorio_enviado=False,
+        )
+        db_session.add(turno)
+        await db_session.commit()
+
+        with caplog.at_level(logging.ERROR):
+            with patch("app.scheduler.jobs.enviar_recordatorio_telegram", new=AsyncMock(side_effect=Exception("Telegram fail"))) as mock_enviar:
+                await _enviar_recordatorios_job(session=db_session)
+                assert mock_enviar.await_count == 1
+
+        assert "Error enviando recordatorio" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_scheduler_job_enviar_recordatorios_e2e(self, db_session, monkeypatch):
+        """Scenario: crear turno CONFIRMADO dentro de 24h → ejecutar job → verificar mock y flag."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
+        monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
+
+        from app.scheduler.jobs import _enviar_recordatorios_job
+        from app.models.paciente import Paciente
+        from app.models.turno import Turno
+        from sqlalchemy import select
+
+        p = await _seed_profesional(db_session)
+        paciente = Paciente(
+            nombre="Juan", apellido="Perez", dni="33333333", telefono="555-1234",
+            telegram_chat_id="12345",
+        )
+        db_session.add(paciente)
+        await db_session.commit()
+
+        ahora = datetime.now()
+        turno = Turno(
+            fecha=ahora.date(),
+            hora_inicio=(ahora + timedelta(hours=2)).time(),
+            hora_fin=(ahora + timedelta(hours=2, minutes=30)).time(),
+            estado="CONFIRMADO",
+            profesional_id=p.id,
+            paciente_id=paciente.id,
+            recordatorio_enviado=False,
+        )
+        db_session.add(turno)
+        await db_session.commit()
+
+        with patch("app.scheduler.jobs.enviar_recordatorio_telegram", new=AsyncMock(return_value=True)) as mock_enviar:
+            await _enviar_recordatorios_job(session=db_session)
+            assert mock_enviar.await_count == 1
+
+        result = await db_session.execute(select(Turno).where(Turno.id == turno.id))
+        turno_db = result.scalar_one()
+        assert turno_db.recordatorio_enviado is True
