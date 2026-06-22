@@ -1,4 +1,5 @@
 from datetime import datetime, timezone, date
+from typing import Optional
 
 from sqlalchemy import ForeignKey, Date
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -19,7 +20,16 @@ class ListaDeEspera(Base):
         default=lambda: datetime.now(timezone.utc)
     )
     notificado: Mapped[bool] = mapped_column(default=False, nullable=False)
+    turno_ofrecido_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("turno.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    notificado_en: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    telegram_chat_id: Mapped[Optional[str]] = mapped_column(nullable=True)
 
     paciente: Mapped["Paciente"] = relationship(
         "Paciente", back_populates="lista_de_espera", lazy="selectin"
+    )
+    turno_ofrecido: Mapped[Optional["Turno"]] = relationship(
+        "Turno", lazy="selectin"
     )

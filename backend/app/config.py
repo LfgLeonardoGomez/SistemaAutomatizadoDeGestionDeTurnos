@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     google_calendar_max_delay: float = 10.0
     n8n_webhook_url: str = ""
     reserva_temporal_minutos: int = 10
+    lista_espera_minutos: int = 5
     recordatorio_horas_antes: int = 24
     completado_job_interval_minutos: int = 5
     env: str = "development"

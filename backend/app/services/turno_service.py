@@ -205,6 +205,7 @@ async def liberar_reservas_vencidas(db: AsyncSession) -> int:
     vencidas = result.scalars().all()
 
     count = 0
+    turnos_liberados: list[int] = []
     for reserva in vencidas:
         result = await db.execute(
             select(Turno).where(Turno.id == reserva.turno_id).with_for_update()
@@ -213,12 +214,24 @@ async def liberar_reservas_vencidas(db: AsyncSession) -> int:
         if turno is not None:
             turno.estado = "DISPONIBLE"
             turno.paciente_id = None
+            turnos_liberados.append(turno.id)
         await db.delete(reserva)
         count += 1
 
     if count:
         logger.info(f"Liberadas {count} reservas temporales vencidas")
         await db.commit()
+
+        # Evaluar lista de espera para cada turno liberado
+        from app.services.lista_espera_service import evaluar_lista_espera
+        for turno_id in turnos_liberados:
+            result = await db.execute(select(Turno).where(Turno.id == turno_id))
+            turno = result.scalar_one_or_none()
+            if turno is not None:
+                try:
+                    await evaluar_lista_espera(db, fecha=turno.fecha, turno_id=turno.id)
+                except Exception as exc:
+                    logger.error(f"Fallo al evaluar lista de espera tras liberación: {exc}")
     else:
         logger.debug("No hay reservas temporales vencidas para liberar")
 
@@ -281,6 +294,7 @@ async def cancelar_turno(db: AsyncSession, turno_id: int) -> Turno:
         raise TurnoYaCanceladoError("El turno no puede ser cancelado porque no está confirmado")
 
     turno.estado = "CANCELADO"
+    fecha_cancelada = turno.fecha
     await db.commit()
     await db.refresh(turno)
 
@@ -293,6 +307,13 @@ async def cancelar_turno(db: AsyncSession, turno_id: int) -> Turno:
         except Exception as exc:
             logger.error(f"Fallo al eliminar evento de Calendar para turno {turno.id}: {exc}")
             # No revertimos la cancelación; DB es fuente de verdad
+
+    # Evaluar lista de espera para la fecha liberada
+    try:
+        from app.services.lista_espera_service import evaluar_lista_espera
+        await evaluar_lista_espera(db, fecha=fecha_cancelada, turno_id=turno.id)
+    except Exception as exc:
+        logger.error(f"Fallo al evaluar lista de espera tras cancelación: {exc}")
 
     return turno
 

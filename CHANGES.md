@@ -319,7 +319,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 ---
 
 ### [C-11] `lista-espera`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x] completado`
 - **Scope**: Registro, notificación y asignación automática de turnos liberados
   - Endpoints: `POST /lista-espera`, `DELETE /lista-espera/{id}`
   - Hook post-cancelación (desde C-07): al liberar un slot, consulta `ListaDeEspera` ordenada por `creado_en`
@@ -374,7 +374,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 | C-09 | 3 — Integraciones | `[x]` | BAJO | C-08 |
 | C-13 | 4 — Hardening | `[x]` | ALTO | C-06, C-07, C-08 |
 | C-10 | 5 — Automatizaciones | `[ ]` | MEDIO | C-13 |
-| C-11 | 5 — Automatizaciones | `[ ]` | ALTO | C-13 |
+| C-11 | 5 — Automatizaciones | `[x]` | ALTO | C-13 |
 | C-12 | 6 — Panel Profesional | `[ ]` | BAJO | C-03, C-13 |
 
 **Primer change recomendado**: `C-13` (`turno-hardening`)

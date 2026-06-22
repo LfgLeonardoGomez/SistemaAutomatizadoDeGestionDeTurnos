@@ -305,7 +305,95 @@ async def accion_reprogramar_turno(db, chat_id: int) -> tuple[str, InlineKeyboar
 
 async def notificar_expiracion(chat_id: int, turno_id: int) -> str:
     """Format expiration notification."""
-    return f"⚠️ Tu reserva temporal \\(turno {turno_id}\\) ha expirado\\. Volvé a intentar con /start"
+    return f"⚠️ Tu reserva temporal \(turno {turno_id}\) ha expirado\. Volvé a intentar con /start"
+
+
+def format_lista_espera_keyboard(turno_id: int) -> InlineKeyboardMarkup:
+    """Build inline keyboard for waiting list accept/reject."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("Aceptar", callback_data=f"lista_espera:aceptar:{turno_id}"),
+            InlineKeyboardButton("Rechazar", callback_data=f"lista_espera:rechazar:{turno_id}"),
+        ],
+    ])
+
+
+def format_lista_espera_mensaje(turno: Any) -> str:
+    """Format waiting list offer message with MarkdownV2 escape."""
+    fecha = escape_markdown_v2(str(turno.fecha))
+    hora = escape_markdown_v2(str(turno.hora_inicio))
+    return (
+        f"📢 *Turno liberado*\n\n"
+        f"*Fecha:* {fecha}\n"
+        f"*Hora:* {hora}\n\n"
+        f"¿Querés tomarlo?"
+    )
+
+
+async def enviar_notificacion_lista_espera(chat_id: str, turno: Any) -> bool:
+    """Send waiting list offer notification with Accept/Reject inline keyboard."""
+    try:
+        texto = format_lista_espera_mensaje(turno)
+        keyboard = format_lista_espera_keyboard(turno.id)
+        await enviar_mensaje(int(chat_id), texto, keyboard)
+        return True
+    except Exception as exc:
+        logger.error(f"Error enviando notificación de lista de espera a {chat_id}: {exc}")
+        return False
+
+
+async def accion_aceptar_lista_espera(db, chat_id: int, turno_id: int) -> str:
+    """Accept a waiting-list offered turno."""
+    from app.services.lista_espera_service import aceptar_turno_lista_espera
+    from sqlalchemy import select
+    from app.models.lista_de_espera import ListaDeEspera
+
+    # Find the waiting-list record for this turno and chat
+    result = await db.execute(
+        select(ListaDeEspera).where(
+            ListaDeEspera.turno_ofrecido_id == turno_id,
+            ListaDeEspera.notificado == True,
+        )
+    )
+    registro = result.scalar_one_or_none()
+    if registro is None:
+        return format_error("No se encontró una oferta de lista de espera activa para este turno")
+
+    try:
+        confirmado = await aceptar_turno_lista_espera(db, lista_espera_id=registro.id)
+        texto = (
+            f"✅ *Turno confirmado*\n\n"
+            f"*Fecha:* {escape_markdown_v2(str(confirmado.fecha))}\n"
+            f"*Hora:* {escape_markdown_v2(str(confirmado.hora_inicio))}"
+        )
+        return texto
+    except Exception as exc:
+        logger.exception("Error aceptando turno de lista de espera")
+        return format_error(str(exc))
+
+
+async def accion_rechazar_lista_espera(db, chat_id: int, turno_id: int) -> str:
+    """Reject a waiting-list offered turno."""
+    from app.services.lista_espera_service import rechazar_turno_lista_espera
+    from sqlalchemy import select
+    from app.models.lista_de_espera import ListaDeEspera
+
+    result = await db.execute(
+        select(ListaDeEspera).where(
+            ListaDeEspera.turno_ofrecido_id == turno_id,
+            ListaDeEspera.notificado == True,
+        )
+    )
+    registro = result.scalar_one_or_none()
+    if registro is None:
+        return format_error("No se encontró una oferta de lista de espera activa para este turno")
+
+    try:
+        await rechazar_turno_lista_espera(db, lista_espera_id=registro.id, turno_id=turno_id)
+        return "Turno rechazado\. Si hay otro paciente en lista de espera se le notificará\."
+    except Exception as exc:
+        logger.exception("Error rechazando turno de lista de espera")
+        return format_error(str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -428,6 +516,18 @@ async def procesar_mensaje(db, update: dict[str, Any]) -> None:
                 turno_id = int(valor)
                 texto, keyboard = await accion_iniciar_reprogramacion(db, chat_id, turno_id)
                 await enviar_mensaje(chat_id, texto, keyboard)
+                return
+
+            if tipo == "lista_espera":
+                subtipo, turno_id_str = valor.split(":", 1)
+                turno_id = int(turno_id_str)
+                if subtipo == "aceptar":
+                    texto = await accion_aceptar_lista_espera(db, chat_id, turno_id)
+                elif subtipo == "rechazar":
+                    texto = await accion_rechazar_lista_espera(db, chat_id, turno_id)
+                else:
+                    texto = format_error("Acción no reconocida")
+                await enviar_mensaje(chat_id, texto)
                 return
 
             if tipo == "reminder":

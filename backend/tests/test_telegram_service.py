@@ -20,6 +20,11 @@ from app.services.telegram_service import (
     format_fechas_keyboard,
     format_horas_keyboard,
     format_confirmacion_keyboard,
+    format_lista_espera_keyboard,
+    format_lista_espera_mensaje,
+    enviar_notificacion_lista_espera,
+    accion_aceptar_lista_espera,
+    accion_rechazar_lista_espera,
 )
 
 
@@ -196,3 +201,64 @@ class TestMessageFormatting:
                 mock_pool.assert_awaited_once()
                 args = mock_pool.call_args[0]
                 assert args[0] == mock_bot_instance.answer_callback_query
+
+
+class TestListaEsperaTelegram:
+    """Tests for waiting list Telegram integration."""
+
+    def setup_method(self):
+        _reset_state()
+        _reset_bot()
+
+    def test_format_lista_espera_keyboard(self):
+        kb = format_lista_espera_keyboard(42)
+        assert len(kb.inline_keyboard) == 1
+        assert len(kb.inline_keyboard[0]) == 2
+        assert kb.inline_keyboard[0][0].callback_data == "lista_espera:aceptar:42"
+        assert kb.inline_keyboard[0][1].callback_data == "lista_espera:rechazar:42"
+
+    def test_format_lista_espera_mensaje(self):
+        from unittest.mock import MagicMock
+        turno = MagicMock()
+        turno.fecha = "2026-06-15"
+        turno.hora_inicio = "09:00"
+        texto = format_lista_espera_mensaje(turno)
+        assert "2026" in texto
+        assert "09:00" in texto
+        assert "Turno liberado" in texto
+
+    @pytest.mark.asyncio
+    async def test_enviar_notificacion_lista_espera_exitoso(self):
+        from unittest.mock import MagicMock
+        turno = MagicMock()
+        turno.id = 1
+        turno.fecha = "2026-06-15"
+        turno.hora_inicio = "09:00"
+        with patch("app.services.telegram_service.run_in_threadpool", new=AsyncMock()) as mock_pool:
+            with patch("app.services.telegram_service._get_bot") as mock_bot:
+                mock_bot_instance = MagicMock()
+                mock_bot.return_value = mock_bot_instance
+                ok = await enviar_notificacion_lista_espera("12345", turno)
+                assert ok is True
+                mock_pool.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_enviar_notificacion_lista_espera_falla(self):
+        from unittest.mock import MagicMock
+        turno = MagicMock()
+        turno.id = 1
+        turno.fecha = "2026-06-15"
+        turno.hora_inicio = "09:00"
+        with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock(side_effect=Exception("fail"))) as mock_enviar:
+            ok = await enviar_notificacion_lista_espera("12345", turno)
+            assert ok is False
+
+    @pytest.mark.asyncio
+    async def test_accion_aceptar_lista_espera_sin_registro(self, db_session):
+        texto = await accion_aceptar_lista_espera(db_session, 123, 999)
+        assert "Error" in texto
+
+    @pytest.mark.asyncio
+    async def test_accion_rechazar_lista_espera_sin_registro(self, db_session):
+        texto = await accion_rechazar_lista_espera(db_session, 123, 999)
+        assert "Error" in texto

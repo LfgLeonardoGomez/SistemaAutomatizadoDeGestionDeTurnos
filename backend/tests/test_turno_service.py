@@ -1,6 +1,6 @@
 import pytest
 from datetime import date, time, datetime, timedelta
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from typing import Optional
 
 from sqlalchemy import select
@@ -1119,6 +1119,67 @@ class TestMarcarTurnosCompletados:
 
 
 # ---------------------------------------------------------------------------
+# C-11: Hook post-cancelación y post-expiración
+# ---------------------------------------------------------------------------
+
+class TestHookListaEspera:
+    @pytest.mark.asyncio
+    async def test_cancelar_turno_dispara_evaluar_lista_espera(self, db_session, test_settings):
+        """Scenario: cancelar turno CONFIRMADO dispara evaluar_lista_espera."""
+        from app.services.turno_service import cancelar_turno
+
+        p = await _seed_profesional(db_session)
+        paciente = await _seed_paciente(db_session)
+        fecha = date(2026, 6, 15)
+
+        turno = Turno(
+            fecha=fecha, hora_inicio=time(9, 0), hora_fin=time(9, 30),
+            estado="CONFIRMADO", profesional_id=p.id, paciente_id=paciente.id,
+            google_event_id=None,
+        )
+        db_session.add(turno)
+        await db_session.commit()
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_calendar_cls.return_value = mock_service
+            with patch("app.services.lista_espera_service.evaluar_lista_espera", new=AsyncMock()) as mock_evaluar:
+                cancelado = await cancelar_turno(db_session, turno_id=turno.id)
+
+        assert cancelado.estado == "CANCELADO"
+        mock_evaluar.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_liberar_reservas_vencidas_dispara_evaluar_lista_espera(self, db_session, test_settings):
+        """Scenario: liberar reservas vencidas dispara evaluar_lista_espera por turno liberado."""
+        from app.services.turno_service import reservar_turno, liberar_reservas_vencidas
+
+        p = await _seed_profesional(db_session)
+        fecha = date(2026, 6, 15)
+
+        turno = await reservar_turno(
+            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            settings=test_settings,
+        )
+
+        # Forzar expiración pasada
+        from app.models.reserva_temporal import ReservaTemporal
+        from sqlalchemy import select
+        result = await db_session.execute(
+            select(ReservaTemporal).where(ReservaTemporal.turno_id == turno.id)
+        )
+        reserva = result.scalar_one()
+        reserva.expiracion = datetime.now() - timedelta(minutes=1)
+        await db_session.commit()
+
+        with patch("app.services.lista_espera_service.evaluar_lista_espera", new=AsyncMock()) as mock_evaluar:
+            liberados = await liberar_reservas_vencidas(db_session)
+
+        assert liberados >= 1
+        mock_evaluar.assert_awaited()
+
+
+# ---------------------------------------------------------------------------
 # C-13: google_event_id persistence
 # ---------------------------------------------------------------------------
 
@@ -1168,10 +1229,13 @@ class TestGoogleEventId:
         # Verify the migration exists and is reachable from head
         head = script.get_current_head()
         assert head is not None
-        # Verify migration file exists
-        migration_path = script.get_revision(head).path
-        assert migration_path is not None
-        with open(migration_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        assert "google_event_id" in content
-        assert "add_column" in content
+        # Walk the history to find the migration that adds google_event_id
+        found = False
+        for rev in script.walk_revisions():
+            if rev.path is not None:
+                with open(rev.path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                if "google_event_id" in content and "add_column" in content:
+                    found = True
+                    break
+        assert found, "No migration found that adds google_event_id"
