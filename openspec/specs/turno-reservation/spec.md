@@ -58,6 +58,18 @@ El sistema SHALL permitir confirmar un turno en estado `RESERVADO_TEMPORAL`. Al 
 - **AND** el sistema SHALL rechazar la operación con error de negocio
 - **AND** el sistema SHALL retornar HTTP 409 Conflict
 
+#### Scenario: Confirmación persiste event_id de Google Calendar
+- **WHEN** se confirma un turno y `CalendarService.create_event()` retorna `"event_abc123"`
+- **THEN** el sistema SHALL asignar `turno.google_event_id = "event_abc123"`
+- **AND** el sistema SHALL hacer commit para persistir el valor en base de datos
+- **AND** el sistema SHALL retornar el turno con `google_event_id` poblado
+
+#### Scenario: Confirmación con fallo de Google Calendar no persiste event_id
+- **WHEN** se confirma un turno y `CalendarService.create_event()` lanza una excepción
+- **THEN** el turno SHALL quedar en estado `CONFIRMADO`
+- **AND** `turno.google_event_id` SHALL ser `NULL`
+- **AND** el sistema SHALL registrar el error en logs
+
 ## ADDED Requirements
 
 ### Requirement: Sistema libera reservas temporales vencidas automáticamente

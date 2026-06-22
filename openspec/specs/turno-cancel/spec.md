@@ -24,6 +24,16 @@ El sistema SHALL permitir cancelar un turno en estado `CONFIRMADO`. Al cancelar,
 - **AND** el sistema SHALL registrar el error en logs
 - **AND** el sistema SHALL retornar HTTP 200
 
+#### Scenario: Cancelación lee event_id desde columna persistente
+- **WHEN** se cancela un turno con `google_event_id = "event_123"` en base de datos
+- **THEN** el sistema SHALL leer `turno.google_event_id` y obtener `"event_123"`
+- **AND** el sistema SHALL invocar `CalendarService.delete_event("event_123")`
+
+#### Scenario: Cancelación de turno sin google_event_id
+- **WHEN** se cancela un turno con `google_event_id = NULL`
+- **THEN** el sistema SHALL no invocar `CalendarService.delete_event()`
+- **AND** el turno SHALL ser actualizado a `CANCELADO` normalmente
+
 ## MODIFIED Requirements
 
 (ninguno)

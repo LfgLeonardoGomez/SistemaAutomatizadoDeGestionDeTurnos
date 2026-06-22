@@ -38,6 +38,15 @@ El sistema SHALL permitir reprogramar un turno en estado `CONFIRMADO`. La reprog
 - **AND** el sistema SHALL registrar el error en logs
 - **AND** el sistema SHALL retornar HTTP 200
 
+#### Scenario: Reprogramación lee event_id viejo de DB
+- **WHEN** se reprograma un turno que tiene `google_event_id = "event_old"` en base de datos
+- **THEN** `cancelar_turno()` SHALL leer `"event_old"` de la columna persistente
+- **AND** `CalendarService.delete_event()` SHALL ser invocado con `"event_old"`
+
+#### Scenario: Reprogramación persiste event_id nuevo en DB
+- **WHEN** la reprogramación crea un nuevo turno confirmado y `CalendarService.create_event()` retorna `"event_new"`
+- **THEN** el nuevo turno SHALL tener `google_event_id = "event_new"` persistido en base de datos
+
 ## MODIFIED Requirements
 
 (ninguno)
