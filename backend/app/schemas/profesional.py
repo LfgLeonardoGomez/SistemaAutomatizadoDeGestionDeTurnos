@@ -1,7 +1,16 @@
-from datetime import time
+from datetime import date, time
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+
+
+class PacienteInfoResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    nombre: str
+    apellido: str
+    dni: str
+    telefono: str
 
 
 class ProfesionalConfigResponse(BaseModel):
@@ -58,3 +67,21 @@ class ProfesionalConfigUpdate(BaseModel):
 
 class DisponibilidadResponse(BaseModel):
     horarios: list[str]
+
+
+class ProfesionalTurnoHoyResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    fecha: date
+    hora_inicio: time
+    hora_fin: time
+    estado: str
+    profesional_id: int
+    paciente_id: Optional[int] = None
+    paciente: Optional[PacienteInfoResponse] = None
+
+
+class ProfesionalMetricasResponse(BaseModel):
+    turnos_hoy: int
+    tasa_confirmacion_30d: float
+    tasa_cancelacion_30d: float

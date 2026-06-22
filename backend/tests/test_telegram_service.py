@@ -28,6 +28,14 @@ from app.services.telegram_service import (
     format_recordatorio_mensaje,
     format_recordatorio_keyboard,
     procesar_mensaje,
+    format_turnos_hoy,
+    format_metricas,
+    format_config_summary,
+    format_dias_keyboard,
+    format_config_confirm_keyboard,
+    accion_turnos_hoy,
+    accion_metricas,
+    accion_configurar,
 )
 
 
@@ -406,3 +414,401 @@ class TestRecordatorioCallbacks:
                 mock_enviar.assert_awaited()
                 state = _get_state(123)
                 assert state["estado"] == "reprogramando_esperando_fecha"
+
+
+class TestProfessionalDashboardFormatting:
+    """Tests for professional dashboard message formatting."""
+
+    def test_format_turnos_hoy_with_patients(self):
+        turnos = [
+            {"hora_inicio": "08:00", "paciente": {"nombre": "Juan", "apellido": "Pérez"}},
+            {"hora_inicio": "09:00", "paciente": {"nombre": "Ana", "apellido": "García"}},
+        ]
+        texto = format_turnos_hoy(turnos)
+        assert "08:00" in texto
+        assert "09:00" in texto
+        assert "Juan" in texto
+        assert "Pérez" in texto
+        assert "Ana" in texto
+        # MarkdownV2 escaping
+        assert "*Turnos de hoy*" in texto
+
+    def test_format_turnos_hoy_empty(self):
+        texto = format_turnos_hoy([])
+        assert "No hay turnos confirmados" in texto
+
+    def test_format_turnos_hoy_escapes_markdown(self):
+        turnos = [
+            {"hora_inicio": "08:00", "paciente": {"nombre": "Juan.Perez", "apellido": "Garcia"}},
+        ]
+        texto = format_turnos_hoy(turnos)
+        assert r"Juan\.Perez" in texto
+
+    def test_format_metricas(self):
+        metricas = {
+            "turnos_hoy": 5,
+            "tasa_confirmacion_30d": 0.75,
+            "tasa_cancelacion_30d": 0.10,
+        }
+        texto = format_metricas(metricas)
+        assert "5" in texto
+        assert "75" in texto or "0.75" in texto
+        assert "10" in texto or "0.10" in texto
+        assert "*Métricas*" in texto
+
+    def test_format_metricas_zero(self):
+        metricas = {
+            "turnos_hoy": 0,
+            "tasa_confirmacion_30d": 0.0,
+            "tasa_cancelacion_30d": 0.0,
+        }
+        texto = format_metricas(metricas)
+        assert "0" in texto
+        assert "*Métricas*" in texto
+
+    def test_format_config_summary(self):
+        config = {
+            "horario_inicio": "08:00",
+            "horario_fin": "18:00",
+            "dias_atencion": ["Lunes", "Martes"],
+            "duracion_turno": 30,
+        }
+        texto = format_config_summary(config)
+        assert "08:00" in texto
+        assert "18:00" in texto
+        assert "Lunes" in texto
+        assert "30" in texto
+        assert "*Resumen de cambios*" in texto
+
+    def test_split_message_long_turnos_list(self):
+        # Generate a very long list that would exceed 4096 chars
+        turnos = [
+            {"hora_inicio": "08:00", "paciente": {"nombre": "Paciente", "apellido": f"Numero{i}"}}
+            for i in range(300)
+        ]
+        texto = format_turnos_hoy(turnos)
+        chunks = split_message(texto)
+        assert len(chunks) > 1
+        assert all(len(c) <= 4096 for c in chunks)
+
+
+class TestConfigWizardKeyboards:
+    """Tests for configuration wizard keyboards."""
+
+    def test_format_dias_keyboard_structure(self):
+        kb = format_dias_keyboard(["Lunes", "Miércoles"])
+        # 7 day buttons + confirm button = 8 rows
+        assert len(kb.inline_keyboard) == 8
+        assert kb.inline_keyboard[0][0].text == "Lunes ✅"
+        assert kb.inline_keyboard[1][0].text == "Martes"
+        assert kb.inline_keyboard[2][0].text == "Miércoles ✅"
+        assert kb.inline_keyboard[7][0].text == "Confirmar días"
+        assert kb.inline_keyboard[7][0].callback_data == "config:confirmar_dias"
+
+    def test_format_dias_keyboard_toggle_off(self):
+        kb = format_dias_keyboard([])
+        assert kb.inline_keyboard[0][0].text == "Lunes"
+        assert kb.inline_keyboard[6][0].text == "Domingo"
+
+    def test_format_config_confirm_keyboard(self):
+        kb = format_config_confirm_keyboard()
+        assert len(kb.inline_keyboard) == 2
+        assert kb.inline_keyboard[0][0].text == "Confirmar"
+        assert kb.inline_keyboard[0][0].callback_data == "config:confirmar"
+        assert kb.inline_keyboard[1][0].text == "Cancelar"
+        assert kb.inline_keyboard[1][0].callback_data == "config:cancelar"
+
+
+class TestProfesionalCommands:
+    """Tests for professional dashboard commands in procesar_mensaje."""
+
+    def setup_method(self):
+        _reset_state()
+        _reset_bot()
+
+    @pytest.mark.asyncio
+    async def test_accion_turnos_hoy_returns_formatted_list(self, db_session):
+        from app.models.profesional import Profesional
+        from app.models.paciente import Paciente
+        from app.models.turno import Turno
+
+        p = Profesional(
+            nombre="Dr", especialidad="Od", duracion_turno=30,
+            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+        )
+        db_session.add(p)
+        await db_session.flush()
+
+        paciente = Paciente(nombre="Juan", apellido="P", dni="123", telefono="555")
+        db_session.add(paciente)
+        await db_session.flush()
+
+        hoy = date.today()
+        turno = Turno(
+            fecha=hoy, hora_inicio=time(9, 0), hora_fin=time(9, 30),
+            estado="CONFIRMADO", profesional_id=p.id, paciente_id=paciente.id,
+        )
+        db_session.add(turno)
+        await db_session.commit()
+
+        with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock()) as mock_enviar:
+            update = {"message": {"chat": {"id": 123}, "text": "/turnos_hoy"}}
+            await procesar_mensaje(db_session, update)
+            mock_enviar.assert_awaited()
+            args = mock_enviar.call_args[0]
+            assert "Turnos de hoy" in args[1]
+            assert "09:00" in args[1]
+            assert "Juan" in args[1]
+
+    @pytest.mark.asyncio
+    async def test_accion_metricas_returns_summary(self, db_session):
+        from app.models.profesional import Profesional
+        from app.models.turno import Turno
+
+        p = Profesional(
+            nombre="Dr", especialidad="Od", duracion_turno=30,
+            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+        )
+        db_session.add(p)
+        await db_session.flush()
+
+        hoy = date.today()
+        db_session.add(Turno(
+            fecha=hoy, hora_inicio=time(9, 0), hora_fin=time(9, 30),
+            estado="CONFIRMADO", profesional_id=p.id,
+        ))
+        await db_session.commit()
+
+        with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock()) as mock_enviar:
+            update = {"message": {"chat": {"id": 123}, "text": "/metricas"}}
+            await procesar_mensaje(db_session, update)
+            mock_enviar.assert_awaited()
+            args = mock_enviar.call_args[0]
+            assert "Métricas" in args[1]
+            assert "1" in args[1]
+
+    @pytest.mark.asyncio
+    async def test_accion_configurar_starts_wizard(self, db_session):
+        from app.models.profesional import Profesional
+
+        p = Profesional(
+            nombre="Dr", especialidad="Od", duracion_turno=30,
+            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+        )
+        db_session.add(p)
+        await db_session.commit()
+
+        with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock()) as mock_enviar:
+            update = {"message": {"chat": {"id": 123}, "text": "/configurar"}}
+            await procesar_mensaje(db_session, update)
+            mock_enviar.assert_awaited()
+            args = mock_enviar.call_args[0]
+            assert "horario de inicio" in args[1].lower() or "HH:MM" in args[1]
+            state = _get_state(123)
+            assert state["estado"] == "config_esperando_hora_inicio"
+
+
+class TestConfigWizard:
+    """Tests for the /configurar wizard step handlers."""
+
+    def setup_method(self):
+        _reset_state()
+        _reset_bot()
+
+    @pytest.fixture
+    def wizard_state(self):
+        state = _get_state(123)
+        state["estado"] = "config_esperando_hora_inicio"
+        state["config_data"] = {}
+        return state
+
+    @pytest.mark.asyncio
+    async def test_config_hora_inicio_valid(self, db_session, wizard_state):
+        with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock()) as mock_enviar:
+            update = {"message": {"chat": {"id": 123}, "text": "09:00"}}
+            await procesar_mensaje(db_session, update)
+            state = _get_state(123)
+            assert state["estado"] == "config_esperando_hora_fin"
+            assert state["config_data"]["horario_inicio"] == "09:00"
+            args = mock_enviar.call_args[0]
+            assert "horario de fin" in args[1].lower()
+
+    @pytest.mark.asyncio
+    async def test_config_hora_inicio_invalid(self, db_session, wizard_state):
+        with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock()) as mock_enviar:
+            update = {"message": {"chat": {"id": 123}, "text": "25:00"}}
+            await procesar_mensaje(db_session, update)
+            state = _get_state(123)
+            assert state["estado"] == "config_esperando_hora_inicio"
+            args = mock_enviar.call_args[0]
+            assert "inválido" in args[1].lower() or "error" in args[1].lower()
+
+    @pytest.mark.asyncio
+    async def test_config_hora_fin_valid(self, db_session, wizard_state):
+        state = _get_state(123)
+        state["estado"] = "config_esperando_hora_fin"
+        state["config_data"]["horario_inicio"] = "09:00"
+
+        with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock()) as mock_enviar:
+            update = {"message": {"chat": {"id": 123}, "text": "18:00"}}
+            await procesar_mensaje(db_session, update)
+            state = _get_state(123)
+            assert state["estado"] == "config_esperando_dias"
+            assert state["config_data"]["horario_fin"] == "18:00"
+            args = mock_enviar.call_args[0]
+            assert "días" in args[1].lower()
+
+    @pytest.mark.asyncio
+    async def test_config_hora_fin_invalid_before_start(self, db_session, wizard_state):
+        state = _get_state(123)
+        state["estado"] = "config_esperando_hora_fin"
+        state["config_data"]["horario_inicio"] = "09:00"
+
+        with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock()) as mock_enviar:
+            update = {"message": {"chat": {"id": 123}, "text": "08:00"}}
+            await procesar_mensaje(db_session, update)
+            state = _get_state(123)
+            assert state["estado"] == "config_esperando_hora_fin"
+            args = mock_enviar.call_args[0]
+            assert "inválido" in args[1].lower() or "posterior" in args[1].lower()
+
+    @pytest.mark.asyncio
+    async def test_config_dias_toggle(self, db_session, wizard_state):
+        state = _get_state(123)
+        state["estado"] = "config_esperando_dias"
+        state["config_data"]["dias_atencion"] = []
+
+        with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock()):
+            with patch("app.services.telegram_service.responder_callback_query", new=AsyncMock()):
+                with patch("app.services.telegram_service.run_in_threadpool", new=AsyncMock()) as mock_pool:
+                    update = {
+                        "callback_query": {
+                            "id": "cq1",
+                            "data": "config:dia:Lunes",
+                            "message": {"chat": {"id": 123}, "message_id": 1},
+                        }
+                    }
+                    await procesar_mensaje(db_session, update)
+                    state = _get_state(123)
+                    assert "Lunes" in state["config_data"]["dias_atencion"]
+                    # Toggle again
+                    update["callback_query"]["data"] = "config:dia:Lunes"
+                    await procesar_mensaje(db_session, update)
+                    assert "Lunes" not in state["config_data"]["dias_atencion"]
+
+    @pytest.mark.asyncio
+    async def test_config_dias_confirm(self, db_session, wizard_state):
+        state = _get_state(123)
+        state["estado"] = "config_esperando_dias"
+        state["config_data"]["dias_atencion"] = ["Lunes", "Martes"]
+
+        with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock()) as mock_enviar:
+            with patch("app.services.telegram_service.responder_callback_query", new=AsyncMock()):
+                update = {
+                    "callback_query": {
+                        "id": "cq1",
+                        "data": "config:confirmar_dias",
+                        "message": {"chat": {"id": 123}},
+                    }
+                }
+                await procesar_mensaje(db_session, update)
+                state = _get_state(123)
+                assert state["estado"] == "config_esperando_duracion"
+                args = mock_enviar.call_args[0]
+                assert "duración" in args[1].lower()
+
+    @pytest.mark.asyncio
+    async def test_config_duracion_valid(self, db_session, wizard_state):
+        state = _get_state(123)
+        state["estado"] = "config_esperando_duracion"
+        state["config_data"] = {
+            "horario_inicio": "09:00",
+            "horario_fin": "18:00",
+            "dias_atencion": ["Lunes"],
+        }
+
+        with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock()) as mock_enviar:
+            update = {"message": {"chat": {"id": 123}, "text": "45"}}
+            await procesar_mensaje(db_session, update)
+            state = _get_state(123)
+            assert state["estado"] == "config_confirmar"
+            assert state["config_data"]["duracion_turno"] == 45
+            args = mock_enviar.call_args[0]
+            assert "resumen" in args[1].lower() or "confirmar" in args[1].lower()
+
+    @pytest.mark.asyncio
+    async def test_config_duracion_invalid(self, db_session, wizard_state):
+        state = _get_state(123)
+        state["estado"] = "config_esperando_duracion"
+        state["config_data"] = {"dias_atencion": ["Lunes"]}
+
+        with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock()) as mock_enviar:
+            update = {"message": {"chat": {"id": 123}, "text": "-5"}}
+            await procesar_mensaje(db_session, update)
+            state = _get_state(123)
+            assert state["estado"] == "config_esperando_duracion"
+            args = mock_enviar.call_args[0]
+            assert "inválido" in args[1].lower() or "positivo" in args[1].lower()
+
+    @pytest.mark.asyncio
+    async def test_config_confirmar_persists(self, db_session, wizard_state):
+        from app.models.profesional import Profesional
+
+        p = Profesional(
+            nombre="Dr", especialidad="Od", duracion_turno=30,
+            horario_inicio="08:00", horario_fin="18:00", dias_atencion=["Lunes"],
+        )
+        db_session.add(p)
+        await db_session.commit()
+
+        state = _get_state(123)
+        state["estado"] = "config_confirmar"
+        state["config_data"] = {
+            "horario_inicio": "09:00",
+            "horario_fin": "17:00",
+            "dias_atencion": ["Martes", "Miércoles"],
+            "duracion_turno": 60,
+        }
+
+        with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock()) as mock_enviar:
+            with patch("app.services.telegram_service.responder_callback_query", new=AsyncMock()):
+                update = {
+                    "callback_query": {
+                        "id": "cq1",
+                        "data": "config:confirmar",
+                        "message": {"chat": {"id": 123}},
+                    }
+                }
+                await procesar_mensaje(db_session, update)
+                state = _get_state(123)
+                assert state["estado"] == "idle"
+                # Verify DB was updated
+                from sqlalchemy import select
+                result = await db_session.execute(select(Profesional).where(Profesional.id == p.id))
+                updated = result.scalar_one()
+                assert updated.horario_inicio == "09:00"
+                assert updated.horario_fin == "17:00"
+                assert updated.dias_atencion == ["Martes", "Miércoles"]
+                assert updated.duracion_turno == 60
+
+    @pytest.mark.asyncio
+    async def test_config_cancelar_resets_state(self, db_session, wizard_state):
+        state = _get_state(123)
+        state["estado"] = "config_esperando_hora_inicio"
+        state["config_data"] = {"horario_inicio": "09:00"}
+
+        with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock()) as mock_enviar:
+            with patch("app.services.telegram_service.responder_callback_query", new=AsyncMock()):
+                update = {
+                    "callback_query": {
+                        "id": "cq1",
+                        "data": "config:cancelar",
+                        "message": {"chat": {"id": 123}},
+                    }
+                }
+                await procesar_mensaje(db_session, update)
+                state = _get_state(123)
+                assert state["estado"] == "idle"
+                assert state["config_data"] is None
+                args = mock_enviar.call_args[0]
+                assert "cancelad" in args[1].lower()

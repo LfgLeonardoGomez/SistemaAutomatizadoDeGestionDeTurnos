@@ -340,7 +340,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 ## FASE 6 — Panel del Profesional
 
 ### [C-12] `professional-telegram-dashboard`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` implementado
 - **Scope**: Comandos de Telegram para el profesional + métricas básicas
   - Comandos Telegram:
     - `/turnos_hoy` — lista turnos `CONFIRMADO` del día con hora y paciente
@@ -375,7 +375,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 | C-13 | 4 — Hardening | `[x]` | ALTO | C-06, C-07, C-08 |
 | C-10 | 5 — Automatizaciones | `[ ]` | MEDIO | C-13 |
 | C-11 | 5 — Automatizaciones | `[x]` | ALTO | C-13 |
-| C-12 | 6 — Panel Profesional | `[ ]` | BAJO | C-03, C-13 |
+| C-12 | 6 — Panel Profesional | `[x]` | BAJO | C-03, C-13 |
 
 **Primer change recomendado**: `C-13` (`turno-hardening`)
 

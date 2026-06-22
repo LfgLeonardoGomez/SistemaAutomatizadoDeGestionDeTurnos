@@ -2,15 +2,20 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from datetime import timedelta
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
+from app.models.paciente import Paciente
 from app.models.profesional import Profesional
+from app.models.turno import Turno
 from app.schemas.profesional import (
     DisponibilidadResponse,
     ProfesionalConfigResponse,
     ProfesionalConfigUpdate,
+    ProfesionalMetricasResponse,
+    ProfesionalTurnoHoyResponse,
 )
 from app.services.availability_service import calcular_disponibilidad
 
@@ -65,3 +70,66 @@ async def get_disponibilidad(
         raise HTTPException(status_code=404, detail="Profesional no encontrado")
     horarios = await calcular_disponibilidad(db, fecha, profesional.id)
     return DisponibilidadResponse(horarios=horarios)
+
+
+@router.get("/turnos-hoy", response_model=list[ProfesionalTurnoHoyResponse])
+async def get_turnos_hoy(db: DbDep) -> list[ProfesionalTurnoHoyResponse]:
+    hoy = date.today()
+    result = await db.execute(
+        select(Turno)
+        .where(Turno.fecha == hoy, Turno.estado == "CONFIRMADO")
+        .order_by(Turno.hora_inicio)
+    )
+    turnos = result.scalars().all()
+    return [ProfesionalTurnoHoyResponse.model_validate(t) for t in turnos]
+
+
+@router.get("/metricas", response_model=ProfesionalMetricasResponse)
+async def get_metricas(db: DbDep) -> ProfesionalMetricasResponse:
+    hoy = date.today()
+    inicio_30d = hoy - timedelta(days=30)
+
+    # turnos_hoy
+    result_hoy = await db.execute(
+        select(func.count()).where(
+            and_(Turno.fecha == hoy, Turno.estado == "CONFIRMADO")
+        )
+    )
+    turnos_hoy = result_hoy.scalar_one() or 0
+
+    # total created in last 30 days (any estado)
+    result_total = await db.execute(
+        select(func.count()).where(
+            and_(Turno.fecha >= inicio_30d, Turno.fecha <= hoy)
+        )
+    )
+    total_30d = result_total.scalar_one() or 0
+
+    if total_30d == 0:
+        return ProfesionalMetricasResponse(
+            turnos_hoy=turnos_hoy,
+            tasa_confirmacion_30d=0.0,
+            tasa_cancelacion_30d=0.0,
+        )
+
+    # confirmed in last 30 days
+    result_conf = await db.execute(
+        select(func.count()).where(
+            and_(Turno.fecha >= inicio_30d, Turno.fecha <= hoy, Turno.estado == "CONFIRMADO")
+        )
+    )
+    confirmados_30d = result_conf.scalar_one() or 0
+
+    # cancelled in last 30 days
+    result_canc = await db.execute(
+        select(func.count()).where(
+            and_(Turno.fecha >= inicio_30d, Turno.fecha <= hoy, Turno.estado == "CANCELADO")
+        )
+    )
+    cancelados_30d = result_canc.scalar_one() or 0
+
+    return ProfesionalMetricasResponse(
+        turnos_hoy=turnos_hoy,
+        tasa_confirmacion_30d=round(confirmados_30d / total_30d, 2),
+        tasa_cancelacion_30d=round(cancelados_30d / total_30d, 2),
+    )

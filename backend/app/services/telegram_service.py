@@ -3,8 +3,10 @@
 import asyncio
 import logging
 from collections import defaultdict
-from datetime import date, time
+from datetime import date, time, timedelta
 from typing import Any
+
+from sqlalchemy import and_, func, select
 
 from fastapi.concurrency import run_in_threadpool
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
@@ -70,6 +72,8 @@ def _get_state(chat_id: int) -> dict[str, Any]:
             "fecha_seleccionada": None,
             "turno_a_reprogramar_id": None,
             "nueva_fecha_seleccionada": None,
+            "config_paso": None,
+            "config_data": None,
         }
     return _conversation_states[chat_id]
 
@@ -209,6 +213,217 @@ def format_confirmacion(turno: dict[str, Any], paciente: dict[str, Any]) -> str:
 
 def format_error(mensaje: str) -> str:
     return f"❌ *Error*\n\n{escape_markdown_v2(mensaje)}"
+
+
+def format_turnos_hoy(turnos: list[dict[str, Any]]) -> str:
+    """Format today's confirmed appointments with MarkdownV2."""
+    if not turnos:
+        return "📅 *Turnos de hoy*\n\n_No hay turnos confirmados para hoy_"
+    lines = ["📅 *Turnos de hoy*", ""]
+    for t in turnos:
+        hora = escape_markdown_v2(str(t.get("hora_inicio", "")))
+        paciente = t.get("paciente", {}) or {}
+        nombre = escape_markdown_v2(paciente.get("nombre", ""))
+        apellido = escape_markdown_v2(paciente.get("apellido", ""))
+        lines.append(f"• {hora} \\- {nombre} {apellido}")
+    return "\n".join(lines)
+
+
+def format_metricas(metricas: dict[str, Any]) -> str:
+    """Format metrics summary with MarkdownV2."""
+    turnos_hoy = metricas.get("turnos_hoy", 0)
+    tasa_conf = metricas.get("tasa_confirmacion_30d", 0.0)
+    tasa_canc = metricas.get("tasa_cancelacion_30d", 0.0)
+    conf_pct = int(tasa_conf * 100)
+    canc_pct = int(tasa_canc * 100)
+    lines = [
+        "📊 *Métricas*",
+        "",
+        f"*Turnos hoy:* {turnos_hoy}",
+        f"*Confirmación 30d:* {conf_pct}%",
+        f"*Cancelación 30d:* {canc_pct}%",
+    ]
+    return "\n".join(lines)
+
+
+def format_config_summary(config: dict[str, Any]) -> str:
+    """Format pending configuration changes with MarkdownV2."""
+    dias = ", ".join(config.get("dias_atencion", []))
+    lines = [
+        "⚙️ *Resumen de cambios*",
+        "",
+        f"*Inicio:* {escape_markdown_v2(config.get('horario_inicio', ''))}",
+        f"*Fin:* {escape_markdown_v2(config.get('horario_fin', ''))}",
+        f"*Días:* {escape_markdown_v2(dias)}",
+        f"*Duración:* {config.get('duracion_turno', 0)} min",
+        "",
+        "¿Confirmás los cambios?",
+    ]
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Config wizard keyboards
+# ---------------------------------------------------------------------------
+
+_DIAS_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+
+
+def format_dias_keyboard(dias_seleccionados: list[str]) -> InlineKeyboardMarkup:
+    """Build inline keyboard for day selection with toggles."""
+    buttons: list[list[InlineKeyboardButton]] = []
+    for dia in _DIAS_SEMANA:
+        label = f"{dia} ✅" if dia in dias_seleccionados else dia
+        buttons.append([InlineKeyboardButton(label, callback_data=f"config:dia:{dia}")])
+    buttons.append([InlineKeyboardButton("Confirmar días", callback_data="config:confirmar_dias")])
+    return InlineKeyboardMarkup(buttons)
+
+
+def format_config_confirm_keyboard() -> InlineKeyboardMarkup:
+    """Build inline keyboard for config confirmation."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("Confirmar", callback_data="config:confirmar")],
+        [InlineKeyboardButton("Cancelar", callback_data="config:cancelar")],
+    ])
+
+
+# ---------------------------------------------------------------------------
+# Professional dashboard actions
+# ---------------------------------------------------------------------------
+
+async def accion_turnos_hoy(db, chat_id: int) -> str:
+    """Query today's confirmed appointments and format response."""
+    from app.models.turno import Turno
+    hoy = date.today()
+    result = await db.execute(
+        select(Turno)
+        .where(Turno.fecha == hoy, Turno.estado == "CONFIRMADO")
+        .order_by(Turno.hora_inicio)
+    )
+    turnos = result.scalars().all()
+    turnos_data = []
+    for t in turnos:
+        p = t.paciente
+        turnos_data.append({
+            "hora_inicio": t.hora_inicio,
+            "paciente": {
+                "nombre": p.nombre if p else "",
+                "apellido": p.apellido if p else "",
+            },
+        })
+    return format_turnos_hoy(turnos_data)
+
+
+async def accion_metricas(db, chat_id: int) -> str:
+    """Query metrics and format response."""
+    from app.models.turno import Turno
+    hoy = date.today()
+    inicio_30d = hoy - timedelta(days=30)
+
+    result_hoy = await db.execute(
+        select(func.count()).where(and_(Turno.fecha == hoy, Turno.estado == "CONFIRMADO"))
+    )
+    turnos_hoy = result_hoy.scalar_one() or 0
+
+    result_total = await db.execute(
+        select(func.count()).where(and_(Turno.fecha >= inicio_30d, Turno.fecha <= hoy))
+    )
+    total_30d = result_total.scalar_one() or 0
+
+    if total_30d == 0:
+        metricas = {"turnos_hoy": turnos_hoy, "tasa_confirmacion_30d": 0.0, "tasa_cancelacion_30d": 0.0}
+        return format_metricas(metricas)
+
+    result_conf = await db.execute(
+        select(func.count()).where(
+            and_(Turno.fecha >= inicio_30d, Turno.fecha <= hoy, Turno.estado == "CONFIRMADO")
+        )
+    )
+    confirmados_30d = result_conf.scalar_one() or 0
+
+    result_canc = await db.execute(
+        select(func.count()).where(
+            and_(Turno.fecha >= inicio_30d, Turno.fecha <= hoy, Turno.estado == "CANCELADO")
+        )
+    )
+    cancelados_30d = result_canc.scalar_one() or 0
+
+    metricas = {
+        "turnos_hoy": turnos_hoy,
+        "tasa_confirmacion_30d": round(confirmados_30d / total_30d, 2),
+        "tasa_cancelacion_30d": round(cancelados_30d / total_30d, 2),
+    }
+    return format_metricas(metricas)
+
+
+async def accion_configurar(db, chat_id: int) -> tuple[str, InlineKeyboardMarkup | None]:
+    """Start the configuration wizard."""
+    state = _get_state(chat_id)
+    state["estado"] = "config_esperando_hora_inicio"
+    state["config_paso"] = "hora_inicio"
+    state["config_data"] = {}
+    texto = "⚙️ *Configurar agenda*\n\nIngresá el horario de inicio en formato HH:MM"
+    return texto, None
+
+
+async def _handle_config_callback(db, chat_id: int, valor: str, state: dict[str, Any]) -> None:
+    """Handle configuration wizard inline callbacks."""
+    if valor.startswith("dia:"):
+        dia = valor.split(":", 1)[1]
+        dias = state.get("config_data", {}).get("dias_atencion", [])
+        if dia in dias:
+            dias.remove(dia)
+        else:
+            dias.append(dia)
+        state["config_data"]["dias_atencion"] = dias
+        keyboard = format_dias_keyboard(dias)
+        await enviar_mensaje(chat_id, "Seleccioná los días de atención:", keyboard)
+        return
+
+    if valor == "confirmar_dias":
+        state["estado"] = "config_esperando_duracion"
+        await enviar_mensaje(chat_id, "Ingresá la duración del turno en minutos \(número positivo\)")
+        return
+
+    if valor == "confirmar":
+        await _persist_config(db, chat_id, state)
+        return
+
+    if valor == "cancelar":
+        state["estado"] = "idle"
+        state["config_paso"] = None
+        state["config_data"] = None
+        await enviar_mensaje(chat_id, "Configuración cancelada\. No se guardaron cambios\.")
+        return
+
+
+async def _persist_config(db, chat_id: int, state: dict[str, Any]) -> None:
+    """Persist configuration changes to the database."""
+    from app.models.profesional import Profesional
+
+    config = state.get("config_data", {})
+    result = await db.execute(select(Profesional))
+    profesional = result.scalars().first()
+    if profesional is None:
+        await enviar_mensaje(chat_id, format_error("No se encontró el profesional"))
+        return
+
+    if config.get("horario_inicio") is not None:
+        profesional.horario_inicio = config["horario_inicio"]
+    if config.get("horario_fin") is not None:
+        profesional.horario_fin = config["horario_fin"]
+    if config.get("dias_atencion") is not None:
+        profesional.dias_atencion = config["dias_atencion"]
+    if config.get("duracion_turno") is not None:
+        profesional.duracion_turno = config["duracion_turno"]
+
+    await db.commit()
+    await db.refresh(profesional)
+
+    state["estado"] = "idle"
+    state["config_paso"] = None
+    state["config_data"] = None
+    await enviar_mensaje(chat_id, "✅ *Configuración guardada*\n\nLos cambios fueron aplicados exitosamente\.")
 
 
 # ---------------------------------------------------------------------------
@@ -588,6 +803,10 @@ async def procesar_mensaje(db, update: dict[str, Any]) -> None:
                 await enviar_mensaje(chat_id, texto)
                 return
 
+            if tipo == "config":
+                await _handle_config_callback(db, chat_id, valor, state)
+                return
+
         if text:
             text_lower = text.strip().lower()
 
@@ -598,12 +817,33 @@ async def procesar_mensaje(db, update: dict[str, Any]) -> None:
                 return
 
             if text_lower == "cancelar":
-                texto = await accion_cancelar_turno(db, chat_id)
-                await enviar_mensaje(chat_id, texto)
+                if state["estado"].startswith("config_"):
+                    state["estado"] = "idle"
+                    state["config_paso"] = None
+                    state["config_data"] = None
+                    await enviar_mensaje(chat_id, "Configuración cancelada\. No se guardaron cambios\.")
+                else:
+                    texto = await accion_cancelar_turno(db, chat_id)
+                    await enviar_mensaje(chat_id, texto)
                 return
 
             if text_lower == "reprogramar":
                 texto, keyboard = await accion_reprogramar_turno(db, chat_id)
+                await enviar_mensaje(chat_id, texto, keyboard)
+                return
+
+            if text_lower == "/turnos_hoy":
+                texto = await accion_turnos_hoy(db, chat_id)
+                await enviar_mensaje(chat_id, texto)
+                return
+
+            if text_lower == "/metricas":
+                texto = await accion_metricas(db, chat_id)
+                await enviar_mensaje(chat_id, texto)
+                return
+
+            if text_lower == "/configurar":
+                texto, keyboard = await accion_configurar(db, chat_id)
                 await enviar_mensaje(chat_id, texto, keyboard)
                 return
 
@@ -642,6 +882,46 @@ async def procesar_mensaje(db, update: dict[str, Any]) -> None:
                         chat_id,
                         "Formato incorrecto\n\nIngresá: Nombre, Apellido, DNI, Teléfono",
                     )
+                return
+
+            if state["estado"] == "config_esperando_hora_inicio":
+                try:
+                    time.fromisoformat(text.strip())
+                    state["config_data"]["horario_inicio"] = text.strip()
+                    state["estado"] = "config_esperando_hora_fin"
+                    await enviar_mensaje(chat_id, "Ingresá el horario de fin en formato HH:MM")
+                except ValueError:
+                    await enviar_mensaje(chat_id, "❌ Horario inválido\. Ingresá en formato HH:MM")
+                return
+
+            if state["estado"] == "config_esperando_hora_fin":
+                try:
+                    hora_fin = time.fromisoformat(text.strip())
+                    hora_inicio = time.fromisoformat(state["config_data"]["horario_inicio"])
+                    if hora_fin <= hora_inicio:
+                        await enviar_mensaje(chat_id, "❌ El horario de fin debe ser posterior al de inicio\. Ingresá otro horario:")
+                        return
+                    state["config_data"]["horario_fin"] = text.strip()
+                    state["estado"] = "config_esperando_dias"
+                    keyboard = format_dias_keyboard(state["config_data"].get("dias_atencion", []))
+                    await enviar_mensaje(chat_id, "Seleccioná los días de atención:", keyboard)
+                except ValueError:
+                    await enviar_mensaje(chat_id, "❌ Horario inválido\. Ingresá en formato HH:MM")
+                return
+
+            if state["estado"] == "config_esperando_duracion":
+                try:
+                    duracion = int(text.strip())
+                    if duracion <= 0:
+                        await enviar_mensaje(chat_id, "❌ La duración debe ser un número positivo\. Ingresá otro valor:")
+                        return
+                    state["config_data"]["duracion_turno"] = duracion
+                    state["estado"] = "config_confirmar"
+                    texto = format_config_summary(state["config_data"])
+                    keyboard = format_config_confirm_keyboard()
+                    await enviar_mensaje(chat_id, texto, keyboard)
+                except ValueError:
+                    await enviar_mensaje(chat_id, "❌ Valor inválido\. Ingresá un número entero positivo:")
                 return
 
         logger.info("Unhandled update for chat_id %s: %s", chat_id, update)
