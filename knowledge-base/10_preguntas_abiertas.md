@@ -31,6 +31,6 @@
 | Media | ¿Cuál es la estrategia de backup y recuperación de la base de datos? | 🔲 Abierta | Pendiente de definir política de backups de PostgreSQL |
 | Baja | ¿Se contempla internacionalización (idiomas) para futuras versiones? | 🔲 Abierta | Solo español en v1.0; no hay infra de i18n |
 | Baja | ¿Es necesario un sistema de logs y monitoreo desde v1.0 o se posterga? | ⚠️ Parcial | Logging estructurado implementado; falta monitoreo/alerting (Prometheus/Grafana) |
-| Baja | ¿El sistema en v1.0 es estrictamente single-tenant single-user, o ya se diseña con multi-tenancy en mente? | ✅ Resuelto | Estrictamente single-tenant single-profesional en v1.0. Sin `tenant_id` en modelos [code · models/*.py] |
+| Alta | ¿El sistema en v1.0 es estrictamente single-tenant single-user, o ya se diseña con multi-tenancy en mente? | 🔄 **DECISIÓN CAMBIADA** | Se optó por **single-tenant por instancia** en v1.0 por simplicidad, pero el modelo de negocio real requiere **multi-tenant por profesional en una sola instancia**. Pendiente de implementar en v2.0 (change C-14 o fase nueva). Ver `NEXT_SESSION.md` para contexto completo. |
 
 > **Nota sobre discovery**: El documento fuente menciona orientación a "un solo profesional" en v1.0 pero describe el modelo como SaaS, lo que sugiere potencial multi-tenant a futuro. Se registró el scale como `single_user (inferred, low confidence — SaaS potential)`.

@@ -87,7 +87,7 @@ Acá van las reglas **específicas de este proyecto**, derivadas de su stack (Fa
 - **NUNCA** asumir que n8n está disponible sin fallback → los endpoints REST del backend deben ser funcionales y testeables de forma aislada; n8n es orquestador, no requisito de ejecución.
 - **NUNCA** ignorar límites de Telegram → respetar 4096 caracteres por mensaje, usar markdown válido, implementar splitting si es necesario.
 - **NUNCA** bloquear el event loop con APScheduler → usar `AsyncIOScheduler` para jobs async, o delegar trabajo pesado a threads con logging de errores.
-- **NUNCA** agregar `tenant_id` en v1.0 — el sistema es **single-tenant por instancia**, orientado a un único profesional independiente por despliegue. Cada profesional corre su propia instancia completa (backend + DB + bot). La migración a multi-tenancy (clínicas con múltiples profesionales) es un change de v2.0 explícito, no v1.0.
+- **NUNCA** agregar `tenant_id` en v1.0 — el sistema es **single-tenant por instancia** en v1.0. Sin embargo, el modelo de negocio objetivo es **multi-tenant por profesional en una sola instancia** (SaaS para profesionales independientes). La migración a multi-tenancy es un change explícito de v2.0 (ver `NEXT_SESSION.md` para plan completo).
 - **NUNCA** usar `panic`, `exit` o excepciones no controladas en flujos de negocio → manejar errores con excepciones custom, logging estructurado y respuestas HTTP gracefull.
 - **NUNCA** priorizar pureza arquitectónica sobre entregar valor → Clean/Hexagonal es preferido pero pragmático para v1; evitar over-engineering. Conceptos > código, pero sin framework obsession.
 
