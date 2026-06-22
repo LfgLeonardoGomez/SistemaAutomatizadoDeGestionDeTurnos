@@ -15,8 +15,8 @@ from app.dependencies import _get_sessionmaker
 from app.schemas.paciente import PacienteCreate
 from app.services.availability_service import calcular_disponibilidad
 from app.services.paciente_service import crear_o_obtener_paciente
-from app.services.turno_service import reservar_turno, confirmar_turno
-
+from app.services.turno_service import reservar_turno, confirmar_turno, reprogramar_turno
+from app.exceptions import TurnoNoDisponibleError, TurnoYaCanceladoError
 logger = logging.getLogger(__name__)
 
 # Session factory for background tasks (overridable in tests)
@@ -68,6 +68,8 @@ def _get_state(chat_id: int) -> dict[str, Any]:
             "turno_temporal_id": None,
             "datos_paciente": None,
             "fecha_seleccionada": None,
+            "turno_a_reprogramar_id": None,
+            "nueva_fecha_seleccionada": None,
         }
     return _conversation_states[chat_id]
 
@@ -287,8 +289,17 @@ async def accion_cancelar_turno(db, chat_id: int) -> str:
     return "Operación cancelada\\. Volvé a empezar con /start"
 
 
+async def accion_iniciar_reprogramacion(db, chat_id: int, turno_id: int) -> tuple[str, InlineKeyboardMarkup | None]:
+    """Inicia el flujo de reprogramación guardando el turno_id y mostrando fechas."""
+    state = _get_state(chat_id)
+    state["estado"] = "reprogramando_esperando_fecha"
+    state["turno_a_reprogramar_id"] = turno_id
+    texto, keyboard = await mostrar_disponibilidad(db)
+    return texto, keyboard
+
+
 async def accion_reprogramar_turno(db, chat_id: int) -> tuple[str, InlineKeyboardMarkup | None]:
-    """Placeholder for reschedule flow."""
+    """Placeholder for reschedule flow triggered by text message."""
     return "Reprogramar turno \\(próximamente\\)", None
 
 
@@ -337,6 +348,13 @@ async def procesar_mensaje(db, update: dict[str, Any]) -> None:
             tipo, valor = _parse_callback_data(callback_data)
 
             if tipo == "fecha":
+                if state["estado"] == "reprogramando_esperando_fecha":
+                    state["estado"] = "reprogramando_esperando_hora"
+                    state["nueva_fecha_seleccionada"] = valor
+                    texto, keyboard = await mostrar_disponibilidad(db, fecha=date.fromisoformat(valor))
+                    await enviar_mensaje(chat_id, texto, keyboard)
+                    return
+                # Default booking flow
                 state["estado"] = "esperando_hora"
                 state["fecha_seleccionada"] = valor
                 texto, keyboard = await mostrar_disponibilidad(db, fecha=date.fromisoformat(valor))
@@ -344,6 +362,45 @@ async def procesar_mensaje(db, update: dict[str, Any]) -> None:
                 return
 
             if tipo == "hora":
+                if state["estado"] == "reprogramando_esperando_hora":
+                    turno_id = state.get("turno_a_reprogramar_id")
+                    nueva_fecha = state.get("nueva_fecha_seleccionada")
+                    if turno_id and nueva_fecha:
+                        try:
+                            nuevo_turno = await reprogramar_turno(
+                                db,
+                                turno_id=turno_id,
+                                nueva_fecha=date.fromisoformat(nueva_fecha),
+                                nueva_hora_inicio=time.fromisoformat(valor),
+                            )
+                            texto = (
+                                f"✅ *Turno reprogramado*\n\n"
+                                f"*Fecha:* {escape_markdown_v2(str(nuevo_turno.fecha))}\n"
+                                f"*Hora:* {escape_markdown_v2(str(nuevo_turno.hora_inicio))}"
+                            )
+                            state["estado"] = "idle"
+                            state["turno_a_reprogramar_id"] = None
+                            state["nueva_fecha_seleccionada"] = None
+                            await enviar_mensaje(chat_id, texto)
+                        except TurnoNoDisponibleError as exc:
+                            texto = format_error(f"{exc.message}\\. Seleccioná otra fecha")
+                            state["estado"] = "reprogramando_esperando_fecha"
+                            await enviar_mensaje(chat_id, texto)
+                        except TurnoYaCanceladoError as exc:
+                            texto = format_error(f"{exc.message}\\. No se puede reprogramar")
+                            state["estado"] = "idle"
+                            state["turno_a_reprogramar_id"] = None
+                            state["nueva_fecha_seleccionada"] = None
+                            await enviar_mensaje(chat_id, texto)
+                        except Exception as exc:
+                            logger.exception("Error reprogramando turno desde Telegram")
+                            texto = format_error(f"Error inesperado: {exc}")
+                            state["estado"] = "idle"
+                            state["turno_a_reprogramar_id"] = None
+                            state["nueva_fecha_seleccionada"] = None
+                            await enviar_mensaje(chat_id, texto)
+                    return
+                # Default booking flow
                 state["estado"] = "esperando_datos"
                 fecha = state.get("fecha_seleccionada")
                 if fecha:
@@ -361,7 +418,16 @@ async def procesar_mensaje(db, update: dict[str, Any]) -> None:
 
             if callback_data == "cancelar_accion":
                 texto = await accion_cancelar_turno(db, chat_id)
+                # Also clear reprogramacion state
+                state["turno_a_reprogramar_id"] = None
+                state["nueva_fecha_seleccionada"] = None
                 await enviar_mensaje(chat_id, texto)
+                return
+
+            if tipo == "reprogramar":
+                turno_id = int(valor)
+                texto, keyboard = await accion_iniciar_reprogramacion(db, chat_id, turno_id)
+                await enviar_mensaje(chat_id, texto, keyboard)
                 return
 
             if tipo == "reminder":
@@ -373,7 +439,10 @@ async def procesar_mensaje(db, update: dict[str, Any]) -> None:
                 elif subtipo == "cancelar":
                     texto = await accion_cancelar_turno(db, chat_id)
                 elif subtipo == "reprogramar":
-                    texto, _ = await accion_reprogramar_turno(db, chat_id)
+                    texto, keyboard = await accion_iniciar_reprogramacion(db, chat_id, turno_id)
+                    if keyboard:
+                        await enviar_mensaje(chat_id, texto, keyboard)
+                        return
                 else:
                     texto = format_error("Acción no reconocida")
                 await enviar_mensaje(chat_id, texto)

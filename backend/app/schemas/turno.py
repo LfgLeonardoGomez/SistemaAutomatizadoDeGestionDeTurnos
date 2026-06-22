@@ -40,6 +40,7 @@ class TurnoResponse(BaseModel):
     estado: str
     profesional_id: int
     paciente_id: Optional[int] = None
+    google_event_id: Optional[str] = None
     creado_en: datetime
 
     @field_validator("estado")

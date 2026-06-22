@@ -19,6 +19,7 @@ from app.services.turno_service import (
     cancelar_turno,
     reprogramar_turno,
     consultar_disponibilidad,
+    marcar_turnos_completados,
 )
 from app.exceptions import (
     TurnoNoDisponibleError,
@@ -123,4 +124,32 @@ async def reprogramar_turno_endpoint(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message)
     except PacienteConTurnoActivoError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message)
+    return TurnoResponse.model_validate(turno)
+
+
+@router.put("/{turno_id}/completar", response_model=TurnoResponse)
+async def completar_turno_endpoint(
+    db: DbDep,
+    turno_id: int,
+) -> TurnoResponse:
+    """Marca un turno confirmado como completado."""
+    from sqlalchemy import select
+    from app.models.turno import Turno
+
+    result = await db.execute(
+        select(Turno).where(Turno.id == turno_id).with_for_update()
+    )
+    turno = result.scalar_one_or_none()
+    if turno is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Turno no encontrado")
+    if turno.estado == "COMPLETADO":
+        return TurnoResponse.model_validate(turno)
+    if turno.estado != "CONFIRMADO":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El turno no puede ser completado porque no está confirmado",
+        )
+    turno.estado = "COMPLETADO"
+    await db.commit()
+    await db.refresh(turno)
     return TurnoResponse.model_validate(turno)

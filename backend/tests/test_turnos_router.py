@@ -493,3 +493,88 @@ class TestTurnosRouter:
         data = response.json()
         assert data["estado"] == "CONFIRMADO"
         assert data["fecha"] == "2026-06-16"
+
+    # -----------------------------------------------------------------------
+    # PUT /turnos/{id}/completar
+    # -----------------------------------------------------------------------
+    @pytest.mark.asyncio
+    async def test_put_turnos_completar_exitoso(self, api_client, db_session):
+        """Scenario: completar turno CONFIRMADO → 200, estado COMPLETADO."""
+        await _seed_profesional(db_session)
+        r1 = api_client.post(
+            "/turnos",
+            json={"fecha": "2026-06-15", "hora_inicio": "09:00"},
+        )
+        turno_id = r1.json()["id"]
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_123"
+            mock_calendar_cls.return_value = mock_service
+            api_client.put(
+                f"/turnos/{turno_id}/confirmar",
+                json={"nombre": "Juan", "apellido": "Perez", "dni": "12345678", "telefono": "555-1234"},
+            )
+
+        response = api_client.put(f"/turnos/{turno_id}/completar")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["estado"] == "COMPLETADO"
+
+    @pytest.mark.asyncio
+    async def test_put_turnos_completar_no_existe(self, api_client, db_session):
+        """Scenario: completar turno inexistente → 404."""
+        response = api_client.put("/turnos/99999/completar")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @pytest.mark.asyncio
+    async def test_put_turnos_completar_cancelado(self, api_client, db_session):
+        """Scenario: completar turno CANCELADO → 409."""
+        await _seed_profesional(db_session)
+        r1 = api_client.post(
+            "/turnos",
+            json={"fecha": "2026-06-15", "hora_inicio": "09:00"},
+        )
+        turno_id = r1.json()["id"]
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_123"
+            mock_calendar_cls.return_value = mock_service
+            api_client.put(
+                f"/turnos/{turno_id}/confirmar",
+                json={"nombre": "Juan", "apellido": "Perez", "dni": "12345678", "telefono": "555-1234"},
+            )
+
+        api_client.put(f"/turnos/{turno_id}/cancelar")
+
+        response = api_client.put(f"/turnos/{turno_id}/completar")
+        assert response.status_code == status.HTTP_409_CONFLICT
+
+    @pytest.mark.asyncio
+    async def test_put_turnos_completar_ya_completado(self, api_client, db_session):
+        """Scenario: completar turno ya COMPLETADO → 200 idempotente."""
+        await _seed_profesional(db_session)
+        r1 = api_client.post(
+            "/turnos",
+            json={"fecha": "2026-06-15", "hora_inicio": "09:00"},
+        )
+        turno_id = r1.json()["id"]
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_123"
+            mock_calendar_cls.return_value = mock_service
+            api_client.put(
+                f"/turnos/{turno_id}/confirmar",
+                json={"nombre": "Juan", "apellido": "Perez", "dni": "12345678", "telefono": "555-1234"},
+            )
+
+        # Primera vez
+        r1 = api_client.put(f"/turnos/{turno_id}/completar")
+        assert r1.status_code == status.HTTP_200_OK
+
+        # Segunda vez (idempotente)
+        r2 = api_client.put(f"/turnos/{turno_id}/completar")
+        assert r2.status_code == status.HTTP_200_OK
+        assert r2.json()["estado"] == "COMPLETADO"

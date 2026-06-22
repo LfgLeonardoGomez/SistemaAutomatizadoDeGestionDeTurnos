@@ -26,11 +26,13 @@ C-01 foundation-setup
         └── C-05 google-calendar-service
               └── C-06 turno-reservation
                     ├── C-07 turno-cancel-reschedule
-                    │     └── C-11 lista-espera
+                    │     └── C-13 turno-hardening
+                    │           └── C-11 lista-espera
                     └── C-08 telegram-bot-webhook
-                          ├── C-09 n8n-workflows
-                          ├── C-10 recordatorios
-                          └── C-12 professional-telegram-dashboard
+                          └── C-13 turno-hardening
+                                ├── C-09 n8n-workflows
+                                ├── C-10 recordatorios
+                                └── C-12 professional-telegram-dashboard
 ```
 
 ### Paralelismo por fase
@@ -56,17 +58,20 @@ GATE 4: C-06 ✓                         ← FORK (2 paralelos)
   → C-07 turno-cancel-reschedule         [Agente A]
   → C-08 telegram-bot-webhook            [Agente C]
 
-GATE 5: C-07 + C-08 ✓                  ← MAYOR FORK (4 paralelos)
+GATE 5: C-07 + C-08 ✓                  ← FORK (2 paralelos)
   → C-09 n8n-workflows                   [Agente C]
+  → C-13 turno-hardening                 [Agente A]
+
+GATE 6: C-13 ✓                         ← MAYOR FORK (3 paralelos)
   → C-10 recordatorios                   [Agente B]
-  → C-11 lista-espera                    [Agente B — si C-07 ✓]
-  → C-12 professional-telegram-dashboard [Agente C — si C-08 ✓]
+  → C-11 lista-espera                    [Agente B]
+  → C-12 professional-telegram-dashboard [Agente C]
 ```
 
-### Camino crítico (7 changes — mínimo irreducible)
+### Camino crítico (8 changes — mínimo irreducible)
 
 ```
-C-01 → C-02 → C-03 → C-06 → C-07 → C-08 → C-11
+C-01 → C-02 → C-03 → C-06 → C-07 → C-08 → C-13 → C-11
 ```
 
 > Nota: C-04 y C-05 son prerequisitos paralelos de C-06. El camino crítico asume el orden de finalización más largo entre los tres.
@@ -82,10 +87,10 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
   4  │ —                          │ C-05 google-calendar-service │ —
   5  │ C-06 turno-reservation     │ —                            │ —
   6  │ C-07 turno-cancel-         │ —                            │ C-08 telegram-bot-webhook
-     │    reschedule              │                              │
-  7  │ —                          │ C-10 recordatorios           │ C-09 n8n-workflows
-  8  │ —                          │ C-11 lista-espera            │ C-12 professional-telegram-
-     │                            │                              │    dashboard
+      │    reschedule              │                              │
+  7  │ C-13 turno-hardening       │ —                            │ C-09 n8n-workflows
+  8  │ —                          │ C-10 recordatorios           │ C-12 professional-telegram-
+      │                            │ C-11 lista-espera            │    dashboard
 ```
 
 ---
@@ -270,9 +275,30 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 
 ---
 
-## FASE 4 — Automatizaciones
+## FASE 4 — Hardening del Núcleo
 
-> C-09, C-10, C-11 y C-12 pueden proponerse en paralelo tras C-07 y C-08.
+> C-13 corrige deudas técnicas del núcleo de turnos antes de construir automatizaciones y panel profesional.
+
+### [C-13] `turno-hardening`
+- **Estado**: `[x] completado`
+- **Scope**: Completar y corregir el núcleo de turnos que quedó incompleto o roto en changes anteriores
+  - Persistir `google_event_id` en modelo `Turno`: nueva columna SQLAlchemy + migración Alembic + integración en confirmación/cancelación/reprogramación
+  - Transición a estado `COMPLETADO`: endpoint `PUT /turnos/{id}/completar` + scheduler job `marcar_turnos_completados`
+  - Flujo de reprogramación en Telegram: reemplazar placeholder "próximamente" con wizard conversacional completo (fecha → hora → confirmación)
+- **Reglas**: RN-TU-02, RN-TU-05, RN-TU-07, RN-TU-08, RN-TU-09
+- **Tests**: migración, persistencia de `google_event_id`, transición a `COMPLETADO`, flujo Telegram reprogramación
+- **Dependencias**: C-06, C-07, C-08
+- **Governance**: ALTO
+- **Leer antes**:
+  - `knowledge-base/04_modelo_de_datos.md` §Turno
+  - `knowledge-base/05_reglas_de_negocio.md` §RN-TU-02, §RN-TU-05, §RN-TU-07 a RN-TU-09
+  - `knowledge-base/07_flujos_principales.md` §Flujo 3: Reprogramación
+
+---
+
+## FASE 5 — Automatizaciones
+
+> C-10, C-11 y C-12 pueden proponerse en paralelo tras C-13. C-09 puede ejecutarse en paralelo con C-13.
 
 ### [C-10] `recordatorios`
 - **Estado**: `[ ]` pendiente
@@ -283,7 +309,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
   - Al interactuar desde el recordatorio, enruta a los endpoints de C-06/C-07
   - Reglas: RN-RE-01, RN-RE-02
   - Tests: job de scheduler, detección correcta de ventana 24h, envío mock Telegram
-- **Dependencias**: C-06, C-08
+- **Dependencias**: C-13
 - **Governance**: MEDIO
 - **Leer antes**:
   - `knowledge-base/07_flujos_principales.md` §Flujo 4: Recordatorio automático
@@ -302,7 +328,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
   - Si rechaza o timeout: pasa al siguiente paciente (configurable por `LISTA_ESPERA_MINUTOS`)
   - Reglas: RN-LE-01, RN-LE-02
   - Tests: orden FIFO, timeout, condición de carrera (atomicidad en DB), aceptación/rechazo
-- **Dependencias**: C-06, C-07, C-08
+- **Dependencias**: C-13
 - **Governance**: ALTO
 - **Leer antes**:
   - `knowledge-base/07_flujos_principales.md` §Flujo 5: Lista de espera
@@ -311,7 +337,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 
 ---
 
-## FASE 5 — Panel del Profesional
+## FASE 6 — Panel del Profesional
 
 ### [C-12] `professional-telegram-dashboard`
 - **Estado**: `[ ]` pendiente
@@ -324,7 +350,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
     - `GET /profesional/turnos-hoy`
     - `GET /profesional/metricas`
   - Tests: comandos con mock de datos, métricas calculadas correctamente
-- **Dependencias**: C-03, C-06, C-07, C-08
+- **Dependencias**: C-03, C-13
 - **Governance**: BAJO
 - **Leer antes**:
   - `knowledge-base/06_funcionalidades.md` §US-005, §US-009, §US-010
@@ -346,10 +372,11 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 | C-07 | 2 — Ciclo de Turnos | `[x]` | ALTO | C-06 |
 | C-08 | 3 — Integraciones | `[x]` | MEDIO | C-06 |
 | C-09 | 3 — Integraciones | `[x]` | BAJO | C-08 |
-| C-10 | 4 — Automatizaciones | `[ ]` | MEDIO | C-06, C-08 |
-| C-11 | 4 — Automatizaciones | `[ ]` | ALTO | C-06, C-07, C-08 |
-| C-12 | 5 — Panel Profesional | `[ ]` | BAJO | C-03, C-06, C-07, C-08 |
+| C-13 | 4 — Hardening | `[x]` | ALTO | C-06, C-07, C-08 |
+| C-10 | 5 — Automatizaciones | `[ ]` | MEDIO | C-13 |
+| C-11 | 5 — Automatizaciones | `[ ]` | ALTO | C-13 |
+| C-12 | 6 — Panel Profesional | `[ ]` | BAJO | C-03, C-13 |
 
-**Primer change recomendado**: `C-01` (`foundation-setup`)
+**Primer change recomendado**: `C-13` (`turno-hardening`)
 
-Para arrancar: `/opsx:propose C-01-foundation-setup`
+Para arrancar: `/opsx:propose C-13-turno-hardening`

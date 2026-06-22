@@ -75,7 +75,7 @@ class CalendarService:
         }
 
     def create_event(self, turno: Turno) -> str:
-        existing_id = getattr(turno, "google_event_id", None)
+        existing_id = turno.google_event_id
         if existing_id:
             return self.update_event(turno)
         body = self._make_event_body(turno)
@@ -88,7 +88,7 @@ class CalendarService:
         return event_id
 
     def update_event(self, turno: Turno) -> str:
-        event_id = getattr(turno, "google_event_id", None)
+        event_id = turno.google_event_id
         if not event_id:
             raise ValueError("Turno no tiene google_event_id")
         body = self._make_event_body(turno)

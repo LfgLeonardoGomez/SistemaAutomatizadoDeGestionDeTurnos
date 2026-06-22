@@ -30,6 +30,9 @@ class Turno(Base):
     profesional_id: Mapped[int] = mapped_column(
         ForeignKey("profesional.id", ondelete="CASCADE"), nullable=False
     )
+    google_event_id: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True
+    )
     creado_en: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(timezone.utc)
     )
@@ -53,4 +56,5 @@ class Turno(Base):
         Index("ix_turno_fecha_hora_inicio", "fecha", "hora_inicio"),
         Index("ix_turno_estado", "estado"),
         Index("ix_turno_paciente_id_estado", "paciente_id", "estado"),
+        Index("ix_turno_google_event_id", "google_event_id"),
     )

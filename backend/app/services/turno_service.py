@@ -16,6 +16,7 @@ from app.services.paciente_service import crear_o_obtener_paciente
 from app.services.calendar_service import CalendarService
 from app.schemas.paciente import PacienteCreate
 from app.exceptions import (
+    TurnoError,
     TurnoNoDisponibleError,
     TurnoExpiradoError,
     PacienteConTurnoActivoError,
@@ -126,7 +127,9 @@ async def confirmar_turno(
     - Valida RN-TU-01 atómicamente (SELECT FOR UPDATE sobre turnos del paciente).
     - Registra/identifica al paciente.
     - Actualiza turno a CONFIRMADO, elimina ReservaTemporal.
-    - Crea evento en Google Calendar (no bloquea la transacción; fallo logueado).
+    - Crea evento en Google Calendar y persiste el `google_event_id` retornado.
+      Si Calendar falla, el turno sigue CONFIRMADO y `google_event_id` queda NULL;
+      no se revierte la confirmación porque la DB es la fuente de verdad.
     """
     # Bloquear el turno a confirmar
     result = await db.execute(
@@ -179,7 +182,10 @@ async def confirmar_turno(
         # Forzar refresh de relaciones para que CalendarService tenga datos completos
         await db.refresh(turno, attribute_names=["paciente", "profesional"])
         calendar = CalendarService()
-        await run_in_threadpool(calendar.create_event, turno)
+        event_id = await run_in_threadpool(calendar.create_event, turno)
+        turno.google_event_id = event_id
+        await db.commit()
+        await db.refresh(turno)
     except Exception as exc:
         logger.error(f"Fallo al crear evento en Calendar para turno {turno.id}: {exc}")
         # No revertimos la confirmación; el turno es la fuente de verdad
@@ -219,6 +225,39 @@ async def liberar_reservas_vencidas(db: AsyncSession) -> int:
     return count
 
 
+async def marcar_turnos_completados(db: AsyncSession) -> int:
+    """
+    Marca turnos CONFIRMADOS cuya fecha y hora de fin ya pasaron como COMPLETADOS.
+
+    Ejecutado periódicamente por el scheduler (default cada 5 minutos).
+    Usa SELECT FOR UPDATE para evitar race conditions con cancelaciones
+    o completados manuales concurrentes.
+    Retorna la cantidad de turnos actualizados.
+    """
+    result = await db.execute(
+        select(Turno)
+        .where(Turno.estado == "CONFIRMADO")
+        .with_for_update()
+    )
+    turnos = result.scalars().all()
+
+    ahora = datetime.now()
+    count = 0
+    for turno in turnos:
+        fin_turno = datetime.combine(turno.fecha, turno.hora_fin)
+        if fin_turno < ahora:
+            turno.estado = "COMPLETADO"
+            count += 1
+
+    if count:
+        logger.info(f"Marcados {count} turnos como COMPLETADO")
+        await db.commit()
+    else:
+        logger.debug("No hay turnos para marcar como COMPLETADO")
+
+    return count
+
+
 async def cancelar_turno(db: AsyncSession, turno_id: int) -> Turno:
     """
     Cancela un turno confirmado.
@@ -226,7 +265,9 @@ async def cancelar_turno(db: AsyncSession, turno_id: int) -> Turno:
     - Bloquea la fila con SELECT FOR UPDATE.
     - Valida que el turno exista y esté CONFIRMADO.
     - Actualiza estado a CANCELADO y hace COMMIT.
-    - Elimina evento de Google Calendar en best-effort (no bloquea la transacción).
+    - Lee `google_event_id` desde la columna persistente del modelo Turno.
+      Si existe, elimina el evento de Google Calendar en best-effort;
+      si falla o es NULL, no se revierte la cancelación (DB es fuente de verdad).
     """
     result = await db.execute(
         select(Turno).where(Turno.id == turno_id).with_for_update()
@@ -244,7 +285,7 @@ async def cancelar_turno(db: AsyncSession, turno_id: int) -> Turno:
     await db.refresh(turno)
 
     # Eliminar evento de Google Calendar (best-effort, no bloquea)
-    google_event_id = getattr(turno, "google_event_id", None)
+    google_event_id = turno.google_event_id
     if google_event_id:
         try:
             calendar = CalendarService()
@@ -267,11 +308,14 @@ async def reprogramar_turno(
     """
     Reprograma un turno confirmado.
 
-    - Cancela el turno anterior (reutiliza cancelar_turno).
-    - Reserva un nuevo slot con reservar_turno.
-    - Confirma el nuevo turno con confirmar_turno.
-    - Si cancelar_turno no logra eliminar el evento de Calendar, se loguea.
-    - Si confirmar_turno no logra crear el evento de Calendar, se loguea.
+    - Cancela el turno anterior vía `cancelar_turno()`, que lee `google_event_id`
+      desde la columna persistente y elimina el evento viejo de Calendar en
+      best-effort.
+    - Reserva un nuevo slot con `reservar_turno()`.
+    - Confirma el nuevo turno con `confirmar_turno()`, que persiste el nuevo
+      `google_event_id` retornado por CalendarService.
+    - Si alguna operación de Calendar falla, se loguea pero no se revierte;
+      la DB es la fuente de verdad.
     - Retorna el nuevo turno CONFIRMADO.
     """
     result = await db.execute(

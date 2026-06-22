@@ -86,3 +86,75 @@ class TestSchedulerJob:
         jobs = scheduler.get_jobs()
         job_ids = [j.id for j in jobs]
         assert "liberar_reservas_vencidas" in job_ids
+        assert "marcar_turnos_completados" in job_ids
+
+    @pytest.mark.asyncio
+    async def test_scheduler_job_marcar_turnos_completados(self, db_session, monkeypatch):
+        """Scenario: job ejecuta marcar_turnos_completados sin errores."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
+        monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
+
+        from app.scheduler.jobs import _marcar_turnos_completados_job
+        from app.models.turno import Turno
+        from app.models.paciente import Paciente
+
+        p = await _seed_profesional(db_session)
+        paciente = Paciente(
+            nombre="Juan", apellido="Perez", dni="12345678", telefono="555-1234"
+        )
+        db_session.add(paciente)
+        await db_session.commit()
+
+        turno = Turno(
+            fecha=date(2020, 1, 1),
+            hora_inicio=time(9, 0),
+            hora_fin=time(9, 30),
+            estado="CONFIRMADO",
+            profesional_id=p.id,
+            paciente_id=paciente.id,
+        )
+        db_session.add(turno)
+        await db_session.commit()
+
+        await _marcar_turnos_completados_job(session=db_session)
+
+        result = await db_session.execute(select(Turno).where(Turno.id == turno.id))
+        turno_db = result.scalar_one()
+        assert turno_db.estado == "COMPLETADO"
+
+    @pytest.mark.asyncio
+    async def test_scheduler_job_marcar_turnos_completados_sin_candidatos(self, db_session, monkeypatch):
+        """Scenario: job ejecuta sin errores cuando no hay candidatos."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
+        monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
+
+        from app.scheduler.jobs import _marcar_turnos_completados_job
+
+        await _marcar_turnos_completados_job(session=db_session)
+        # No debe lanzar excepciones
+
+    @pytest.mark.asyncio
+    async def test_scheduler_job_marcar_turnos_completados_loguea_excepciones(self, db_session, monkeypatch, caplog):
+        """Scenario: job loguea excepciones sin detener el scheduler."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
+        monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
+
+        from app.scheduler.jobs import _marcar_turnos_completados_job
+        import logging
+
+        with caplog.at_level(logging.ERROR):
+            # Pasar None como session forzará que el job intente crear una sesión
+            # con _get_sessionmaker, que fallará porque no hay DB real.
+            # Sin embargo, la excepción debe ser capturada y logueada.
+            # Para testear esto de forma controlada, mockeamos marcar_turnos_completados
+            from unittest.mock import patch
+            with patch("app.scheduler.jobs.marcar_turnos_completados", side_effect=RuntimeError("DB error")):
+                await _marcar_turnos_completados_job(session=db_session)
+
+        assert "Error en job marcar_turnos_completados" in caplog.text

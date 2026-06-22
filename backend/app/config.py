@@ -20,4 +20,5 @@ class Settings(BaseSettings):
     n8n_webhook_url: str = ""
     reserva_temporal_minutos: int = 10
     recordatorio_horas_antes: int = 24
+    completado_job_interval_minutos: int = 5
     env: str = "development"

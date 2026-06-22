@@ -271,8 +271,45 @@ class TestConfirmarTurno:
             )
 
     @pytest.mark.asyncio
+    async def test_confirmar_turno_persiste_google_event_id(self, db_session, test_settings):
+        """Scenario: confirmar_turno persiste google_event_id retornado por CalendarService."""
+        from app.services.turno_service import reservar_turno, confirmar_turno
+
+        p = await _seed_profesional(db_session)
+        fecha = date(2026, 6, 15)
+
+        turno = await reservar_turno(
+            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            settings=test_settings,
+        )
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_123"
+            mock_calendar_cls.return_value = mock_service
+
+            confirmado = await confirmar_turno(
+                db_session,
+                turno_id=turno.id,
+                paciente_data={
+                    "nombre": "Juan",
+                    "apellido": "Perez",
+                    "dni": "12345678",
+                    "telefono": "555-1234",
+                },
+            )
+
+        assert confirmado.estado == "CONFIRMADO"
+        assert confirmado.google_event_id == "event_123"
+
+        # Verificar en DB
+        result = await db_session.execute(select(Turno).where(Turno.id == turno.id))
+        turno_db = result.scalar_one()
+        assert turno_db.google_event_id == "event_123"
+
+    @pytest.mark.asyncio
     async def test_confirmar_turno_calendar_fallback(self, db_session, test_settings):
-        """Scenario: calendar falla → turno sigue CONFIRMADO y se loguea error."""
+        """Scenario: calendar falla → turno sigue CONFIRMADO y google_event_id es NULL."""
         from app.services.turno_service import reservar_turno, confirmar_turno
 
         p = await _seed_profesional(db_session)
@@ -300,7 +337,13 @@ class TestConfirmarTurno:
             )
 
         assert confirmado.estado == "CONFIRMADO"
+        assert confirmado.google_event_id is None
         mock_service.create_event.assert_called_once()
+
+        # Verificar en DB
+        result = await db_session.execute(select(Turno).where(Turno.id == turno.id))
+        turno_db = result.scalar_one()
+        assert turno_db.google_event_id is None
 
 
 # ---------------------------------------------------------------------------
@@ -735,6 +778,83 @@ class TestReprogramarTurno:
                 settings=test_settings,
             )
 
+    @pytest.mark.asyncio
+    async def test_reprogramar_turno_propaga_google_event_id(self, db_session, test_settings):
+        """Scenario: reprogramar lee event_id viejo y persiste event_id nuevo."""
+        from app.services.turno_service import cancelar_turno, confirmar_turno, reprogramar_turno
+
+        p = await _seed_profesional(db_session)
+        fecha = date(2026, 6, 15)
+        nueva_fecha = date(2026, 6, 16)
+
+        # Crear turno confirmado con google_event_id persistido
+        turno = Turno(
+            fecha=fecha, hora_inicio=time(9, 0), hora_fin=time(9, 30),
+            estado="CONFIRMADO", profesional_id=p.id, paciente_id=None,
+            google_event_id="event_old",
+        )
+        db_session.add(turno)
+        await db_session.commit()
+
+        # Crear paciente y asociarlo
+        paciente = await _seed_paciente(db_session)
+        turno.paciente_id = paciente.id
+        await db_session.commit()
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_new"
+            mock_calendar_cls.return_value = mock_service
+
+            nuevo = await reprogramar_turno(
+                db_session,
+                turno_id=turno.id,
+                nueva_fecha=nueva_fecha,
+                nueva_hora_inicio=time(10, 0),
+                settings=test_settings,
+            )
+
+        assert nuevo.estado == "CONFIRMADO"
+        assert nuevo.google_event_id == "event_new"
+        mock_service.delete_event.assert_called_once_with("event_old")
+
+    @pytest.mark.asyncio
+    async def test_reprogramar_turno_sin_google_event_id_no_delete(self, db_session, test_settings):
+        """Scenario: reprogramar turno con google_event_id=NULL no invoca delete_event."""
+        from app.services.turno_service import reprogramar_turno
+
+        p = await _seed_profesional(db_session)
+        fecha = date(2026, 6, 15)
+        nueva_fecha = date(2026, 6, 16)
+
+        turno = Turno(
+            fecha=fecha, hora_inicio=time(9, 0), hora_fin=time(9, 30),
+            estado="CONFIRMADO", profesional_id=p.id, paciente_id=None,
+            google_event_id=None,
+        )
+        db_session.add(turno)
+        await db_session.commit()
+
+        paciente = await _seed_paciente(db_session)
+        turno.paciente_id = paciente.id
+        await db_session.commit()
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_new"
+            mock_calendar_cls.return_value = mock_service
+
+            nuevo = await reprogramar_turno(
+                db_session,
+                turno_id=turno.id,
+                nueva_fecha=nueva_fecha,
+                nueva_hora_inicio=time(10, 0),
+                settings=test_settings,
+            )
+
+        assert nuevo.estado == "CONFIRMADO"
+        mock_service.delete_event.assert_not_called()
+
 
 class TestCancelarTurno:
     @pytest.mark.asyncio
@@ -862,3 +982,196 @@ class TestCancelarTurno:
 
         with pytest.raises(TurnoYaCanceladoError):
             await cancelar_turno(db_session, turno_id=turno.id)
+
+
+# ---------------------------------------------------------------------------
+# C-13: Transición a COMPLETADO
+# ---------------------------------------------------------------------------
+
+class TestMarcarTurnosCompletados:
+    @pytest.mark.asyncio
+    async def test_marcar_turnos_completados_pasado(self, db_session, test_settings):
+        """Scenario: turno CONFIRMADO pasado se marca COMPLETADO."""
+        from app.services.turno_service import marcar_turnos_completados
+
+        p = await _seed_profesional(db_session)
+        paciente = await _seed_paciente(db_session)
+
+        turno = Turno(
+            fecha=date(2020, 1, 1),
+            hora_inicio=time(9, 0),
+            hora_fin=time(9, 30),
+            estado="CONFIRMADO",
+            profesional_id=p.id,
+            paciente_id=paciente.id,
+        )
+        db_session.add(turno)
+        await db_session.commit()
+
+        actualizados = await marcar_turnos_completados(db_session)
+        assert actualizados == 1
+
+        result = await db_session.execute(select(Turno).where(Turno.id == turno.id))
+        turno_db = result.scalar_one()
+        assert turno_db.estado == "COMPLETADO"
+
+    @pytest.mark.asyncio
+    async def test_marcar_turnos_completados_futuro(self, db_session, test_settings):
+        """Scenario: turno CONFIRMADO futuro no se modifica."""
+        from app.services.turno_service import marcar_turnos_completados
+
+        p = await _seed_profesional(db_session)
+        paciente = await _seed_paciente(db_session)
+
+        turno = Turno(
+            fecha=date(2099, 1, 1),
+            hora_inicio=time(9, 0),
+            hora_fin=time(9, 30),
+            estado="CONFIRMADO",
+            profesional_id=p.id,
+            paciente_id=paciente.id,
+        )
+        db_session.add(turno)
+        await db_session.commit()
+
+        actualizados = await marcar_turnos_completados(db_session)
+        assert actualizados == 0
+
+        result = await db_session.execute(select(Turno).where(Turno.id == turno.id))
+        turno_db = result.scalar_one()
+        assert turno_db.estado == "CONFIRMADO"
+
+    @pytest.mark.asyncio
+    async def test_marcar_turnos_completados_cancelado_pasado(self, db_session, test_settings):
+        """Scenario: turno CANCELADO pasado no se modifica."""
+        from app.services.turno_service import marcar_turnos_completados
+
+        p = await _seed_profesional(db_session)
+        paciente = await _seed_paciente(db_session)
+
+        turno = Turno(
+            fecha=date(2020, 1, 1),
+            hora_inicio=time(9, 0),
+            hora_fin=time(9, 30),
+            estado="CANCELADO",
+            profesional_id=p.id,
+            paciente_id=paciente.id,
+        )
+        db_session.add(turno)
+        await db_session.commit()
+
+        actualizados = await marcar_turnos_completados(db_session)
+        assert actualizados == 0
+
+        result = await db_session.execute(select(Turno).where(Turno.id == turno.id))
+        turno_db = result.scalar_one()
+        assert turno_db.estado == "CANCELADO"
+
+    @pytest.mark.asyncio
+    async def test_cancelar_turno_lee_google_event_id_de_db(self, db_session, test_settings):
+        """Scenario: cancelar turno con google_event_id en DB invoca delete_event."""
+        from app.services.turno_service import cancelar_turno
+
+        p = await _seed_profesional(db_session)
+        paciente = await _seed_paciente(db_session)
+        fecha = date(2026, 6, 15)
+
+        turno = Turno(
+            fecha=fecha, hora_inicio=time(9, 0), hora_fin=time(9, 30),
+            estado="CONFIRMADO", profesional_id=p.id, paciente_id=paciente.id,
+            google_event_id="event_456",
+        )
+        db_session.add(turno)
+        await db_session.commit()
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_calendar_cls.return_value = mock_service
+            cancelado = await cancelar_turno(db_session, turno_id=turno.id)
+
+        assert cancelado.estado == "CANCELADO"
+        mock_service.delete_event.assert_called_once_with("event_456")
+
+    @pytest.mark.asyncio
+    async def test_cancelar_turno_sin_google_event_id_no_llama_delete(self, db_session, test_settings):
+        """Scenario: cancelar turno con google_event_id=NULL no invoca delete_event."""
+        from app.services.turno_service import cancelar_turno
+
+        p = await _seed_profesional(db_session)
+        paciente = await _seed_paciente(db_session)
+        fecha = date(2026, 6, 15)
+
+        turno = Turno(
+            fecha=fecha, hora_inicio=time(9, 0), hora_fin=time(9, 30),
+            estado="CONFIRMADO", profesional_id=p.id, paciente_id=paciente.id,
+            google_event_id=None,
+        )
+        db_session.add(turno)
+        await db_session.commit()
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_calendar_cls.return_value = mock_service
+            cancelado = await cancelar_turno(db_session, turno_id=turno.id)
+
+        assert cancelado.estado == "CANCELADO"
+        mock_service.delete_event.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# C-13: google_event_id persistence
+# ---------------------------------------------------------------------------
+
+class TestGoogleEventId:
+    @pytest.mark.asyncio
+    async def test_turno_model_acepta_google_event_id(self, db_session, test_settings):
+        """Scenario: Turno acepta y persiste google_event_id."""
+        from app.services.turno_service import reservar_turno
+
+        p = await _seed_profesional(db_session)
+        fecha = date(2026, 6, 15)
+
+        turno = await reservar_turno(
+            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            settings=test_settings,
+        )
+        turno.google_event_id = "event_abc123"
+        await db_session.commit()
+        await db_session.refresh(turno)
+
+        assert turno.google_event_id == "event_abc123"
+
+    @pytest.mark.asyncio
+    async def test_turno_model_google_event_id_nullable(self, db_session, test_settings):
+        """Scenario: google_event_id puede ser NULL."""
+        from app.services.turno_service import reservar_turno
+
+        p = await _seed_profesional(db_session)
+        fecha = date(2026, 6, 15)
+
+        turno = await reservar_turno(
+            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            settings=test_settings,
+        )
+        await db_session.commit()
+        await db_session.refresh(turno)
+
+        assert turno.google_event_id is None
+
+    def test_alembic_migration_adds_google_event_id(self):
+        """Scenario: la migración Alembic agrega la columna google_event_id."""
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+
+        alembic_cfg = Config("alembic.ini")
+        script = ScriptDirectory.from_config(alembic_cfg)
+        # Verify the migration exists and is reachable from head
+        head = script.get_current_head()
+        assert head is not None
+        # Verify migration file exists
+        migration_path = script.get_revision(head).path
+        assert migration_path is not None
+        with open(migration_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        assert "google_event_id" in content
+        assert "add_column" in content
