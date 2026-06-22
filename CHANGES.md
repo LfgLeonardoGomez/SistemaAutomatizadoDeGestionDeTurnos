@@ -319,7 +319,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 ---
 
 ### [C-11] `lista-espera`
-- **Estado**: `[x] completado`
+- **Estado**: `[x]` archivado
 - **Scope**: Registro, notificación y asignación automática de turnos liberados
   - Endpoints: `POST /lista-espera`, `DELETE /lista-espera/{id}`
   - Hook post-cancelación (desde C-07): al liberar un slot, consulta `ListaDeEspera` ordenada por `creado_en`

@@ -5,7 +5,7 @@ El sistema SHALL permitir que un `Paciente` se registre en `ListaDeEspera` con u
 
 #### Scenario: Registro en lista de espera
 - **WHEN** un `Paciente` se registra en `ListaDeEspera` con `fecha_solicitada="2026-06-15"`
-- **THEN** el registro se persiste con `notificado=FALSE` y `creado_en` automático
+- **THEN** el registro se persiste con `notificado=FALSE`, `turno_ofrecido_id=NULL`, `notificado_en=NULL` y `creado_en` automático
 
 #### Scenario: Múltiples registros por paciente
 - **WHEN** un mismo `Paciente` se registra dos veces en `ListaDeEspera` con fechas diferentes
@@ -17,10 +17,26 @@ El sistema SHALL almacenar `notificado` como BOOLEAN con valor por defecto `FALS
 #### Scenario: Estado inicial
 - **WHEN** se crea un registro en `ListaDeEspera`
 - **THEN** `notificado` es `FALSE`
+- **AND** `turno_ofrecido_id` es `NULL`
+- **AND** `notificado_en` es `NULL`
 
 #### Scenario: Actualización a notificado
 - **WHEN** se actualiza `notificado` a `TRUE` para un registro existente
 - **THEN** el campo se actualiza correctamente
+- **AND** `notificado_en` se actualiza simultáneamente
+
+### Requirement: ListaDeEspera registra qué turno fue ofrecido y cuándo se notificó
+El sistema SHALL almacenar en `ListaDeEspera` los campos `turno_ofrecido_id` (FK a `Turno`, nullable) e `notificado_en` (TIMESTAMP, nullable) para rastrear la oferta activa de un turno liberado.
+
+#### Scenario: Registro inicial sin turno ofrecido
+- **WHEN** se crea un registro en `ListaDeEspera`
+- **THEN** `turno_ofrecido_id` es `NULL`
+- **AND** `notificado_en` es `NULL`
+
+#### Scenario: Actualización al notificar turno liberado
+- **WHEN** el sistema ofrece un turno liberado a un paciente en lista de espera
+- **THEN** `turno_ofrecido_id` se actualiza al ID del turno ofrecido
+- **AND** `notificado_en` se actualiza a la fecha/hora actual
 
 ### Requirement: ListaDeEspera tiene relación con Paciente
 El sistema SHALL exigir `paciente_id` como FK a `Paciente` en `ListaDeEspera`.
