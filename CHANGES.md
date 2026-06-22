@@ -98,7 +98,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 ## FASE 0 — Cimientos
 
 ### [C-01] `foundation-setup`
-- **Estado**: `[x] completado
+- **Estado**: `[x] completado`
 - **Scope**: Scaffolding completo del monorepo + infraestructura base
   - Estructura de directorios: `backend/`, `n8n-workflows/`, `docs/`, `knowledge-base/`
   - `backend/`: FastAPI app mínima con health check `/health`, Alembic inicializado, `app/config.py` con Pydantic Settings
@@ -194,7 +194,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 ## FASE 2 — Ciclo de Turnos
 
 ### [C-06] `turno-reservation`
-- **Estado**: `[x] completado
+- **Estado**: `[x] completado`
 - **Scope**: Reserva temporal, confirmación y creación de evento en calendario
   - Endpoints:
     - `GET /turnos/disponibles?fecha=YYYY-MM-DD` — lista slots libres
@@ -373,10 +373,10 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 | C-08 | 3 — Integraciones | `[x]` | MEDIO | C-06 |
 | C-09 | 3 — Integraciones | `[x]` | BAJO | C-08 |
 | C-13 | 4 — Hardening | `[x]` | ALTO | C-06, C-07, C-08 |
-| C-10 | 5 — Automatizaciones | `[ ]` | MEDIO | C-13 |
+| C-10 | 5 — Automatizaciones | `[x]` | MEDIO | C-13 |
 | C-11 | 5 — Automatizaciones | `[x]` | ALTO | C-13 |
 | C-12 | 6 — Panel Profesional | `[x]` | BAJO | C-03, C-13 |
 
-**Primer change recomendado**: `C-13` (`turno-hardening`)
+**Primer change recomendado**: Ninguno — todos los changes están implementados.
 
-Para arrancar: `/opsx:propose C-13-turno-hardening`
+Para continuar: revisar `10_preguntas_abiertas.md` para identificar mejoras o v2.0.

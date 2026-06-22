@@ -62,9 +62,9 @@ Cargá la skill correspondiente al contexto **ANTES** de escribir código.
 
 El plan de implementación completo está en [CHANGES.md](CHANGES.md). Resumen:
 
-- **Total**: 12 changes en 6 fases.
-- **Camino crítico** (7): `C-01 → C-02 → C-03 → C-06 → C-07 → C-08 → C-11`.
-- **Primer change**: `C-01` (`foundation-setup`).
+- **Total**: 13 changes en 6 fases.
+- **Estado**: Todos los changes implementados y archivados (C-01 a C-13 + C-12). v1.0 COMPLETA.
+- **Camino crítico** (8): `C-01 → C-02 → C-03 → C-06 → C-07 → C-08 → C-13 → C-11`.
 
 **Antes de cualquier `/opsx:propose`**: leé [CHANGES.md](CHANGES.md), identificá las dependencias del change y los archivos de "Leer antes".
 
@@ -87,7 +87,7 @@ Acá van las reglas **específicas de este proyecto**, derivadas de su stack (Fa
 - **NUNCA** asumir que n8n está disponible sin fallback → los endpoints REST del backend deben ser funcionales y testeables de forma aislada; n8n es orquestador, no requisito de ejecución.
 - **NUNCA** ignorar límites de Telegram → respetar 4096 caracteres por mensaje, usar markdown válido, implementar splitting si es necesario.
 - **NUNCA** bloquear el event loop con APScheduler → usar `AsyncIOScheduler` para jobs async, o delegar trabajo pesado a threads con logging de errores.
-- **NUNCA** dejar un modelo SQLAlchemy sin `tenant_id` si la entidad es tenant-scoped → aplicar patterns de `saas-multi-tenant` desde v1 (RLS, índices compuestos con `tenant_id` primero).
+- **NUNCA** agregar `tenant_id` en v1.0 — el sistema es **single-tenant por instancia**, orientado a un único profesional independiente por despliegue. Cada profesional corre su propia instancia completa (backend + DB + bot). La migración a multi-tenancy (clínicas con múltiples profesionales) es un change de v2.0 explícito, no v1.0.
 - **NUNCA** usar `panic`, `exit` o excepciones no controladas en flujos de negocio → manejar errores con excepciones custom, logging estructurado y respuestas HTTP gracefull.
 - **NUNCA** priorizar pureza arquitectónica sobre entregar valor → Clean/Hexagonal es preferido pero pragmático para v1; evitar over-engineering. Conceptos > código, pero sin framework obsession.
 

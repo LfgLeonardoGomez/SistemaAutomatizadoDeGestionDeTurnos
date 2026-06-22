@@ -31,26 +31,43 @@ Tesis-N8N-turnos/
 │   ├── app/
 │   │   ├── __init__.py
 │   │   ├── main.py                  # Punto de entrada FastAPI
-│   │   ├── config.py                # Variables de entorno y settings
-│   │   ├── models/                  # SQLAlchemy models
+│   │   ├── config.py                # Variables de entorno y settings (Pydantic v2)
+│   │   ├── dependencies.py          # Inyección de dependencias (DB, settings)
+│   │   ├── seed.py                  # Seed de profesional por defecto
+│   │   ├── exceptions.py            # Excepciones de dominio personalizadas
+│   │   ├── exception_handlers.py    # Handlers globales de excepciones
+│   │   ├── models/                  # SQLAlchemy 2.0 models
+│   │   │   ├── base.py
 │   │   │   ├── paciente.py
 │   │   │   ├── profesional.py
 │   │   │   ├── turno.py
-│   │   │   └── reserva_temporal.py
-│   │   ├── schemas/                 # Pydantic schemas
+│   │   │   ├── reserva_temporal.py
+│   │   │   └── lista_de_espera.py
+│   │   ├── schemas/                 # Pydantic v2 schemas
+│   │   │   ├── paciente.py
+│   │   │   ├── profesional.py
+│   │   │   ├── turno.py
+│   │   │   ├── lista_espera.py
+│   │   │   └── telegram.py
 │   │   ├── routers/                 # Endpoints API
 │   │   │   ├── turnos.py
 │   │   │   ├── pacientes.py
-│   │   │   └── profesional.py
+│   │   │   ├── profesional.py
+│   │   │   ├── webhooks.py
+│   │   │   └── lista_espera.py
 │   │   ├── services/                # Lógica de negocio
 │   │   │   ├── turno_service.py
 │   │   │   ├── paciente_service.py
-│   │   │   └── notificacion_service.py
-│   │   ├── scheduler/               # Tareas programadas (APScheduler)
-│   │   │   └── jobs.py
-│   │   └── dependencies.py          # Inyección de dependencias (DB, etc.)
+│   │   │   ├── availability_service.py
+│   │   │   ├── calendar_service.py
+│   │   │   ├── telegram_service.py
+│   │   │   ├── notificacion_service.py
+│   │   │   └── lista_espera_service.py
+│   │   └── scheduler/               # Tareas programadas (APScheduler AsyncIO)
+│   │       ├── __init__.py
+│   │       └── jobs.py
 │   ├── alembic/                     # Migraciones de base de datos
-│   ├── tests/                       # Tests unitarios e integración
+│   ├── tests/                       # Tests unitarios e integración (~40 archivos)
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── .jr-orchestrator-state.json      # Estado del orquestador de fundación
@@ -70,11 +87,18 @@ Tesis-N8N-turnos/
 
 | Variable | Descripción | Ejemplo | Sensible |
 |----------|-------------|---------|----------|
-| `DATABASE_URL` | Cadena de conexión a PostgreSQL | `postgresql://user:pass@localhost/turnos` | Sí |
+| `DATABASE_URL` | Cadena de conexión a PostgreSQL | `postgresql+asyncpg://user:pass@localhost/turnos` | Sí |
 | `TELEGRAM_BOT_TOKEN` | Token del bot de Telegram | `123456:ABC-DEF...` | Sí |
+| `TELEGRAM_WEBHOOK_SECRET` | Secret token para validar webhooks de Telegram | `mi-secreto` | Sí |
 | `GOOGLE_CALENDAR_CREDENTIALS` | JSON de credenciales de cuenta de servicio de Google | `{...}` | Sí |
 | `GOOGLE_CALENDAR_ID` | ID del calendario destino | `primary` o ID específico | No |
+| `GOOGLE_CALENDAR_MAX_RETRIES` | Máximo de reintentos ante errores 5xx de Google Calendar | `3` | No |
+| `GOOGLE_CALENDAR_BASE_DELAY` | Delay inicial (segundos) para backoff exponencial | `1.0` | No |
+| `GOOGLE_CALENDAR_MAX_DELAY` | Delay máximo (segundos) para backoff exponencial | `10.0` | No |
 | `N8N_WEBHOOK_URL` | URL base para webhooks de n8n (si aplica) | `https://n8n.example.com/webhook` | No |
-| `RESERVA_TEMPORAL_MINUTOS` | Tiempo de expiración de reserva temporal | `2` | No |
+| `RESERVA_TEMPORAL_MINUTOS` | Tiempo de expiración de reserva temporal | `10` | No |
+| `LISTA_ESPERA_MINUTOS` | Tiempo de espera para aceptar turno ofrecido desde lista | `5` | No |
 | `RECORDATORIO_HORAS_ANTES` | Horas antes del turno para enviar recordatorio | `24` | No |
+| `RECORDATORIO_JOB_INTERVAL_MINUTOS` | Intervalo del job de recordatorios (APScheduler) | `60` | No |
+| `COMPLETADO_JOB_INTERVAL_MINUTOS` | Intervalo del job de marcar turnos completados | `5` | No |
 | `ENV` | Entorno de ejecución | `development` / `production` | No |

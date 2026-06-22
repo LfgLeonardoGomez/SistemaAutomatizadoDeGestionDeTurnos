@@ -48,6 +48,21 @@
 **Justificación**: FastAPI ofrece el mejor balance entre rendimiento, productividad y modernidad para APIs REST en Python.
 **Trade-offs aceptados**: Curva de aprendizaje inicial para desarrolladores no familiarizados con Pydantic y async/await.
 
+### DD-06 — Estados de turno como VARCHAR con validación Pydantic (no ENUM de PostgreSQL)
+**Decisión**: Implementar el campo `Turno.estado` como `String(50)` en SQLAlchemy y validar los valores permitidos (`DISPONIBLE`, `RESERVADO_TEMPORAL`, `CONFIRMADO`, `CANCELADO`, `COMPLETADO`) en el schema Pydantic, en lugar de usar un tipo `Enum` nativo de PostgreSQL.
+**Contexto**: Simplifica migraciones y evita dependencia de tipos ENUM específicos de PostgreSQL, manteniendo la base portable.
+**Trade-offs aceptados**: Menor enforcement a nivel de base de datos; la validación queda en la capa de aplicación.
+
+### DD-07 — Persistencia de `google_event_id` en la tabla Turno
+**Decisión**: Agregar la columna `google_event_id` al modelo `Turno` para persistir el ID del evento creado en Google Calendar.
+**Contexto**: Necesario para poder eliminar o actualizar el evento externo cuando el turno se cancela o reprograma, sin depender de búsquedas por fecha/hora en Calendar API.
+**Trade-offs aceptados**: Acoplamiento leve con Google Calendar (la columna es NULLable y no bloquea operaciones si Calendar falla).
+
+### DD-08 — Flag `recordatorio_enviado` en Turno para deduplicación de recordatorios
+**Decisión**: Usar una columna booleana `recordatorio_enviado` en `Turno` en lugar de una tabla separada de historial de notificaciones.
+**Contexto**: El alcance v1.0 solo requiere evitar enviar el mismo recordatorio 24h antes múltiples veces.
+**Trade-offs aceptados**: No se guarda historial completo de notificaciones; solo el último estado.
+
 ## Supuestos inferidos
 
 ### SU-01 — Un único profesional por instancia en v1.0
@@ -74,8 +89,14 @@
 **Riesgo si es falso**: Latencia en las respuestas del bot; posibles timeouts en la interacción conversacional.
 **Cómo validar**: Realizar pruebas de conectividad y latencia en el entorno de despliegue planificado.
 
-### SU-05 — La reserva temporal expira en 2 minutos (valor por defecto)
-**Supuesto**: El tiempo de expiración de la reserva temporal es de 2 minutos según el caso de prueba documentado.
-**Origen**: Documento fuente, Caso de Prueba 2 (Expiración de reserva temporal).
+### SU-05 — La reserva temporal expira en 10 minutos (configurable)
+**Supuesto**: El tiempo de expiración de la reserva temporal es de 10 minutos por defecto, configurable vía `RESERVA_TEMPORAL_MINUTOS`.
+**Origen**: Implementación final (C-06 / C-13). El valor de 2 minutos del caso de prueba fue solo ilustrativo.
 **Riesgo si es falso**: Si el tiempo es muy corto, los usuarios pueden frustrarse; si es muy largo, se bloquean horarios innecesariamente.
-**Cómo validar**: Confirmar con el equipo el valor definitivo y hacerlo configurable vía variable de entorno.
+**Cómo validar**: Verificar `config.py` y ajustar la variable de entorno según feedback de usuarios reales [code · config.py:21].
+
+### SU-06 — Sin multi-tenancy ni `tenant_id` en v1.0
+**Supuesto**: A pesar de que la arquitectura se describe como SaaS, v1.0 opera con un único profesional por instancia y **no incluye `tenant_id`** en ningún modelo.
+**Origen**: Decisión pragmática de MVP para reducir complejidad; el proyecto académico no requiere multi-consultorio en la versión inicial.
+**Riesgo si es falso**: Si se necesita escalar a multi-profesional, será necesaria una migración de datos para agregar `tenant_id` y aplicar RLS.
+**Cómo validar**: Confirmar con el director del proyecto que el MVP es estrictamente single-profesional. **Nota**: Las reglas duras de AGENTS.md recomiendan `tenant_id` desde v1, pero el código actual no lo implementa [code · models/*.py].

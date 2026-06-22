@@ -69,27 +69,30 @@ El sistema adopta una arquitectura **cliente-servidor desacoplada** orientada a 
 Endpoints principales agrupados por recurso (inferidos del diseño):
 
 - **Turnos**
-  - `GET /turnos/disponibles` — listar fechas y horarios libres.
-  - `POST /turnos` — crear reserva temporal o confirmar turno.
-  - `PUT /turnos/{id}/confirmar` — confirmar reserva temporal.
-  - `PUT /turnos/{id}/cancelar` — cancelar turno confirmado.
-  - `PUT /turnos/{id}/reprogramar` — reprogramar a nuevo horario.
-  - `GET /turnos/{id}` — obtener detalle de un turno.
+  - `GET /turnos/disponibles?fecha=YYYY-MM-DD` — listar slots libres para una fecha [code · routers/turnos.py:36-43].
+  - `POST /turnos` — crear reserva temporal [code · routers/turnos.py:46-64].
+  - `PUT /turnos/{id}/confirmar` — confirmar reserva temporal [code · routers/turnos.py:67-86].
+  - `PUT /turnos/{id}/cancelar` — cancelar turno confirmado [code · routers/turnos.py:89-101].
+  - `PUT /turnos/{id}/reprogramar` — reprogramar a nuevo horario [code · routers/turnos.py:104-128].
+  - `PUT /turnos/{id}/completar` — marcar turno confirmado como completado [code · routers/turnos.py:131-156].
+  - `PUT /turnos/{id}/confirmar-asistencia` — confirmar asistencia desde recordatorio [code · routers/turnos.py:159-171].
 
 - **Pacientes**
-  - `POST /pacientes` — registrar nuevo paciente.
-  - `GET /pacientes/{id}` — obtener datos del paciente.
-  - `GET /pacientes/{id}/turnos` — historial de turnos del paciente.
+  - `POST /pacientes` — registrar nuevo paciente (auto-identificación por DNI) [code · routers/pacientes.py:19-34].
+  - `GET /pacientes/{id}` — obtener datos del paciente con historial [code · routers/pacientes.py:37-46].
+  - `GET /pacientes/{id}/turnos` — historial de turnos del paciente [code · routers/pacientes.py:49-59].
 
 - **Profesional / Configuración**
-  - `GET /profesional/turnos-hoy` — turnos programados para el día.
-  - `GET /profesional/metricas` — métricas básicas de uso.
-  - `GET /profesional/configuracion` — horarios, duración de turno, días de atención.
+  - `GET /profesional/configuracion` — horarios, duración de turno, días de atención [code · routers/profesional.py:29-35].
+  - `PUT /profesional/configuracion` — actualizar configuración [code · routers/profesional.py:38-59].
+  - `GET /profesional/disponibilidad?fecha=YYYY-MM-DD` — slots libres calculados [code · routers/profesional.py:62-72].
+  - `GET /profesional/turnos-hoy` — turnos confirmados del día [code · routers/profesional.py:75-84].
+  - `GET /profesional/metricas` — métricas básicas de uso (30 días) [code · routers/profesional.py:87-135].
 
 - **Lista de espera**
-  - `POST /lista-espera` — agregar paciente a lista de espera.
-  - `DELETE /lista-espera/{id}` — remover paciente de lista de espera.
-  - `POST /lista-espera/notificar` — notificar disponibilidad a pacientes en espera.
+  - `POST /lista-espera` — agregar paciente a lista de espera [code · routers/lista_espera.py:14-30].
+  - `DELETE /lista-espera/{id}` — remover paciente de lista de espera [code · routers/lista_espera.py:33-41].
+  - *(Nota: la notificación a lista de espera es interna, disparada por cancelación/expiración; no hay endpoint REST dedicado)* [code · lista_espera_service.py:222-284].
 
-- **Webhooks (n8n → FastAPI)**
-  - `POST /webhooks/telegram` — recibir mensajes del bot de Telegram.
+- **Webhooks (Telegram → FastAPI)**
+  - `POST /webhooks/telegram` — recibir updates del Bot API, validar secret token, encolar en background tasks [code · routers/webhooks.py:13-35].
