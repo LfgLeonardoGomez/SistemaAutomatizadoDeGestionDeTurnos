@@ -1,11 +1,11 @@
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi import Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import DbDep
+from app.dependencies import DbDep, CurrentProfesionalDep
 from app.schemas.turno import (
     ReservaTurnoRequest,
     ConfirmarTurnoRequest,
@@ -36,16 +36,18 @@ router = APIRouter(prefix="/turnos", tags=["turnos"])
 @router.get("/disponibles", response_model=list[SlotResponse])
 async def get_turnos_disponibles(
     db: DbDep,
+    profesional: CurrentProfesionalDep,
     fecha: Annotated[date, Query(description="Fecha en formato YYYY-MM-DD")],
 ) -> list[SlotResponse]:
     """Retorna los slots disponibles para una fecha dada."""
-    slots = await consultar_disponibilidad(db, fecha)
+    slots = await consultar_disponibilidad(db, profesional.id, fecha)
     return [SlotResponse(**s) for s in slots]
 
 
 @router.post("", response_model=TurnoResponse, status_code=status.HTTP_201_CREATED)
 async def create_turno(
     db: DbDep,
+    profesional: CurrentProfesionalDep,
     data: ReservaTurnoRequest,
     response: Response,
 ) -> TurnoResponse:
@@ -53,6 +55,7 @@ async def create_turno(
     try:
         turno = await reservar_turno(
             db,
+            profesional_id=profesional.id,
             fecha=data.fecha,
             hora_inicio=data.hora_inicio,
             paciente_id=data.paciente_id,
@@ -67,6 +70,7 @@ async def create_turno(
 @router.put("/{turno_id}/confirmar", response_model=TurnoResponse)
 async def confirmar_turno_endpoint(
     db: DbDep,
+    profesional: CurrentProfesionalDep,
     turno_id: int,
     data: ConfirmarTurnoRequest,
 ) -> TurnoResponse:
@@ -74,6 +78,7 @@ async def confirmar_turno_endpoint(
     try:
         turno = await confirmar_turno(
             db,
+            profesional_id=profesional.id,
             turno_id=turno_id,
             paciente_data=data.model_dump(),
         )
@@ -89,11 +94,12 @@ async def confirmar_turno_endpoint(
 @router.put("/{turno_id}/cancelar", response_model=TurnoResponse)
 async def cancelar_turno_endpoint(
     db: DbDep,
+    profesional: CurrentProfesionalDep,
     turno_id: int,
 ) -> TurnoResponse:
     """Cancela un turno confirmado."""
     try:
-        turno = await cancelar_turno(db, turno_id=turno_id)
+        turno = await cancelar_turno(db, profesional_id=profesional.id, turno_id=turno_id)
     except TurnoNoEncontradoError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=exc.message)
     except TurnoYaCanceladoError as exc:
@@ -104,6 +110,7 @@ async def cancelar_turno_endpoint(
 @router.put("/{turno_id}/reprogramar", response_model=TurnoResponse)
 async def reprogramar_turno_endpoint(
     db: DbDep,
+    profesional: CurrentProfesionalDep,
     turno_id: int,
     data: ReprogramarTurnoRequest,
 ) -> TurnoResponse:
@@ -112,6 +119,7 @@ async def reprogramar_turno_endpoint(
         paciente_data = data.paciente_data.model_dump() if data.paciente_data else None
         turno = await reprogramar_turno(
             db,
+            profesional_id=profesional.id,
             turno_id=turno_id,
             nueva_fecha=data.nueva_fecha,
             nueva_hora_inicio=data.nueva_hora_inicio,
@@ -131,6 +139,7 @@ async def reprogramar_turno_endpoint(
 @router.put("/{turno_id}/completar", response_model=TurnoResponse)
 async def completar_turno_endpoint(
     db: DbDep,
+    profesional: CurrentProfesionalDep,
     turno_id: int,
 ) -> TurnoResponse:
     """Marca un turno confirmado como completado."""
@@ -138,7 +147,7 @@ async def completar_turno_endpoint(
     from app.models.turno import Turno
 
     result = await db.execute(
-        select(Turno).where(Turno.id == turno_id).with_for_update()
+        select(Turno).where(Turno.id == turno_id, Turno.profesional_id == profesional.id).with_for_update()
     )
     turno = result.scalar_one_or_none()
     if turno is None:
@@ -159,11 +168,12 @@ async def completar_turno_endpoint(
 @router.put("/{turno_id}/confirmar-asistencia", response_model=TurnoResponse)
 async def confirmar_asistencia_endpoint(
     db: DbDep,
+    profesional: CurrentProfesionalDep,
     turno_id: int,
 ) -> TurnoResponse:
     """Confirma la asistencia de un turno ya confirmado (idempotente)."""
     try:
-        turno = await confirmar_asistencia_turno(db, turno_id=turno_id)
+        turno = await confirmar_asistencia_turno(db, profesional_id=profesional.id, turno_id=turno_id)
     except TurnoNoEncontradoError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=exc.message)
     except TurnoYaCanceladoError as exc:

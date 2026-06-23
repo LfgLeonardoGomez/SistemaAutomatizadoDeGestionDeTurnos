@@ -3,9 +3,11 @@ from typing import Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import _get_sessionmaker
+from app.models.profesional import Profesional
 from app.services.turno_service import liberar_reservas_vencidas, marcar_turnos_completados
 from app.services.lista_espera_service import procesar_timeouts_lista_espera
 from app.services.notificacion_service import (
@@ -24,12 +26,29 @@ async def _liberar_reservas_vencidas_job(session: Optional[AsyncSession] = None)
         if session is None:
             async_session = _get_sessionmaker()
             async with async_session() as sess:
-                liberados = await liberar_reservas_vencidas(sess)
+                await _ejecutar_liberar_reservas_vencidas(sess)
         else:
-            liberados = await liberar_reservas_vencidas(session)
-        logger.info(f"Job liberar_reservas_vencidas completado: {liberados} liberados")
+            await _ejecutar_liberar_reservas_vencidas(session)
     except Exception as exc:
         logger.exception(f"Error en job liberar_reservas_vencidas: {exc}")
+
+
+async def _ejecutar_liberar_reservas_vencidas(sess: AsyncSession) -> None:
+    result = await sess.execute(select(Profesional).where(Profesional.is_active == True))
+    profesionales = result.scalars().all()
+    total_liberados = 0
+    for profesional in profesionales:
+        try:
+            liberados = await liberar_reservas_vencidas(sess, profesional_id=profesional.id)
+            total_liberados += liberados
+            logger.info(
+                f"Job liberar_reservas_vencidas profesional {profesional.id}: {liberados} liberados"
+            )
+        except Exception as exc:
+            logger.exception(
+                f"Error en job liberar_reservas_vencidas para profesional {profesional.id}: {exc}"
+            )
+    logger.info(f"Job liberar_reservas_vencidas completado: {total_liberados} liberados en total")
 
 
 async def _marcar_turnos_completados_job(session: Optional[AsyncSession] = None) -> None:
@@ -38,12 +57,29 @@ async def _marcar_turnos_completados_job(session: Optional[AsyncSession] = None)
         if session is None:
             async_session = _get_sessionmaker()
             async with async_session() as sess:
-                actualizados = await marcar_turnos_completados(sess)
+                await _ejecutar_marcar_turnos_completados(sess)
         else:
-            actualizados = await marcar_turnos_completados(session)
-        logger.info(f"Job marcar_turnos_completados completado: {actualizados} actualizados")
+            await _ejecutar_marcar_turnos_completados(session)
     except Exception as exc:
         logger.exception(f"Error en job marcar_turnos_completados: {exc}")
+
+
+async def _ejecutar_marcar_turnos_completados(sess: AsyncSession) -> None:
+    result = await sess.execute(select(Profesional).where(Profesional.is_active == True))
+    profesionales = result.scalars().all()
+    total_actualizados = 0
+    for profesional in profesionales:
+        try:
+            actualizados = await marcar_turnos_completados(sess, profesional_id=profesional.id)
+            total_actualizados += actualizados
+            logger.info(
+                f"Job marcar_turnos_completados profesional {profesional.id}: {actualizados} actualizados"
+            )
+        except Exception as exc:
+            logger.exception(
+                f"Error en job marcar_turnos_completados para profesional {profesional.id}: {exc}"
+            )
+    logger.info(f"Job marcar_turnos_completados completado: {total_actualizados} actualizados en total")
 
 
 async def _procesar_timeouts_lista_espera_job(session: Optional[AsyncSession] = None) -> None:
@@ -54,12 +90,31 @@ async def _procesar_timeouts_lista_espera_job(session: Optional[AsyncSession] = 
         if session is None:
             async_session = _get_sessionmaker()
             async with async_session() as sess:
-                procesados = await procesar_timeouts_lista_espera(sess, minutos_timeout=minutos)
+                await _ejecutar_procesar_timeouts_lista_espera(sess, minutos)
         else:
-            procesados = await procesar_timeouts_lista_espera(session, minutos_timeout=minutos)
-        logger.info(f"Job procesar_timeouts_lista_espera completado: {procesados} procesados")
+            await _ejecutar_procesar_timeouts_lista_espera(session, minutos)
     except Exception as exc:
         logger.exception(f"Error en job procesar_timeouts_lista_espera: {exc}")
+
+
+async def _ejecutar_procesar_timeouts_lista_espera(sess: AsyncSession, minutos: int) -> None:
+    result = await sess.execute(select(Profesional).where(Profesional.is_active == True))
+    profesionales = result.scalars().all()
+    total_procesados = 0
+    for profesional in profesionales:
+        try:
+            procesados = await procesar_timeouts_lista_espera(
+                sess, profesional_id=profesional.id, minutos_timeout=minutos
+            )
+            total_procesados += procesados
+            logger.info(
+                f"Job procesar_timeouts_lista_espera profesional {profesional.id}: {procesados} procesados"
+            )
+        except Exception as exc:
+            logger.exception(
+                f"Error en job procesar_timeouts_lista_espera para profesional {profesional.id}: {exc}"
+            )
+    logger.info(f"Job procesar_timeouts_lista_espera completado: {total_procesados} procesados en total")
 
 
 async def _enviar_recordatorios_job(session: Optional[AsyncSession] = None) -> None:
@@ -71,27 +126,41 @@ async def _enviar_recordatorios_job(session: Optional[AsyncSession] = None) -> N
         if session is None:
             async_session = _get_sessionmaker()
             async with async_session() as sess:
-                turnos = await obtener_turnos_para_recordar(sess, horas_antes=horas_antes)
-                for turno in turnos:
-                    try:
-                        ok = await enviar_recordatorio_telegram(turno)
-                        if ok:
-                            await marcar_recordatorio_enviado(sess, turno.id)
-                    except Exception as exc:
-                        logger.error(f"Error enviando recordatorio para turno {turno.id}: {exc}")
+                total = await _ejecutar_enviar_recordatorios(sess, horas_antes)
         else:
-            turnos = await obtener_turnos_para_recordar(session, horas_antes=horas_antes)
-            for turno in turnos:
-                try:
-                    ok = await enviar_recordatorio_telegram(turno)
-                    if ok:
-                        await marcar_recordatorio_enviado(session, turno.id)
-                except Exception as exc:
-                    logger.error(f"Error enviando recordatorio para turno {turno.id}: {exc}")
+            total = await _ejecutar_enviar_recordatorios(session, horas_antes)
 
-        logger.info(f"Job enviar_recordatorios completado: {len(turnos)} recordatorios procesados")
+        logger.info(f"Job enviar_recordatorios completado: {total} recordatorios procesados")
     except Exception as exc:
         logger.exception(f"Error en job enviar_recordatorios: {exc}")
+
+
+async def _ejecutar_enviar_recordatorios(sess: AsyncSession, horas_antes: int) -> int:
+    result = await sess.execute(select(Profesional).where(Profesional.is_active == True))
+    profesionales = result.scalars().all()
+    total_recordatorios = 0
+    for profesional in profesionales:
+        try:
+            turnos = await obtener_turnos_para_recordar(
+                sess, profesional_id=profesional.id, horas_antes=horas_antes
+            )
+            bot_token = profesional.telegram_bot_token or ""
+            for turno in turnos:
+                try:
+                    ok = await enviar_recordatorio_telegram(turno, bot_token)
+                    if ok:
+                        await marcar_recordatorio_enviado(sess, turno.id, profesional.id)
+                except Exception as exc:
+                    logger.error(f"Error enviando recordatorio para turno {turno.id}: {exc}")
+            total_recordatorios += len(turnos)
+            logger.info(
+                f"Job enviar_recordatorios profesional {profesional.id}: {len(turnos)} recordatorios procesados"
+            )
+        except Exception as exc:
+            logger.exception(
+                f"Error en job enviar_recordatorios para profesional {profesional.id}: {exc}"
+            )
+    return total_recordatorios
 
 
 def init_scheduler(app: FastAPI) -> None:

@@ -33,6 +33,10 @@ class TestSeedProfesional:
         assert profesional.dias_atencion == [
             "Lunes", "Martes", "Miércoles", "Jueves", "Viernes"
         ]
+        assert profesional.email == "admin@local.dev"
+        assert profesional.password_hash is not None
+        assert profesional.password_hash.startswith("$2b$")
+        assert profesional.is_active is True
 
     @pytest.mark.asyncio
     async def test_seed_is_idempotent(self, db_session):

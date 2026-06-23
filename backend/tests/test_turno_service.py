@@ -27,6 +27,7 @@ def test_settings():
         telegram_bot_token="test",
         google_calendar_credentials='{"type": "service_account"}',
         google_calendar_id="primary",
+        secret_key="test-secret",
     )
 
 
@@ -49,9 +50,10 @@ async def _seed_profesional(db_session: AsyncSession) -> Profesional:
     return p
 
 
-async def _seed_paciente(db_session: AsyncSession, dni: str = "12345678") -> Paciente:
+async def _seed_paciente(db_session: AsyncSession, profesional_id: int, dni: str = "12345678") -> Paciente:
     paciente = Paciente(
-        nombre="Juan", apellido="Perez", dni=dni, telefono="555-1234"
+        nombre="Juan", apellido="Perez", dni=dni, telefono="555-1234",
+        profesional_id=profesional_id,
     )
     db_session.add(paciente)
     await db_session.commit()
@@ -65,16 +67,15 @@ async def _seed_paciente(db_session: AsyncSession, dni: str = "12345678") -> Pac
 
 class TestReservarTurno:
     @pytest.mark.asyncio
-    async def test_reservar_turno_exitoso(self, db_session, test_settings):
+    async def test_reservar_turno_exitoso(self, db_session, profesional, test_settings):
         """Scenario: crea Turno en RESERVADO_TEMPORAL y ReservaTemporal."""
         from app.services.turno_service import reservar_turno
 
-        p = await _seed_profesional(db_session)
-        paciente = await _seed_paciente(db_session)
+        paciente = await _seed_paciente(db_session, profesional.id)
         fecha = date(2026, 6, 15)  # Monday
 
         turno = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=paciente.id,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=paciente.id,
             settings=test_settings,
         )
 
@@ -84,7 +85,7 @@ class TestReservarTurno:
         assert turno.hora_inicio == time(9, 0)
         assert turno.hora_fin == time(9, 30)
         assert turno.paciente_id == paciente.id
-        assert turno.profesional_id == p.id
+        assert turno.profesional_id == profesional.id
 
         # ReservaTemporal debe existir
         result = await db_session.execute(
@@ -95,59 +96,57 @@ class TestReservarTurno:
         assert reserva.expiracion > datetime.now()
 
     @pytest.mark.asyncio
-    async def test_reservar_turno_bloqueado_por_turno_activo(self, db_session, test_settings):
+    async def test_reservar_turno_bloqueado_por_turno_activo(self, db_session, profesional, test_settings):
         """Scenario: paciente con turno activo → PacienteConTurnoActivoError."""
         from app.services.turno_service import reservar_turno
 
-        p = await _seed_profesional(db_session)
-        paciente = await _seed_paciente(db_session)
+        paciente = await _seed_paciente(db_session, profesional.id)
         fecha = date(2026, 6, 15)
 
         # Primer turno
         await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=paciente.id,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=paciente.id,
             settings=test_settings,
         )
 
         # Segundo turno debe fallar
         with pytest.raises(PacienteConTurnoActivoError):
             await reservar_turno(
-                db_session, fecha=fecha, hora_inicio=time(10, 0), paciente_id=paciente.id
+                db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(10, 0), paciente_id=paciente.id,
+                settings=test_settings,
             )
 
     @pytest.mark.asyncio
-    async def test_reservar_turno_slot_ya_ocupado(self, db_session, test_settings):
+    async def test_reservar_turno_slot_ya_ocupado(self, db_session, profesional, test_settings):
         """Scenario: slot ya ocupado por otro turno → TurnoNoDisponibleError."""
         from app.services.turno_service import reservar_turno
 
-        p = await _seed_profesional(db_session)
-        paciente1 = await _seed_paciente(db_session, dni="11111111")
-        paciente2 = await _seed_paciente(db_session, dni="22222222")
+        paciente1 = await _seed_paciente(db_session, profesional.id, dni="11111111")
+        paciente2 = await _seed_paciente(db_session, profesional.id, dni="22222222")
         fecha = date(2026, 6, 15)
 
         # Paciente 1 reserva
         await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=paciente1.id,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=paciente1.id,
             settings=test_settings,
         )
 
         # Paciente 2 intenta el mismo slot
         with pytest.raises(TurnoNoDisponibleError):
             await reservar_turno(
-                db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=paciente2.id,
+                db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=paciente2.id,
                 settings=test_settings,
             )
 
     @pytest.mark.asyncio
-    async def test_reservar_turno_sin_paciente_id(self, db_session, test_settings):
+    async def test_reservar_turno_sin_paciente_id(self, db_session, profesional, test_settings):
         """Scenario: reserva temporal sin paciente_id (para confirmación posterior)."""
         from app.services.turno_service import reservar_turno
 
-        p = await _seed_profesional(db_session)
         fecha = date(2026, 6, 15)
 
         turno = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
             settings=test_settings,
         )
 
@@ -161,16 +160,15 @@ class TestReservarTurno:
 
 class TestConfirmarTurno:
     @pytest.mark.asyncio
-    async def test_confirmar_turno_exitoso(self, db_session, test_settings):
+    async def test_confirmar_turno_exitoso(self, db_session, profesional, test_settings):
         """Scenario: pasa a CONFIRMADO, elimina ReservaTemporal, crea evento calendar."""
         from app.services.turno_service import reservar_turno, confirmar_turno
 
-        p = await _seed_profesional(db_session)
         fecha = date(2026, 6, 15)
 
         # Reserva temporal sin paciente
         turno = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
             settings=test_settings,
         )
 
@@ -182,6 +180,7 @@ class TestConfirmarTurno:
 
             confirmado = await confirmar_turno(
                 db_session,
+                profesional_id=profesional.id,
                 turno_id=turno.id,
                 paciente_data={
                     "nombre": "Juan",
@@ -201,15 +200,14 @@ class TestConfirmarTurno:
         assert result.scalar_one_or_none() is None
 
     @pytest.mark.asyncio
-    async def test_confirmar_turno_expirado(self, db_session, test_settings):
+    async def test_confirmar_turno_expirado(self, db_session, profesional, test_settings):
         """Scenario: ReservaTemporal eliminada previamente → TurnoExpiradoError."""
         from app.services.turno_service import reservar_turno, confirmar_turno
 
-        p = await _seed_profesional(db_session)
         fecha = date(2026, 6, 15)
 
         turno = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
             settings=test_settings,
         )
 
@@ -224,6 +222,7 @@ class TestConfirmarTurno:
         with pytest.raises(TurnoExpiradoError):
             await confirmar_turno(
                 db_session,
+                profesional_id=profesional.id,
                 turno_id=turno.id,
                 paciente_data={
                     "nombre": "Juan",
@@ -234,17 +233,16 @@ class TestConfirmarTurno:
             )
 
     @pytest.mark.asyncio
-    async def test_confirmar_turno_doble_turno_activo(self, db_session, test_settings):
+    async def test_confirmar_turno_doble_turno_activo(self, db_session, profesional, test_settings):
         """Scenario: paciente adquiere otro turno en paralelo → PacienteConTurnoActivoError."""
         from app.services.turno_service import reservar_turno, confirmar_turno
 
-        p = await _seed_profesional(db_session)
-        paciente = await _seed_paciente(db_session)
+        paciente = await _seed_paciente(db_session, profesional.id)
         fecha = date(2026, 6, 15)
 
         # Turno 1: confirmado
         t1 = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=paciente.id,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=paciente.id,
             settings=test_settings,
         )
         # Simular confirmación previa
@@ -253,7 +251,7 @@ class TestConfirmarTurno:
 
         # Turno 2: reservado temporal
         t2 = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(10, 0), paciente_id=None,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(10, 0), paciente_id=None,
             settings=test_settings,
         )
 
@@ -261,6 +259,7 @@ class TestConfirmarTurno:
         with pytest.raises(PacienteConTurnoActivoError):
             await confirmar_turno(
                 db_session,
+                profesional_id=profesional.id,
                 turno_id=t2.id,
                 paciente_data={
                     "nombre": "Juan",
@@ -271,15 +270,14 @@ class TestConfirmarTurno:
             )
 
     @pytest.mark.asyncio
-    async def test_confirmar_turno_persiste_google_event_id(self, db_session, test_settings):
+    async def test_confirmar_turno_persiste_google_event_id(self, db_session, profesional, test_settings):
         """Scenario: confirmar_turno persiste google_event_id retornado por CalendarService."""
         from app.services.turno_service import reservar_turno, confirmar_turno
 
-        p = await _seed_profesional(db_session)
         fecha = date(2026, 6, 15)
 
         turno = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
             settings=test_settings,
         )
 
@@ -290,6 +288,7 @@ class TestConfirmarTurno:
 
             confirmado = await confirmar_turno(
                 db_session,
+                profesional_id=profesional.id,
                 turno_id=turno.id,
                 paciente_data={
                     "nombre": "Juan",
@@ -308,15 +307,14 @@ class TestConfirmarTurno:
         assert turno_db.google_event_id == "event_123"
 
     @pytest.mark.asyncio
-    async def test_confirmar_turno_calendar_fallback(self, db_session, test_settings):
+    async def test_confirmar_turno_calendar_fallback(self, db_session, profesional, test_settings):
         """Scenario: calendar falla → turno sigue CONFIRMADO y google_event_id es NULL."""
         from app.services.turno_service import reservar_turno, confirmar_turno
 
-        p = await _seed_profesional(db_session)
         fecha = date(2026, 6, 15)
 
         turno = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
             settings=test_settings,
         )
 
@@ -327,6 +325,7 @@ class TestConfirmarTurno:
 
             confirmado = await confirmar_turno(
                 db_session,
+                profesional_id=profesional.id,
                 turno_id=turno.id,
                 paciente_data={
                     "nombre": "Juan",
@@ -352,15 +351,14 @@ class TestConfirmarTurno:
 
 class TestLiberarReservasVencidas:
     @pytest.mark.asyncio
-    async def test_liberar_reservas_vencidas(self, db_session, test_settings):
+    async def test_liberar_reservas_vencidas(self, db_session, profesional, test_settings):
         """Scenario: reserva con expiración pasada → turno vuelve a DISPONIBLE."""
         from app.services.turno_service import reservar_turno, liberar_reservas_vencidas
 
-        p = await _seed_profesional(db_session)
         fecha = date(2026, 6, 15)
 
         turno = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
             settings=test_settings,
         )
 
@@ -372,7 +370,7 @@ class TestLiberarReservasVencidas:
         reserva.expiracion = datetime.now() - timedelta(minutes=1)
         await db_session.commit()
 
-        liberados = await liberar_reservas_vencidas(db_session)
+        liberados = await liberar_reservas_vencidas(db_session, profesional.id)
         assert liberados >= 1
 
         # Turno debe estar DISPONIBLE
@@ -390,11 +388,11 @@ class TestLiberarReservasVencidas:
         assert result.scalar_one_or_none() is None
 
     @pytest.mark.asyncio
-    async def test_liberar_reservas_sin_vencidas(self, db_session, test_settings):
+    async def test_liberar_reservas_sin_vencidas(self, db_session, profesional, test_settings):
         """Scenario: no hay reservas vencidas → 0 liberados."""
         from app.services.turno_service import liberar_reservas_vencidas
 
-        liberados = await liberar_reservas_vencidas(db_session)
+        liberados = await liberar_reservas_vencidas(db_session, profesional.id)
         assert liberados == 0
 
 
@@ -404,20 +402,19 @@ class TestLiberarReservasVencidas:
 
 class TestConsultarDisponibilidad:
     @pytest.mark.asyncio
-    async def test_consultar_disponibilidad(self, db_session, test_settings):
+    async def test_consultar_disponibilidad(self, db_session, profesional, test_settings):
         """Scenario: fecha con slots mixtos → solo libres."""
         from app.services.turno_service import reservar_turno, consultar_disponibilidad
 
-        p = await _seed_profesional(db_session)
         fecha = date(2026, 6, 15)
 
         # Reservar un slot
         await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
             settings=test_settings,
         )
 
-        slots = await consultar_disponibilidad(db_session, fecha=fecha)
+        slots = await consultar_disponibilidad(db_session, profesional.id, fecha=fecha)
         horarios = [s["hora_inicio"] for s in slots]
         assert "09:00" not in horarios
         assert "08:00" in horarios
@@ -440,7 +437,7 @@ class TestConsultarDisponibilidad:
         await db_session.commit()
 
         fecha = date(2026, 6, 15)  # Monday
-        slots = await consultar_disponibilidad(db_session, fecha=fecha)
+        slots = await consultar_disponibilidad(db_session, p.id, fecha=fecha)
         assert slots == []
 
 
@@ -450,40 +447,26 @@ class TestConsultarDisponibilidad:
 
 class TestRaceCondition:
     @pytest.mark.asyncio
-    async def test_doble_reserva_concurrente_mismo_slot(self, db_session, test_settings):
+    async def test_doble_reserva_concurrente_mismo_slot(self, db_session, profesional, test_settings):
         """Scenario: dos reservas simultáneas sobre mismo slot → solo uno gana."""
-        import asyncio
         from app.services.turno_service import reservar_turno
 
-        p = await _seed_profesional(db_session)
-        paciente1 = await _seed_paciente(db_session, dni="11111111")
-        paciente2 = await _seed_paciente(db_session, dni="22222222")
+        paciente1 = await _seed_paciente(db_session, profesional.id, dni="11111111")
+        paciente2 = await _seed_paciente(db_session, profesional.id, dni="22222222")
         fecha = date(2026, 6, 15)
-
-        async def intentar_reservar(paciente_id: int):
-            async_session = db_session.session_factory()  # won't work easily
-            # For the test, we use the same db_session but in a real scenario
-            # we would use separate sessions.
-            try:
-                return await reservar_turno(
-                    db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=paciente_id,
-                    settings=test_settings,
-                )
-            except Exception as exc:
-                return exc
 
         # In SQLite, concurrent writes on the same session are serialized,
         # so one will succeed and the second will get an exception.
         # We simulate two calls sequentially to show the logic path.
         t1 = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=paciente1.id,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=paciente1.id,
             settings=test_settings,
         )
         assert t1.estado == "RESERVADO_TEMPORAL"
 
         with pytest.raises(TurnoNoDisponibleError):
             await reservar_turno(
-                db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=paciente2.id,
+                db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=paciente2.id,
                 settings=test_settings,
             )
 
@@ -494,17 +477,16 @@ class TestRaceCondition:
 
 class TestReprogramarTurno:
     @pytest.mark.asyncio
-    async def test_reprogramar_turno_exitoso(self, db_session, test_settings):
+    async def test_reprogramar_turno_exitoso(self, db_session, profesional, test_settings):
         """Scenario: cancela viejo, crea nuevo CONFIRMADO, calendar sync."""
         from app.services.turno_service import reservar_turno, confirmar_turno, reprogramar_turno
 
-        p = await _seed_profesional(db_session)
         fecha = date(2026, 6, 15)
         nueva_fecha = date(2026, 6, 16)
 
         # Crear y confirmar turno viejo
         turno = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
             settings=test_settings,
         )
         with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
@@ -513,6 +495,7 @@ class TestReprogramarTurno:
             mock_calendar_cls.return_value = mock_service
             confirmado = await confirmar_turno(
                 db_session,
+                profesional_id=profesional.id,
                 turno_id=turno.id,
                 paciente_data={"nombre": "Juan", "apellido": "Perez", "dni": "12345678", "telefono": "555-1234"},
             )
@@ -528,6 +511,7 @@ class TestReprogramarTurno:
 
             nuevo = await reprogramar_turno(
                 db_session,
+                profesional_id=profesional.id,
                 turno_id=confirmado.id,
                 nueva_fecha=nueva_fecha,
                 nueva_hora_inicio=time(10, 0),
@@ -548,25 +532,24 @@ class TestReprogramarTurno:
         mock_service.create_event.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_reprogramar_turno_no_existe(self, db_session):
+    async def test_reprogramar_turno_no_existe(self, db_session, profesional):
         """Scenario: turno inexistente → TurnoNoEncontradoError."""
         from app.services.turno_service import reprogramar_turno
 
         with pytest.raises(TurnoNoEncontradoError):
             await reprogramar_turno(
-                db_session, turno_id=99999, nueva_fecha=date(2026, 6, 16), nueva_hora_inicio=time(10, 0)
+                db_session, profesional_id=profesional.id, turno_id=99999, nueva_fecha=date(2026, 6, 16), nueva_hora_inicio=time(10, 0)
             )
 
     @pytest.mark.asyncio
-    async def test_reprogramar_turno_ya_cancelado(self, db_session, test_settings):
+    async def test_reprogramar_turno_ya_cancelado(self, db_session, profesional, test_settings):
         """Scenario: turno ya CANCELADO → TurnoYaCanceladoError."""
         from app.services.turno_service import reservar_turno, confirmar_turno, cancelar_turno, reprogramar_turno
 
-        p = await _seed_profesional(db_session)
         fecha = date(2026, 6, 15)
 
         turno = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
             settings=test_settings,
         )
         with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
@@ -575,17 +558,19 @@ class TestReprogramarTurno:
             mock_calendar_cls.return_value = mock_service
             confirmado = await confirmar_turno(
                 db_session,
+                profesional_id=profesional.id,
                 turno_id=turno.id,
                 paciente_data={"nombre": "Juan", "apellido": "Perez", "dni": "12345678", "telefono": "555-1234"},
             )
 
         confirmado.google_event_id = "event_123"
         await db_session.commit()
-        await cancelar_turno(db_session, turno_id=confirmado.id)
+        await cancelar_turno(db_session, profesional.id, turno_id=confirmado.id)
 
         with pytest.raises(TurnoYaCanceladoError):
             await reprogramar_turno(
                 db_session,
+                profesional_id=profesional.id,
                 turno_id=confirmado.id,
                 nueva_fecha=date(2026, 6, 16),
                 nueva_hora_inicio=time(10, 0),
@@ -593,16 +578,15 @@ class TestReprogramarTurno:
             )
 
     @pytest.mark.asyncio
-    async def test_reprogramar_turno_slot_no_disponible(self, db_session, test_settings):
+    async def test_reprogramar_turno_slot_no_disponible(self, db_session, profesional, test_settings):
         """Scenario: slot ocupado → TurnoNoDisponibleError, viejo queda CANCELADO."""
         from app.services.turno_service import reservar_turno, confirmar_turno, reprogramar_turno
 
-        p = await _seed_profesional(db_session)
         fecha = date(2026, 6, 15)
 
         # Ocupar el slot 10:00
         t_ocupado = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(10, 0), paciente_id=None,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(10, 0), paciente_id=None,
             settings=test_settings,
         )
         with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
@@ -611,6 +595,7 @@ class TestReprogramarTurno:
             mock_calendar_cls.return_value = mock_service
             await confirmar_turno(
                 db_session,
+                profesional_id=profesional.id,
                 turno_id=t_ocupado.id,
                 paciente_data={"nombre": "Ana", "apellido": "Garcia", "dni": "87654321", "telefono": "555-9999"},
             )
@@ -619,7 +604,7 @@ class TestReprogramarTurno:
 
         # Crear turno a reprogramar
         turno = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
             settings=test_settings,
         )
         with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
@@ -628,6 +613,7 @@ class TestReprogramarTurno:
             mock_calendar_cls.return_value = mock_service
             confirmado = await confirmar_turno(
                 db_session,
+                profesional_id=profesional.id,
                 turno_id=turno.id,
                 paciente_data={"nombre": "Juan", "apellido": "Perez", "dni": "12345678", "telefono": "555-1234"},
             )
@@ -642,6 +628,7 @@ class TestReprogramarTurno:
             with pytest.raises(TurnoNoDisponibleError):
                 await reprogramar_turno(
                     db_session,
+                    profesional_id=profesional.id,
                     turno_id=confirmado.id,
                     nueva_fecha=fecha,
                     nueva_hora_inicio=time(10, 0),
@@ -654,17 +641,16 @@ class TestReprogramarTurno:
         assert viejo.estado == "CANCELADO"
 
     @pytest.mark.asyncio
-    async def test_reprogramar_turno_paciente_con_otro_activo(self, db_session, test_settings):
+    async def test_reprogramar_turno_paciente_con_otro_activo(self, db_session, profesional, test_settings):
         """Scenario: paciente tiene otro turno activo → PacienteConTurnoActivoError (RN-TU-01)."""
         from app.services.turno_service import reservar_turno, confirmar_turno, reprogramar_turno
 
-        p = await _seed_profesional(db_session)
-        paciente = await _seed_paciente(db_session)
+        paciente = await _seed_paciente(db_session, profesional.id)
         fecha = date(2026, 6, 15)
 
         # Turno 1: confirmado del paciente
         t1 = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=paciente.id,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=paciente.id,
             settings=test_settings,
         )
         with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
@@ -673,6 +659,7 @@ class TestReprogramarTurno:
             mock_calendar_cls.return_value = mock_service
             await confirmar_turno(
                 db_session,
+                profesional_id=profesional.id,
                 turno_id=t1.id,
                 paciente_data={"nombre": paciente.nombre, "apellido": paciente.apellido, "dni": paciente.dni, "telefono": paciente.telefono},
             )
@@ -681,7 +668,7 @@ class TestReprogramarTurno:
 
         # Turno 2: confirmado de otro paciente (para reprogramar)
         t2 = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(10, 0), paciente_id=None,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(10, 0), paciente_id=None,
             settings=test_settings,
         )
         with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
@@ -690,6 +677,7 @@ class TestReprogramarTurno:
             mock_calendar_cls.return_value = mock_service
             confirmado2 = await confirmar_turno(
                 db_session,
+                profesional_id=profesional.id,
                 turno_id=t2.id,
                 paciente_data={"nombre": "Ana", "apellido": "Garcia", "dni": "99999999", "telefono": "555-9999"},
             )
@@ -705,6 +693,7 @@ class TestReprogramarTurno:
             with pytest.raises(PacienteConTurnoActivoError):
                 await reprogramar_turno(
                     db_session,
+                    profesional_id=profesional.id,
                     turno_id=confirmado2.id,
                     nueva_fecha=fecha,
                     nueva_hora_inicio=time(11, 0),
@@ -713,16 +702,15 @@ class TestReprogramarTurno:
                 )
 
     @pytest.mark.asyncio
-    async def test_reprogramar_turno_calendar_create_falla(self, db_session, test_settings):
+    async def test_reprogramar_turno_calendar_create_falla(self, db_session, profesional, test_settings):
         """Scenario: calendar create falla → nuevo turno sigue CONFIRMADO, log error."""
         from app.services.turno_service import reservar_turno, confirmar_turno, reprogramar_turno
 
-        p = await _seed_profesional(db_session)
         fecha = date(2026, 6, 15)
         nueva_fecha = date(2026, 6, 16)
 
         turno = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
             settings=test_settings,
         )
         with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
@@ -731,6 +719,7 @@ class TestReprogramarTurno:
             mock_calendar_cls.return_value = mock_service
             confirmado = await confirmar_turno(
                 db_session,
+                profesional_id=profesional.id,
                 turno_id=turno.id,
                 paciente_data={"nombre": "Juan", "apellido": "Perez", "dni": "12345678", "telefono": "555-1234"},
             )
@@ -745,6 +734,7 @@ class TestReprogramarTurno:
 
             nuevo = await reprogramar_turno(
                 db_session,
+                profesional_id=profesional.id,
                 turno_id=confirmado.id,
                 nueva_fecha=nueva_fecha,
                 nueva_hora_inicio=time(10, 0),
@@ -757,21 +747,21 @@ class TestReprogramarTurno:
         mock_service.create_event.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_reprogramar_turno_reservado_temporal(self, db_session, test_settings):
+    async def test_reprogramar_turno_reservado_temporal(self, db_session, profesional, test_settings):
         """Scenario: turno RESERVADO_TEMPORAL no puede reprogramarse → error."""
         from app.services.turno_service import reservar_turno, reprogramar_turno
 
-        p = await _seed_profesional(db_session)
         fecha = date(2026, 6, 15)
 
         turno = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
             settings=test_settings,
         )
 
         with pytest.raises(TurnoYaCanceladoError):
             await reprogramar_turno(
                 db_session,
+                profesional_id=profesional.id,
                 turno_id=turno.id,
                 nueva_fecha=fecha,
                 nueva_hora_inicio=time(10, 0),
@@ -779,25 +769,24 @@ class TestReprogramarTurno:
             )
 
     @pytest.mark.asyncio
-    async def test_reprogramar_turno_propaga_google_event_id(self, db_session, test_settings):
+    async def test_reprogramar_turno_propaga_google_event_id(self, db_session, profesional, test_settings):
         """Scenario: reprogramar lee event_id viejo y persiste event_id nuevo."""
-        from app.services.turno_service import cancelar_turno, confirmar_turno, reprogramar_turno
+        from app.services.turno_service import reprogramar_turno
 
-        p = await _seed_profesional(db_session)
         fecha = date(2026, 6, 15)
         nueva_fecha = date(2026, 6, 16)
 
         # Crear turno confirmado con google_event_id persistido
         turno = Turno(
             fecha=fecha, hora_inicio=time(9, 0), hora_fin=time(9, 30),
-            estado="CONFIRMADO", profesional_id=p.id, paciente_id=None,
+            estado="CONFIRMADO", profesional_id=profesional.id, paciente_id=None,
             google_event_id="event_old",
         )
         db_session.add(turno)
         await db_session.commit()
 
         # Crear paciente y asociarlo
-        paciente = await _seed_paciente(db_session)
+        paciente = await _seed_paciente(db_session, profesional.id)
         turno.paciente_id = paciente.id
         await db_session.commit()
 
@@ -808,6 +797,7 @@ class TestReprogramarTurno:
 
             nuevo = await reprogramar_turno(
                 db_session,
+                profesional_id=profesional.id,
                 turno_id=turno.id,
                 nueva_fecha=nueva_fecha,
                 nueva_hora_inicio=time(10, 0),
@@ -819,23 +809,22 @@ class TestReprogramarTurno:
         mock_service.delete_event.assert_called_once_with("event_old")
 
     @pytest.mark.asyncio
-    async def test_reprogramar_turno_sin_google_event_id_no_delete(self, db_session, test_settings):
+    async def test_reprogramar_turno_sin_google_event_id_no_delete(self, db_session, profesional, test_settings):
         """Scenario: reprogramar turno con google_event_id=NULL no invoca delete_event."""
         from app.services.turno_service import reprogramar_turno
 
-        p = await _seed_profesional(db_session)
         fecha = date(2026, 6, 15)
         nueva_fecha = date(2026, 6, 16)
 
         turno = Turno(
             fecha=fecha, hora_inicio=time(9, 0), hora_fin=time(9, 30),
-            estado="CONFIRMADO", profesional_id=p.id, paciente_id=None,
+            estado="CONFIRMADO", profesional_id=profesional.id, paciente_id=None,
             google_event_id=None,
         )
         db_session.add(turno)
         await db_session.commit()
 
-        paciente = await _seed_paciente(db_session)
+        paciente = await _seed_paciente(db_session, profesional.id)
         turno.paciente_id = paciente.id
         await db_session.commit()
 
@@ -846,6 +835,7 @@ class TestReprogramarTurno:
 
             nuevo = await reprogramar_turno(
                 db_session,
+                profesional_id=profesional.id,
                 turno_id=turno.id,
                 nueva_fecha=nueva_fecha,
                 nueva_hora_inicio=time(10, 0),
@@ -858,16 +848,15 @@ class TestReprogramarTurno:
 
 class TestCancelarTurno:
     @pytest.mark.asyncio
-    async def test_cancelar_turno_exitoso(self, db_session, test_settings):
+    async def test_cancelar_turno_exitoso(self, db_session, profesional, test_settings):
         """Scenario: turno CONFIRMADO → CANCELADO, calendar event eliminado."""
         from app.services.turno_service import reservar_turno, confirmar_turno, cancelar_turno
 
-        p = await _seed_profesional(db_session)
         fecha = date(2026, 6, 15)
 
         # Crear y confirmar turno
         turno = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
             settings=test_settings,
         )
         with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
@@ -876,6 +865,7 @@ class TestCancelarTurno:
             mock_calendar_cls.return_value = mock_service
             confirmado = await confirmar_turno(
                 db_session,
+                profesional_id=profesional.id,
                 turno_id=turno.id,
                 paciente_data={"nombre": "Juan", "apellido": "Perez", "dni": "12345678", "telefono": "555-1234"},
             )
@@ -887,29 +877,28 @@ class TestCancelarTurno:
         with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
             mock_service = MagicMock()
             mock_calendar_cls.return_value = mock_service
-            cancelado = await cancelar_turno(db_session, turno_id=confirmado.id)
+            cancelado = await cancelar_turno(db_session, profesional.id, turno_id=confirmado.id)
 
         assert cancelado.estado == "CANCELADO"
         mock_service.delete_event.assert_called_once_with("event_123")
 
     @pytest.mark.asyncio
-    async def test_cancelar_turno_no_existe(self, db_session):
+    async def test_cancelar_turno_no_existe(self, db_session, profesional):
         """Scenario: turno inexistente → TurnoNoEncontradoError."""
         from app.services.turno_service import cancelar_turno
 
         with pytest.raises(TurnoNoEncontradoError):
-            await cancelar_turno(db_session, turno_id=99999)
+            await cancelar_turno(db_session, profesional.id, turno_id=99999)
 
     @pytest.mark.asyncio
-    async def test_cancelar_turno_ya_cancelado(self, db_session, test_settings):
+    async def test_cancelar_turno_ya_cancelado(self, db_session, profesional, test_settings):
         """Scenario: turno ya CANCELADO → TurnoYaCanceladoError."""
         from app.services.turno_service import reservar_turno, confirmar_turno, cancelar_turno
 
-        p = await _seed_profesional(db_session)
         fecha = date(2026, 6, 15)
 
         turno = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
             settings=test_settings,
         )
         with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
@@ -918,6 +907,7 @@ class TestCancelarTurno:
             mock_calendar_cls.return_value = mock_service
             confirmado = await confirmar_turno(
                 db_session,
+                profesional_id=profesional.id,
                 turno_id=turno.id,
                 paciente_data={"nombre": "Juan", "apellido": "Perez", "dni": "12345678", "telefono": "555-1234"},
             )
@@ -926,22 +916,21 @@ class TestCancelarTurno:
         await db_session.commit()
 
         # Primera cancelación exitosa
-        await cancelar_turno(db_session, turno_id=confirmado.id)
+        await cancelar_turno(db_session, profesional.id, turno_id=confirmado.id)
 
         # Segunda cancelación debe fallar
         with pytest.raises(TurnoYaCanceladoError):
-            await cancelar_turno(db_session, turno_id=confirmado.id)
+            await cancelar_turno(db_session, profesional.id, turno_id=confirmado.id)
 
     @pytest.mark.asyncio
-    async def test_cancelar_turno_calendar_falla(self, db_session, test_settings):
+    async def test_cancelar_turno_calendar_falla(self, db_session, profesional, test_settings):
         """Scenario: calendar delete falla → turno sigue CANCELADO, log error."""
         from app.services.turno_service import reservar_turno, confirmar_turno, cancelar_turno
 
-        p = await _seed_profesional(db_session)
         fecha = date(2026, 6, 15)
 
         turno = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
             settings=test_settings,
         )
         with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
@@ -950,6 +939,7 @@ class TestCancelarTurno:
             mock_calendar_cls.return_value = mock_service
             confirmado = await confirmar_turno(
                 db_session,
+                profesional_id=profesional.id,
                 turno_id=turno.id,
                 paciente_data={"nombre": "Juan", "apellido": "Perez", "dni": "12345678", "telefono": "555-1234"},
             )
@@ -962,26 +952,25 @@ class TestCancelarTurno:
             mock_service.delete_event.side_effect = RuntimeError("Calendar API down")
             mock_calendar_cls.return_value = mock_service
 
-            cancelado = await cancelar_turno(db_session, turno_id=confirmado.id)
+            cancelado = await cancelar_turno(db_session, profesional.id, turno_id=confirmado.id)
 
         assert cancelado.estado == "CANCELADO"
         mock_service.delete_event.assert_called_once_with("event_123")
 
     @pytest.mark.asyncio
-    async def test_cancelar_turno_reservado_temporal(self, db_session, test_settings):
+    async def test_cancelar_turno_reservado_temporal(self, db_session, profesional, test_settings):
         """Scenario: turno RESERVADO_TEMPORAL no puede cancelarse → error."""
         from app.services.turno_service import reservar_turno, cancelar_turno
 
-        p = await _seed_profesional(db_session)
         fecha = date(2026, 6, 15)
 
         turno = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
             settings=test_settings,
         )
 
         with pytest.raises(TurnoYaCanceladoError):
-            await cancelar_turno(db_session, turno_id=turno.id)
+            await cancelar_turno(db_session, profesional.id, turno_id=turno.id)
 
 
 # ---------------------------------------------------------------------------
@@ -990,25 +979,24 @@ class TestCancelarTurno:
 
 class TestMarcarTurnosCompletados:
     @pytest.mark.asyncio
-    async def test_marcar_turnos_completados_pasado(self, db_session, test_settings):
+    async def test_marcar_turnos_completados_pasado(self, db_session, profesional, test_settings):
         """Scenario: turno CONFIRMADO pasado se marca COMPLETADO."""
         from app.services.turno_service import marcar_turnos_completados
 
-        p = await _seed_profesional(db_session)
-        paciente = await _seed_paciente(db_session)
+        paciente = await _seed_paciente(db_session, profesional.id)
 
         turno = Turno(
             fecha=date(2020, 1, 1),
             hora_inicio=time(9, 0),
             hora_fin=time(9, 30),
             estado="CONFIRMADO",
-            profesional_id=p.id,
+            profesional_id=profesional.id,
             paciente_id=paciente.id,
         )
         db_session.add(turno)
         await db_session.commit()
 
-        actualizados = await marcar_turnos_completados(db_session)
+        actualizados = await marcar_turnos_completados(db_session, profesional.id)
         assert actualizados == 1
 
         result = await db_session.execute(select(Turno).where(Turno.id == turno.id))
@@ -1016,25 +1004,24 @@ class TestMarcarTurnosCompletados:
         assert turno_db.estado == "COMPLETADO"
 
     @pytest.mark.asyncio
-    async def test_marcar_turnos_completados_futuro(self, db_session, test_settings):
+    async def test_marcar_turnos_completados_futuro(self, db_session, profesional, test_settings):
         """Scenario: turno CONFIRMADO futuro no se modifica."""
         from app.services.turno_service import marcar_turnos_completados
 
-        p = await _seed_profesional(db_session)
-        paciente = await _seed_paciente(db_session)
+        paciente = await _seed_paciente(db_session, profesional.id)
 
         turno = Turno(
             fecha=date(2099, 1, 1),
             hora_inicio=time(9, 0),
             hora_fin=time(9, 30),
             estado="CONFIRMADO",
-            profesional_id=p.id,
+            profesional_id=profesional.id,
             paciente_id=paciente.id,
         )
         db_session.add(turno)
         await db_session.commit()
 
-        actualizados = await marcar_turnos_completados(db_session)
+        actualizados = await marcar_turnos_completados(db_session, profesional.id)
         assert actualizados == 0
 
         result = await db_session.execute(select(Turno).where(Turno.id == turno.id))
@@ -1042,25 +1029,24 @@ class TestMarcarTurnosCompletados:
         assert turno_db.estado == "CONFIRMADO"
 
     @pytest.mark.asyncio
-    async def test_marcar_turnos_completados_cancelado_pasado(self, db_session, test_settings):
+    async def test_marcar_turnos_completados_cancelado_pasado(self, db_session, profesional, test_settings):
         """Scenario: turno CANCELADO pasado no se modifica."""
         from app.services.turno_service import marcar_turnos_completados
 
-        p = await _seed_profesional(db_session)
-        paciente = await _seed_paciente(db_session)
+        paciente = await _seed_paciente(db_session, profesional.id)
 
         turno = Turno(
             fecha=date(2020, 1, 1),
             hora_inicio=time(9, 0),
             hora_fin=time(9, 30),
             estado="CANCELADO",
-            profesional_id=p.id,
+            profesional_id=profesional.id,
             paciente_id=paciente.id,
         )
         db_session.add(turno)
         await db_session.commit()
 
-        actualizados = await marcar_turnos_completados(db_session)
+        actualizados = await marcar_turnos_completados(db_session, profesional.id)
         assert actualizados == 0
 
         result = await db_session.execute(select(Turno).where(Turno.id == turno.id))
@@ -1068,17 +1054,16 @@ class TestMarcarTurnosCompletados:
         assert turno_db.estado == "CANCELADO"
 
     @pytest.mark.asyncio
-    async def test_cancelar_turno_lee_google_event_id_de_db(self, db_session, test_settings):
+    async def test_cancelar_turno_lee_google_event_id_de_db(self, db_session, profesional, test_settings):
         """Scenario: cancelar turno con google_event_id en DB invoca delete_event."""
         from app.services.turno_service import cancelar_turno
 
-        p = await _seed_profesional(db_session)
-        paciente = await _seed_paciente(db_session)
+        paciente = await _seed_paciente(db_session, profesional.id)
         fecha = date(2026, 6, 15)
 
         turno = Turno(
             fecha=fecha, hora_inicio=time(9, 0), hora_fin=time(9, 30),
-            estado="CONFIRMADO", profesional_id=p.id, paciente_id=paciente.id,
+            estado="CONFIRMADO", profesional_id=profesional.id, paciente_id=paciente.id,
             google_event_id="event_456",
         )
         db_session.add(turno)
@@ -1087,23 +1072,22 @@ class TestMarcarTurnosCompletados:
         with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
             mock_service = MagicMock()
             mock_calendar_cls.return_value = mock_service
-            cancelado = await cancelar_turno(db_session, turno_id=turno.id)
+            cancelado = await cancelar_turno(db_session, profesional.id, turno_id=turno.id)
 
         assert cancelado.estado == "CANCELADO"
         mock_service.delete_event.assert_called_once_with("event_456")
 
     @pytest.mark.asyncio
-    async def test_cancelar_turno_sin_google_event_id_no_llama_delete(self, db_session, test_settings):
+    async def test_cancelar_turno_sin_google_event_id_no_llama_delete(self, db_session, profesional, test_settings):
         """Scenario: cancelar turno con google_event_id=NULL no invoca delete_event."""
         from app.services.turno_service import cancelar_turno
 
-        p = await _seed_profesional(db_session)
-        paciente = await _seed_paciente(db_session)
+        paciente = await _seed_paciente(db_session, profesional.id)
         fecha = date(2026, 6, 15)
 
         turno = Turno(
             fecha=fecha, hora_inicio=time(9, 0), hora_fin=time(9, 30),
-            estado="CONFIRMADO", profesional_id=p.id, paciente_id=paciente.id,
+            estado="CONFIRMADO", profesional_id=profesional.id, paciente_id=paciente.id,
             google_event_id=None,
         )
         db_session.add(turno)
@@ -1112,7 +1096,7 @@ class TestMarcarTurnosCompletados:
         with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
             mock_service = MagicMock()
             mock_calendar_cls.return_value = mock_service
-            cancelado = await cancelar_turno(db_session, turno_id=turno.id)
+            cancelado = await cancelar_turno(db_session, profesional.id, turno_id=turno.id)
 
         assert cancelado.estado == "CANCELADO"
         mock_service.delete_event.assert_not_called()
@@ -1124,17 +1108,16 @@ class TestMarcarTurnosCompletados:
 
 class TestHookListaEspera:
     @pytest.mark.asyncio
-    async def test_cancelar_turno_dispara_evaluar_lista_espera(self, db_session, test_settings):
+    async def test_cancelar_turno_dispara_evaluar_lista_espera(self, db_session, profesional, test_settings):
         """Scenario: cancelar turno CONFIRMADO dispara evaluar_lista_espera."""
         from app.services.turno_service import cancelar_turno
 
-        p = await _seed_profesional(db_session)
-        paciente = await _seed_paciente(db_session)
+        paciente = await _seed_paciente(db_session, profesional.id)
         fecha = date(2026, 6, 15)
 
         turno = Turno(
             fecha=fecha, hora_inicio=time(9, 0), hora_fin=time(9, 30),
-            estado="CONFIRMADO", profesional_id=p.id, paciente_id=paciente.id,
+            estado="CONFIRMADO", profesional_id=profesional.id, paciente_id=paciente.id,
             google_event_id=None,
         )
         db_session.add(turno)
@@ -1144,21 +1127,20 @@ class TestHookListaEspera:
             mock_service = MagicMock()
             mock_calendar_cls.return_value = mock_service
             with patch("app.services.lista_espera_service.evaluar_lista_espera", new=AsyncMock()) as mock_evaluar:
-                cancelado = await cancelar_turno(db_session, turno_id=turno.id)
+                cancelado = await cancelar_turno(db_session, profesional.id, turno_id=turno.id)
 
         assert cancelado.estado == "CANCELADO"
         mock_evaluar.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_liberar_reservas_vencidas_dispara_evaluar_lista_espera(self, db_session, test_settings):
+    async def test_liberar_reservas_vencidas_dispara_evaluar_lista_espera(self, db_session, profesional, test_settings):
         """Scenario: liberar reservas vencidas dispara evaluar_lista_espera por turno liberado."""
         from app.services.turno_service import reservar_turno, liberar_reservas_vencidas
 
-        p = await _seed_profesional(db_session)
         fecha = date(2026, 6, 15)
 
         turno = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
             settings=test_settings,
         )
 
@@ -1173,7 +1155,7 @@ class TestHookListaEspera:
         await db_session.commit()
 
         with patch("app.services.lista_espera_service.evaluar_lista_espera", new=AsyncMock()) as mock_evaluar:
-            liberados = await liberar_reservas_vencidas(db_session)
+            liberados = await liberar_reservas_vencidas(db_session, profesional.id)
 
         assert liberados >= 1
         mock_evaluar.assert_awaited()
@@ -1185,15 +1167,14 @@ class TestHookListaEspera:
 
 class TestGoogleEventId:
     @pytest.mark.asyncio
-    async def test_turno_model_acepta_google_event_id(self, db_session, test_settings):
+    async def test_turno_model_acepta_google_event_id(self, db_session, profesional, test_settings):
         """Scenario: Turno acepta y persiste google_event_id."""
         from app.services.turno_service import reservar_turno
 
-        p = await _seed_profesional(db_session)
         fecha = date(2026, 6, 15)
 
         turno = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
             settings=test_settings,
         )
         turno.google_event_id = "event_abc123"
@@ -1203,15 +1184,14 @@ class TestGoogleEventId:
         assert turno.google_event_id == "event_abc123"
 
     @pytest.mark.asyncio
-    async def test_turno_model_google_event_id_nullable(self, db_session, test_settings):
+    async def test_turno_model_google_event_id_nullable(self, db_session, profesional, test_settings):
         """Scenario: google_event_id puede ser NULL."""
         from app.services.turno_service import reservar_turno
 
-        p = await _seed_profesional(db_session)
         fecha = date(2026, 6, 15)
 
         turno = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
             settings=test_settings,
         )
         await db_session.commit()
@@ -1221,10 +1201,13 @@ class TestGoogleEventId:
 
     def test_alembic_migration_adds_google_event_id(self):
         """Scenario: la migración Alembic agrega la columna google_event_id."""
+        import os
         from alembic.config import Config
         from alembic.script import ScriptDirectory
 
-        alembic_cfg = Config("alembic.ini")
+        # Allow running from repo root or backend/
+        alembic_ini = "alembic.ini" if os.path.exists("alembic.ini") else "backend/alembic.ini"
+        alembic_cfg = Config(alembic_ini)
         script = ScriptDirectory.from_config(alembic_cfg)
         # Verify the migration exists and is reachable from head
         head = script.get_current_head()

@@ -16,6 +16,7 @@ class TestSettings:
         monkeypatch.setenv("RESERVA_TEMPORAL_MINUTOS", "10")
         monkeypatch.setenv("RECORDATORIO_HORAS_ANTES", "24")
         monkeypatch.setenv("ENV", "development")
+        monkeypatch.setenv("SECRET_KEY", "testsecret")
 
         from app.config import Settings
         settings = Settings()
@@ -32,6 +33,7 @@ class TestSettings:
         monkeypatch.setenv("RESERVA_TEMPORAL_MINUTOS", "10")
         monkeypatch.setenv("RECORDATORIO_HORAS_ANTES", "24")
         monkeypatch.setenv("ENV", "development")
+        monkeypatch.setenv("SECRET_KEY", "testsecret")
 
         from app.config import Settings
         with pytest.raises(ValidationError) as exc_info:
@@ -49,6 +51,7 @@ class TestSettings:
         monkeypatch.delenv("RECORDATORIO_HORAS_ANTES", raising=False)
         monkeypatch.delenv("RECORDATORIO_JOB_INTERVAL_MINUTOS", raising=False)
         monkeypatch.setenv("ENV", "development")
+        monkeypatch.setenv("SECRET_KEY", "testsecret")
 
         from app.config import Settings
         settings = Settings()
@@ -67,6 +70,7 @@ class TestSettings:
         monkeypatch.setenv("GOOGLE_CALENDAR_MAX_DELAY", "20.0")
         monkeypatch.setenv("N8N_WEBHOOK_URL", "")
         monkeypatch.setenv("ENV", "test")
+        monkeypatch.setenv("SECRET_KEY", "testsecret")
 
         from app.config import Settings
         settings = Settings()
@@ -84,7 +88,39 @@ class TestSettings:
         monkeypatch.setenv("RECORDATORIO_JOB_INTERVAL_MINUTOS", "30")
         monkeypatch.setenv("N8N_WEBHOOK_URL", "")
         monkeypatch.setenv("ENV", "test")
+        monkeypatch.setenv("SECRET_KEY", "testsecret")
 
         from app.config import Settings
         settings = Settings()
         assert settings.recordatorio_job_interval_minutos == 30
+
+    def test_settings_secret_key_and_algorithm(self, monkeypatch):
+        """Scenario: SECRET_KEY y ALGORITHM disponibles."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", "{}")
+        monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
+        monkeypatch.setenv("SECRET_KEY", "supersecretkey")
+        monkeypatch.setenv("ALGORITHM", "HS512")
+        monkeypatch.setenv("N8N_WEBHOOK_URL", "")
+        monkeypatch.setenv("ENV", "test")
+
+        from app.config import Settings
+        settings = Settings()
+        assert settings.secret_key == "supersecretkey"
+        assert settings.algorithm == "HS512"
+
+    def test_settings_algorithm_default(self, monkeypatch):
+        """Scenario: ALGORITHM default es HS256."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", "{}")
+        monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
+        monkeypatch.setenv("SECRET_KEY", "supersecretkey")
+        monkeypatch.delenv("ALGORITHM", raising=False)
+        monkeypatch.setenv("N8N_WEBHOOK_URL", "")
+        monkeypatch.setenv("ENV", "test")
+
+        from app.config import Settings
+        settings = Settings()
+        assert settings.algorithm == "HS256"

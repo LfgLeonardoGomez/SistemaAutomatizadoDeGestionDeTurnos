@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     database_url: str
     telegram_bot_token: str
     telegram_webhook_secret: str = ""
+    google_client_id: str = ""
+    google_client_secret: str = ""
     google_calendar_credentials: str = "{}"
     google_calendar_id: str = "primary"
     google_calendar_max_retries: int = 3
@@ -24,3 +26,6 @@ class Settings(BaseSettings):
     recordatorio_job_interval_minutos: int = 60
     completado_job_interval_minutos: int = 5
     env: str = "development"
+    secret_key: str
+    algorithm: str = "HS256"
+    access_token_expire_minutes: int = 1440

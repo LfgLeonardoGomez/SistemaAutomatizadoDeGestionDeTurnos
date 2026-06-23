@@ -16,6 +16,7 @@ async def _seed_profesional(db_session):
         horario_inicio="08:00",
         horario_fin="18:00",
         dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+        is_active=True,
     )
     db_session.add(p)
     await db_session.commit()
@@ -31,6 +32,7 @@ class TestSchedulerJob:
         monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
         monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
         monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
+        monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         from app.scheduler.jobs import _liberar_reservas_vencidas_job
         from app.services.turno_service import reservar_turno
@@ -43,7 +45,7 @@ class TestSchedulerJob:
 
         # Crear reserva temporal
         turno = await reservar_turno(
-            db_session, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None, settings=settings
+            db_session, profesional_id=p.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None, settings=settings
         )
 
         # Forzar expiración
@@ -71,6 +73,7 @@ class TestSchedulerJob:
         monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
         monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
         monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
+        monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         from app.scheduler.jobs import _liberar_reservas_vencidas_job
 
@@ -96,6 +99,7 @@ class TestSchedulerJob:
         monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
         monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
         monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
+        monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         from app.scheduler.jobs import _marcar_turnos_completados_job
         from app.models.turno import Turno
@@ -103,7 +107,8 @@ class TestSchedulerJob:
 
         p = await _seed_profesional(db_session)
         paciente = Paciente(
-            nombre="Juan", apellido="Perez", dni="12345678", telefono="555-1234"
+            nombre="Juan", apellido="Perez", dni="12345678", telefono="555-1234",
+            profesional_id=p.id,
         )
         db_session.add(paciente)
         await db_session.commit()
@@ -132,6 +137,7 @@ class TestSchedulerJob:
         monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
         monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
         monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
+        monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         from app.scheduler.jobs import _marcar_turnos_completados_job
 
@@ -145,15 +151,14 @@ class TestSchedulerJob:
         monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
         monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
         monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
+        monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         from app.scheduler.jobs import _marcar_turnos_completados_job
         import logging
 
+        p = await _seed_profesional(db_session)
+
         with caplog.at_level(logging.ERROR):
-            # Pasar None como session forzará que el job intente crear una sesión
-            # con _get_sessionmaker, que fallará porque no hay DB real.
-            # Sin embargo, la excepción debe ser capturada y logueada.
-            # Para testear esto de forma controlada, mockeamos marcar_turnos_completados
             from unittest.mock import patch
             with patch("app.scheduler.jobs.marcar_turnos_completados", side_effect=RuntimeError("DB error")):
                 await _marcar_turnos_completados_job(session=db_session)
@@ -170,6 +175,7 @@ class TestSchedulerJob:
         monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
         monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
         monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
+        monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         from app.scheduler.jobs import _enviar_recordatorios_job
         from app.models.paciente import Paciente
@@ -179,6 +185,7 @@ class TestSchedulerJob:
         paciente = Paciente(
             nombre="Juan", apellido="Perez", dni="11111111", telefono="555-1234",
             telegram_chat_id="12345",
+            profesional_id=p.id,
         )
         db_session.add(paciente)
         await db_session.commit()
@@ -213,6 +220,7 @@ class TestSchedulerJob:
         monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
         monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
         monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
+        monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         from app.scheduler.jobs import _enviar_recordatorios_job
 
@@ -227,6 +235,7 @@ class TestSchedulerJob:
         monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
         monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
         monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
+        monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         from app.scheduler.jobs import _enviar_recordatorios_job
         from app.models.paciente import Paciente
@@ -237,6 +246,7 @@ class TestSchedulerJob:
         paciente = Paciente(
             nombre="Juan", apellido="Perez", dni="22222222", telefono="555-1234",
             telegram_chat_id="12345",
+            profesional_id=p.id,
         )
         db_session.add(paciente)
         await db_session.commit()
@@ -268,6 +278,7 @@ class TestSchedulerJob:
         monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
         monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
         monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
+        monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         from app.scheduler.jobs import _enviar_recordatorios_job
         from app.models.paciente import Paciente
@@ -278,6 +289,7 @@ class TestSchedulerJob:
         paciente = Paciente(
             nombre="Juan", apellido="Perez", dni="33333333", telefono="555-1234",
             telegram_chat_id="12345",
+            profesional_id=p.id,
         )
         db_session.add(paciente)
         await db_session.commit()

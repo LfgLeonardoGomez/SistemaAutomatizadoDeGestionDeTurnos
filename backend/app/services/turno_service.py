@@ -27,20 +27,19 @@ from app.exceptions import (
 logger = logging.getLogger(__name__)
 
 
-async def _get_profesional_default(db: AsyncSession) -> Optional[Profesional]:
-    result = await db.execute(select(Profesional))
-    return result.scalars().first()
-
-
 async def _paciente_tiene_turno_activo(
-    db: AsyncSession, paciente_id: int, exclude_turno_id: Optional[int] = None
+    db: AsyncSession,
+    profesional_id: int,
+    paciente_id: int,
+    exclude_turno_id: Optional[int] = None,
 ) -> bool:
-    """RN-TU-01: verifica si el paciente tiene un turno en RESERVADO_TEMPORAL o CONFIRMADO."""
+    """RN-TU-01: verifica si el paciente tiene un turno en RESERVADO_TEMPORAL o CONFIRMADO para el profesional dado."""
     if paciente_id is None:
         return False
     stmt = (
         select(Turno)
         .where(
+            Turno.profesional_id == profesional_id,
             Turno.paciente_id == paciente_id,
             Turno.estado.in_(["RESERVADO_TEMPORAL", "CONFIRMADO"]),
         )
@@ -54,38 +53,39 @@ async def _paciente_tiene_turno_activo(
 
 async def reservar_turno(
     db: AsyncSession,
+    profesional_id: int,
     fecha: date,
     hora_inicio: time,
     paciente_id: Optional[int] = None,
-    profesional_id: Optional[int] = None,
     settings: Optional[Settings] = None,
 ) -> Turno:
     """
     Reserva un turno temporalmente.
 
-    - Valida RN-TU-01: paciente sin turno activo.
+    - Valida RN-TU-01: paciente sin turno activo para este profesional.
     - Bloquea turnos de la fecha para evitar carreras.
     - Crea Turno en RESERVADO_TEMPORAL + ReservaTemporal.
     """
-    if paciente_id is not None:
-        if await _paciente_tiene_turno_activo(db, paciente_id):
-            raise PacienteConTurnoActivoError()
-
-    profesional = await _get_profesional_default(db)
+    result = await db.execute(
+        select(Profesional).where(Profesional.id == profesional_id)
+    )
+    profesional = result.scalar_one_or_none()
     if profesional is None:
-        raise TurnoNoDisponibleError("No hay profesional configurado")
+        raise TurnoNoDisponibleError("Profesional no encontrado")
 
-    target_id = profesional_id or profesional.id
+    if paciente_id is not None:
+        if await _paciente_tiene_turno_activo(db, profesional_id, paciente_id):
+            raise PacienteConTurnoActivoError()
 
     # Bloquear todas las filas de turno de la fecha para serializar reservas concurrentes.
     await db.execute(
         select(Turno)
-        .where(Turno.fecha == fecha, Turno.profesional_id == target_id)
+        .where(Turno.fecha == fecha, Turno.profesional_id == profesional_id)
         .with_for_update()
     )
 
     # Verificar disponibilidad dentro de la transacción bloqueada
-    disponibles = await calcular_disponibilidad(db, fecha, target_id)
+    disponibles = await calcular_disponibilidad(db, fecha, profesional_id)
     slot_str = hora_inicio.strftime("%H:%M")
     if slot_str not in disponibles:
         raise TurnoNoDisponibleError()
@@ -100,7 +100,7 @@ async def reservar_turno(
         hora_inicio=hora_inicio,
         hora_fin=hora_fin,
         estado="RESERVADO_TEMPORAL",
-        profesional_id=target_id,
+        profesional_id=profesional_id,
         paciente_id=paciente_id,
     )
     db.add(turno)
@@ -117,13 +117,14 @@ async def reservar_turno(
 
 async def confirmar_turno(
     db: AsyncSession,
+    profesional_id: int,
     turno_id: int,
     paciente_data: dict[str, Any],
 ) -> Turno:
     """
     Confirma un turno reservado temporalmente.
 
-    - Valida que el turno esté RESERVADO_TEMPORAL y no haya expirado.
+    - Valida que el turno pertenezca al profesional y esté RESERVADO_TEMPORAL.
     - Valida RN-TU-01 atómicamente (SELECT FOR UPDATE sobre turnos del paciente).
     - Registra/identifica al paciente.
     - Actualiza turno a CONFIRMADO, elimina ReservaTemporal.
@@ -131,9 +132,11 @@ async def confirmar_turno(
       Si Calendar falla, el turno sigue CONFIRMADO y `google_event_id` queda NULL;
       no se revierte la confirmación porque la DB es la fuente de verdad.
     """
-    # Bloquear el turno a confirmar
+    # Bloquear el turno a confirmar y validar ownership
     result = await db.execute(
-        select(Turno).where(Turno.id == turno_id).with_for_update()
+        select(Turno)
+        .where(Turno.id == turno_id, Turno.profesional_id == profesional_id)
+        .with_for_update()
     )
     turno = result.scalar_one_or_none()
     if turno is None:
@@ -158,11 +161,11 @@ async def confirmar_turno(
         dni=paciente_data["dni"],
         telefono=paciente_data["telefono"],
     )
-    paciente_read = await crear_o_obtener_paciente(db, paciente_schema)
+    paciente_read = await crear_o_obtener_paciente(db, profesional_id, paciente_schema)
     paciente_id = paciente_read.id
 
     # RN-TU-01: validar que no tenga otro turno activo (excluyendo el actual)
-    if await _paciente_tiene_turno_activo(db, paciente_id, exclude_turno_id=turno.id):
+    if await _paciente_tiene_turno_activo(db, profesional_id, paciente_id, exclude_turno_id=turno.id):
         raise PacienteConTurnoActivoError()
 
     # Confirmar turno
@@ -181,7 +184,9 @@ async def confirmar_turno(
     try:
         # Forzar refresh de relaciones para que CalendarService tenga datos completos
         await db.refresh(turno, attribute_names=["paciente", "profesional"])
-        calendar = CalendarService()
+        if turno.profesional is None:
+            raise ValueError("Turno no tiene profesional asociado")
+        calendar = CalendarService(turno.profesional)
         event_id = await run_in_threadpool(calendar.create_event, turno)
         turno.google_event_id = event_id
         await db.commit()
@@ -193,14 +198,19 @@ async def confirmar_turno(
     return turno
 
 
-async def liberar_reservas_vencidas(db: AsyncSession) -> int:
+async def liberar_reservas_vencidas(db: AsyncSession, profesional_id: int) -> int:
     """
-    Libera reservas temporales cuya expiración haya pasado.
+    Libera reservas temporales cuya expiración haya pasado para un profesional.
 
     Retorna la cantidad de reservas liberadas.
     """
     result = await db.execute(
-        select(ReservaTemporal).where(ReservaTemporal.expiracion < datetime.now())
+        select(ReservaTemporal)
+        .join(Turno)
+        .where(
+            ReservaTemporal.expiracion < datetime.now(),
+            Turno.profesional_id == profesional_id,
+        )
     )
     vencidas = result.scalars().all()
 
@@ -208,7 +218,9 @@ async def liberar_reservas_vencidas(db: AsyncSession) -> int:
     turnos_liberados: list[int] = []
     for reserva in vencidas:
         result = await db.execute(
-            select(Turno).where(Turno.id == reserva.turno_id).with_for_update()
+            select(Turno)
+            .where(Turno.id == reserva.turno_id, Turno.profesional_id == profesional_id)
+            .with_for_update()
         )
         turno = result.scalar_one_or_none()
         if turno is not None:
@@ -225,11 +237,13 @@ async def liberar_reservas_vencidas(db: AsyncSession) -> int:
         # Evaluar lista de espera para cada turno liberado
         from app.services.lista_espera_service import evaluar_lista_espera
         for turno_id in turnos_liberados:
-            result = await db.execute(select(Turno).where(Turno.id == turno_id))
+            result = await db.execute(
+                select(Turno).where(Turno.id == turno_id, Turno.profesional_id == profesional_id)
+            )
             turno = result.scalar_one_or_none()
             if turno is not None:
                 try:
-                    await evaluar_lista_espera(db, fecha=turno.fecha, turno_id=turno.id)
+                    await evaluar_lista_espera(db, profesional_id=profesional_id, fecha=turno.fecha, turno_id=turno.id)
                 except Exception as exc:
                     logger.error(f"Fallo al evaluar lista de espera tras liberación: {exc}")
     else:
@@ -238,7 +252,7 @@ async def liberar_reservas_vencidas(db: AsyncSession) -> int:
     return count
 
 
-async def marcar_turnos_completados(db: AsyncSession) -> int:
+async def marcar_turnos_completados(db: AsyncSession, profesional_id: int) -> int:
     """
     Marca turnos CONFIRMADOS cuya fecha y hora de fin ya pasaron como COMPLETADOS.
 
@@ -249,7 +263,7 @@ async def marcar_turnos_completados(db: AsyncSession) -> int:
     """
     result = await db.execute(
         select(Turno)
-        .where(Turno.estado == "CONFIRMADO")
+        .where(Turno.estado == "CONFIRMADO", Turno.profesional_id == profesional_id)
         .with_for_update()
     )
     turnos = result.scalars().all()
@@ -271,19 +285,21 @@ async def marcar_turnos_completados(db: AsyncSession) -> int:
     return count
 
 
-async def cancelar_turno(db: AsyncSession, turno_id: int) -> Turno:
+async def cancelar_turno(db: AsyncSession, profesional_id: int, turno_id: int) -> Turno:
     """
     Cancela un turno confirmado.
 
     - Bloquea la fila con SELECT FOR UPDATE.
-    - Valida que el turno exista y esté CONFIRMADO.
+    - Valida que el turno exista, pertenezca al profesional y esté CONFIRMADO.
     - Actualiza estado a CANCELADO y hace COMMIT.
     - Lee `google_event_id` desde la columna persistente del modelo Turno.
       Si existe, elimina el evento de Google Calendar en best-effort;
       si falla o es NULL, no se revierte la cancelación (DB es fuente de verdad).
     """
     result = await db.execute(
-        select(Turno).where(Turno.id == turno_id).with_for_update()
+        select(Turno)
+        .where(Turno.id == turno_id, Turno.profesional_id == profesional_id)
+        .with_for_update()
     )
     turno = result.scalar_one_or_none()
     if turno is None:
@@ -302,7 +318,9 @@ async def cancelar_turno(db: AsyncSession, turno_id: int) -> Turno:
     google_event_id = turno.google_event_id
     if google_event_id:
         try:
-            calendar = CalendarService()
+            result = await db.execute(select(Profesional).where(Profesional.id == profesional_id))
+            profesional = result.scalar_one()
+            calendar = CalendarService(profesional)
             await run_in_threadpool(calendar.delete_event, google_event_id)
         except Exception as exc:
             logger.error(f"Fallo al eliminar evento de Calendar para turno {turno.id}: {exc}")
@@ -311,7 +329,7 @@ async def cancelar_turno(db: AsyncSession, turno_id: int) -> Turno:
     # Evaluar lista de espera para la fecha liberada
     try:
         from app.services.lista_espera_service import evaluar_lista_espera
-        await evaluar_lista_espera(db, fecha=fecha_cancelada, turno_id=turno.id)
+        await evaluar_lista_espera(db, profesional_id=profesional_id, fecha=fecha_cancelada, turno_id=turno.id)
     except Exception as exc:
         logger.error(f"Fallo al evaluar lista de espera tras cancelación: {exc}")
 
@@ -320,6 +338,7 @@ async def cancelar_turno(db: AsyncSession, turno_id: int) -> Turno:
 
 async def reprogramar_turno(
     db: AsyncSession,
+    profesional_id: int,
     turno_id: int,
     nueva_fecha: date,
     nueva_hora_inicio: time,
@@ -340,7 +359,9 @@ async def reprogramar_turno(
     - Retorna el nuevo turno CONFIRMADO.
     """
     result = await db.execute(
-        select(Turno).where(Turno.id == turno_id).with_for_update()
+        select(Turno)
+        .where(Turno.id == turno_id, Turno.profesional_id == profesional_id)
+        .with_for_update()
     )
     turno_viejo = result.scalar_one_or_none()
     if turno_viejo is None:
@@ -355,7 +376,10 @@ async def reprogramar_turno(
         if turno_viejo.paciente_id is None:
             raise TurnoError("El turno no tiene paciente asociado")
         result = await db.execute(
-            select(Paciente).where(Paciente.id == turno_viejo.paciente_id)
+            select(Paciente).where(
+                Paciente.id == turno_viejo.paciente_id,
+                Paciente.profesional_id == profesional_id,
+            )
         )
         paciente = result.scalar_one_or_none()
         if paciente is None:
@@ -368,11 +392,12 @@ async def reprogramar_turno(
         }
 
     # Cancelar turno anterior (libera slot y elimina calendar event best-effort)
-    await cancelar_turno(db, turno_viejo.id)
+    await cancelar_turno(db, profesional_id, turno_viejo.id)
 
     # Reservar nuevo slot
     nuevo_turno = await reservar_turno(
         db,
+        profesional_id=profesional_id,
         fecha=nueva_fecha,
         hora_inicio=nueva_hora_inicio,
         paciente_id=turno_viejo.paciente_id,
@@ -382,6 +407,7 @@ async def reprogramar_turno(
     # Confirmar nuevo turno
     confirmado = await confirmar_turno(
         db,
+        profesional_id=profesional_id,
         turno_id=nuevo_turno.id,
         paciente_data=paciente_data,
     )
@@ -389,17 +415,21 @@ async def reprogramar_turno(
     return confirmado
 
 
-async def confirmar_asistencia_turno(db: AsyncSession, turno_id: int) -> Turno:
+async def confirmar_asistencia_turno(
+    db: AsyncSession, profesional_id: int, turno_id: int
+) -> Turno:
     """
     Confirma la asistencia de un turno ya CONFIRMADO.
 
-    - Busca el turno por ID.
+    - Busca el turno por ID y valida ownership.
     - Valida que esté en estado CONFIRMADO.
     - No modifica el estado (permanece CONFIRMADO).
     - Retorna el turno actualizado.
     """
     result = await db.execute(
-        select(Turno).where(Turno.id == turno_id).with_for_update()
+        select(Turno)
+        .where(Turno.id == turno_id, Turno.profesional_id == profesional_id)
+        .with_for_update()
     )
     turno = result.scalar_one_or_none()
     if turno is None:
@@ -413,18 +443,20 @@ async def confirmar_asistencia_turno(db: AsyncSession, turno_id: int) -> Turno:
 
 async def consultar_disponibilidad(
     db: AsyncSession,
+    profesional_id: int,
     fecha: date,
-    profesional_id: Optional[int] = None,
 ) -> list[dict[str, Any]]:
     """
     Retorna los slots libres para una fecha como lista de diccionarios.
     """
-    profesional = await _get_profesional_default(db)
+    result = await db.execute(
+        select(Profesional).where(Profesional.id == profesional_id)
+    )
+    profesional = result.scalar_one_or_none()
     if profesional is None:
         return []
 
-    target_id = profesional_id or profesional.id
-    horarios = await calcular_disponibilidad(db, fecha, target_id)
+    horarios = await calcular_disponibilidad(db, fecha, profesional_id)
 
     slots = []
     for h_str in horarios:

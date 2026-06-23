@@ -6,7 +6,7 @@ from datetime import timedelta
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_db
+from app.dependencies import get_db, CurrentProfesionalDep
 from app.models.paciente import Paciente
 from app.models.profesional import Profesional
 from app.models.turno import Turno
@@ -19,32 +19,24 @@ from app.schemas.profesional import (
 )
 from app.services.availability_service import calcular_disponibilidad
 
-# TODO: v1.0 asume single-profesional. Si el dominio evoluciona a multi-profesional,
-# migrar a /profesionales/{id}/configuracion.
 router = APIRouter(prefix="/profesional", tags=["profesional"])
 
 DbDep = Annotated[AsyncSession, Depends(get_db)]
 
 
 @router.get("/configuracion", response_model=ProfesionalConfigResponse)
-async def get_configuracion(db: DbDep) -> ProfesionalConfigResponse:
-    result = await db.execute(select(Profesional))
-    profesional = result.scalars().first()
-    if not profesional:
-        raise HTTPException(status_code=404, detail="Profesional no encontrado")
+async def get_configuracion(
+    profesional: CurrentProfesionalDep,
+) -> ProfesionalConfigResponse:
     return ProfesionalConfigResponse.model_validate(profesional)
 
 
 @router.put("/configuracion", response_model=ProfesionalConfigResponse)
 async def update_configuracion(
     db: DbDep,
+    profesional: CurrentProfesionalDep,
     update: ProfesionalConfigUpdate,
 ) -> ProfesionalConfigResponse:
-    result = await db.execute(select(Profesional))
-    profesional = result.scalars().first()
-    if not profesional:
-        raise HTTPException(status_code=404, detail="Profesional no encontrado")
-
     if update.horario_inicio is not None:
         profesional.horario_inicio = update.horario_inicio
     if update.horario_fin is not None:
@@ -62,22 +54,26 @@ async def update_configuracion(
 @router.get("/disponibilidad", response_model=DisponibilidadResponse)
 async def get_disponibilidad(
     db: DbDep,
+    profesional: CurrentProfesionalDep,
     fecha: Annotated[date, Query(description="Fecha en formato YYYY-MM-DD")],
 ) -> DisponibilidadResponse:
-    result = await db.execute(select(Profesional))
-    profesional = result.scalars().first()
-    if not profesional:
-        raise HTTPException(status_code=404, detail="Profesional no encontrado")
     horarios = await calcular_disponibilidad(db, fecha, profesional.id)
     return DisponibilidadResponse(horarios=horarios)
 
 
 @router.get("/turnos-hoy", response_model=list[ProfesionalTurnoHoyResponse])
-async def get_turnos_hoy(db: DbDep) -> list[ProfesionalTurnoHoyResponse]:
+async def get_turnos_hoy(
+    db: DbDep,
+    profesional: CurrentProfesionalDep,
+) -> list[ProfesionalTurnoHoyResponse]:
     hoy = date.today()
     result = await db.execute(
         select(Turno)
-        .where(Turno.fecha == hoy, Turno.estado == "CONFIRMADO")
+        .where(
+            Turno.fecha == hoy,
+            Turno.estado == "CONFIRMADO",
+            Turno.profesional_id == profesional.id,
+        )
         .order_by(Turno.hora_inicio)
     )
     turnos = result.scalars().all()
@@ -85,14 +81,21 @@ async def get_turnos_hoy(db: DbDep) -> list[ProfesionalTurnoHoyResponse]:
 
 
 @router.get("/metricas", response_model=ProfesionalMetricasResponse)
-async def get_metricas(db: DbDep) -> ProfesionalMetricasResponse:
+async def get_metricas(
+    db: DbDep,
+    profesional: CurrentProfesionalDep,
+) -> ProfesionalMetricasResponse:
     hoy = date.today()
     inicio_30d = hoy - timedelta(days=30)
 
     # turnos_hoy
     result_hoy = await db.execute(
         select(func.count()).where(
-            and_(Turno.fecha == hoy, Turno.estado == "CONFIRMADO")
+            and_(
+                Turno.fecha == hoy,
+                Turno.estado == "CONFIRMADO",
+                Turno.profesional_id == profesional.id,
+            )
         )
     )
     turnos_hoy = result_hoy.scalar_one() or 0
@@ -100,7 +103,11 @@ async def get_metricas(db: DbDep) -> ProfesionalMetricasResponse:
     # total created in last 30 days (any estado)
     result_total = await db.execute(
         select(func.count()).where(
-            and_(Turno.fecha >= inicio_30d, Turno.fecha <= hoy)
+            and_(
+                Turno.fecha >= inicio_30d,
+                Turno.fecha <= hoy,
+                Turno.profesional_id == profesional.id,
+            )
         )
     )
     total_30d = result_total.scalar_one() or 0
@@ -115,7 +122,12 @@ async def get_metricas(db: DbDep) -> ProfesionalMetricasResponse:
     # confirmed in last 30 days
     result_conf = await db.execute(
         select(func.count()).where(
-            and_(Turno.fecha >= inicio_30d, Turno.fecha <= hoy, Turno.estado == "CONFIRMADO")
+            and_(
+                Turno.fecha >= inicio_30d,
+                Turno.fecha <= hoy,
+                Turno.estado == "CONFIRMADO",
+                Turno.profesional_id == profesional.id,
+            )
         )
     )
     confirmados_30d = result_conf.scalar_one() or 0
@@ -123,7 +135,12 @@ async def get_metricas(db: DbDep) -> ProfesionalMetricasResponse:
     # cancelled in last 30 days
     result_canc = await db.execute(
         select(func.count()).where(
-            and_(Turno.fecha >= inicio_30d, Turno.fecha <= hoy, Turno.estado == "CANCELADO")
+            and_(
+                Turno.fecha >= inicio_30d,
+                Turno.fecha <= hoy,
+                Turno.estado == "CANCELADO",
+                Turno.profesional_id == profesional.id,
+            )
         )
     )
     cancelados_30d = result_canc.scalar_one() or 0

@@ -12,7 +12,7 @@ from app.services.telegram_service import enviar_mensaje, format_recordatorio_me
 logger = logging.getLogger(__name__)
 
 
-async def obtener_turnos_para_recordar(db: AsyncSession, horas_antes: int) -> list[Turno]:
+async def obtener_turnos_para_recordar(db: AsyncSession, profesional_id: int, horas_antes: int) -> list[Turno]:
     """Query turnos CONFIRMADO sin recordatorio dentro de la ventana de horas.
 
     Filtra por estado, recordatorio_enviado y rango de fecha/hora.
@@ -28,6 +28,7 @@ async def obtener_turnos_para_recordar(db: AsyncSession, horas_antes: int) -> li
             Turno.estado == "CONFIRMADO",
             Turno.recordatorio_enviado == False,
             Turno.fecha <= limite.date(),
+            Turno.profesional_id == profesional_id,
         )
         .with_for_update()
     )
@@ -43,7 +44,7 @@ async def obtener_turnos_para_recordar(db: AsyncSession, horas_antes: int) -> li
     return candidatos
 
 
-async def enviar_recordatorio_telegram(turno: Turno) -> bool:
+async def enviar_recordatorio_telegram(turno: Turno, bot_token: str) -> bool:
     """Envía un recordatorio por Telegram al paciente del turno.
 
     Retorna True si el envío fue exitoso o si no hay chat_id (para marcar flag).
@@ -74,16 +75,18 @@ async def enviar_recordatorio_telegram(turno: Turno) -> bool:
             },
         )
         keyboard = format_recordatorio_keyboard(turno.id)
-        await enviar_mensaje(int(chat_id), mensaje, keyboard)
+        await enviar_mensaje(int(chat_id), mensaje, bot_token, keyboard)
         return True
     except Exception as exc:
         logger.error(f"Error enviando recordatorio Telegram para turno {turno.id}: {exc}")
         return False
 
 
-async def marcar_recordatorio_enviado(db: AsyncSession, turno_id: int) -> None:
+async def marcar_recordatorio_enviado(db: AsyncSession, turno_id: int, profesional_id: int) -> None:
     """Marca el turno como recordatorio_enviado = True."""
-    result = await db.execute(select(Turno).where(Turno.id == turno_id))
+    result = await db.execute(
+        select(Turno).where(Turno.id == turno_id, Turno.profesional_id == profesional_id)
+    )
     turno = result.scalar_one_or_none()
     if turno is not None:
         turno.recordatorio_enviado = True

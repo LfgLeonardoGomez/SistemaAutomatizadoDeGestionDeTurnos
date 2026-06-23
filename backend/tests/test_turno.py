@@ -152,7 +152,8 @@ class TestTurnoModel:
         await db_session.flush()
 
         paciente = Paciente(
-            nombre="Luis", apellido="Lopez", dni="44444444", telefono="5"
+            nombre="Luis", apellido="Lopez", dni="44444444", telefono="5",
+            profesional_id=profesional.id,
         )
         db_session.add(paciente)
         await db_session.flush()

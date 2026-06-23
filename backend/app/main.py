@@ -46,6 +46,7 @@ app = FastAPI(
 )
 
 from app.routers import pacientes
+from app.routers.auth import router as auth_router
 from app.routers.profesional import router as profesional_router
 from app.routers.turnos import router as turnos_router
 from app.routers.webhooks import router as webhooks_router
@@ -65,6 +66,7 @@ from app.exceptions import (
     TurnoYaCanceladoError,
 )
 
+app.include_router(auth_router)
 app.include_router(pacientes.router)
 app.include_router(profesional_router)
 app.include_router(turnos_router)

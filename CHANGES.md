@@ -359,6 +359,43 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 
 ---
 
+## FASE 7 — Multi-tenancy (v2.0)
+
+### [C-14] `tenant-data-model`
+- **Estado**: `[x]` completado
+- **Scope**: Preparar el schema de base de datos para aislamiento por profesional (tenant)
+  - `Paciente`: agregar `profesional_id` (FK NOT NULL), cambiar `UNIQUE(dni)` a `UNIQUE(profesional_id, dni)`
+  - `ListaDeEspera`: agregar `profesional_id` (FK NOT NULL), índice `(profesional_id, paciente_id)`
+  - `Profesional`: agregar columnas de auth (`email`, `password_hash`, `api_key`, `is_active`) e integración (`google_refresh_token`, `telegram_bot_token`, `telegram_secret_token`)
+  - `config.py`: agregar `SECRET_KEY` y `ALGORITHM` para JWT (C-15)
+  - `seed.py`: poblar `email` y `password_hash` con bcrypt dummy
+  - Migración Alembic reproducible con upgrade/downgrade
+  - Fixture `profesional` en `conftest.py`
+  - Tests: modelo `Paciente` (profesional_id obligatorio, DNI único por profesional), `ListaDeEspera` (profesional_id obligatorio, índice), `Profesional` (unicidad email/api_key, columnas nullable), migración válida, seed idempotente
+- **Dependencias**: C-02
+- **Governance**: CRITICO
+- **Leer antes**:
+  - `knowledge-base/04_modelo_de_datos.md` §Paciente, §Profesional, §ListaDeEspera
+  - `knowledge-base/05_reglas_de_negocio.md` §RN-PA-01, §RN-LE-01
+  - `openspec/changes/c-14-tenant-data-model/design.md`
+
+### [C-15] `tenant-auth-professional`
+- **Estado**: `[x]` completado
+- **Scope**: Autenticación JWT y API keys para profesionales (multi-tenancy v2.0)
+  - Endpoints: `POST /auth/register`, `POST /auth/login`, `POST /auth/api-key`
+  - Servicio `auth_service.py`: bcrypt password hashing, JWT creation/validation, API key generation
+  - Dependencias `dependencies.py`: `get_current_profesional` (JWT Bearer), `get_profesional_by_api_key` (`X-API-Key` header)
+  - Schemas Pydantic v2: `ProfesionalRegisterRequest`, `ProfesionalLoginRequest`, `TokenResponse`, `ApiKeyResponse`
+  - Config: `SECRET_KEY`, `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES=1440`
+  - Tests: 24/24 passing (`test_auth_password.py`, `test_auth_jwt.py`, `test_auth_integration.py`)
+- **Dependencias**: C-14
+- **Governance**: CRITICO
+- **Leer antes**:
+  - `knowledge-base/03_actores_y_roles.md` (matriz de permisos)
+  - `openspec/changes/archive/2026-06-22-c-14-tenant-data-model/design.md`
+
+---
+
 ## Resumen
 
 | Change | Fase | Estado | Governance | Depende de |
@@ -376,7 +413,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 | C-10 | 5 — Automatizaciones | `[x]` | MEDIO | C-13 |
 | C-11 | 5 — Automatizaciones | `[x]` | ALTO | C-13 |
 | C-12 | 6 — Panel Profesional | `[x]` | BAJO | C-03, C-13 |
+| C-14 | 7 — Multi-tenancy | `[x]` | CRITICO | C-02 |
+| C-15 | 7 — Multi-tenancy | `[x]` | CRITICO | C-14 |
 
-**Primer change recomendado**: Ninguno — todos los changes están implementados.
-
-Para continuar: revisar `10_preguntas_abiertas.md` para identificar mejoras o v2.0.
+**Primer change recomendado**: C-16 (backend scoping por profesional).

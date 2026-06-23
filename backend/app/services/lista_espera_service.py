@@ -5,6 +5,7 @@ from typing import Optional
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.profesional import Profesional
 from app.models.lista_de_espera import ListaDeEspera
 from app.models.paciente import Paciente
 from app.models.turno import Turno
@@ -19,12 +20,17 @@ logger = logging.getLogger(__name__)
 
 async def registrar_en_lista_espera(
     db: AsyncSession,
+    profesional_id: int,
     paciente_id: int,
     fecha_solicitada: date,
     telegram_chat_id: Optional[str] = None,
 ) -> ListaDeEspera:
     """Register a patient in the waiting list for a specific date."""
-    result = await db.execute(select(Paciente).where(Paciente.id == paciente_id))
+    result = await db.execute(
+        select(Paciente).where(
+            Paciente.id == paciente_id, Paciente.profesional_id == profesional_id
+        )
+    )
     paciente = result.scalar_one_or_none()
     if paciente is None:
         raise TurnoNoEncontradoError("Paciente no encontrado")
@@ -33,6 +39,7 @@ async def registrar_en_lista_espera(
         paciente_id=paciente_id,
         fecha_solicitada=fecha_solicitada,
         telegram_chat_id=telegram_chat_id,
+        profesional_id=profesional_id,
     )
     db.add(registro)
     await db.commit()
@@ -40,10 +47,15 @@ async def registrar_en_lista_espera(
     return registro
 
 
-async def eliminar_de_lista_espera(db: AsyncSession, lista_espera_id: int) -> None:
+async def eliminar_de_lista_espera(
+    db: AsyncSession, profesional_id: int, lista_espera_id: int
+) -> None:
     """Remove a patient from the waiting list."""
     result = await db.execute(
-        select(ListaDeEspera).where(ListaDeEspera.id == lista_espera_id)
+        select(ListaDeEspera).where(
+            ListaDeEspera.id == lista_espera_id,
+            ListaDeEspera.profesional_id == profesional_id,
+        )
     )
     registro = result.scalar_one_or_none()
     if registro is None:
@@ -54,12 +66,13 @@ async def eliminar_de_lista_espera(db: AsyncSession, lista_espera_id: int) -> No
 
 
 async def obtener_siguiente_paciente_fifo(
-    db: AsyncSession, fecha: date
+    db: AsyncSession, profesional_id: int, fecha: date
 ) -> Optional[ListaDeEspera]:
     """Atomically select the next patient in FIFO order for a given date."""
     result = await db.execute(
         select(ListaDeEspera)
         .where(
+            ListaDeEspera.profesional_id == profesional_id,
             ListaDeEspera.fecha_solicitada == fecha,
             ListaDeEspera.notificado == False,
         )
@@ -72,6 +85,7 @@ async def obtener_siguiente_paciente_fifo(
 
 async def notificar_y_marcar(
     db: AsyncSession,
+    profesional_id: int,
     lista_espera_id: int,
     turno_id: int,
     chat_id: Optional[str],
@@ -82,13 +96,20 @@ async def notificar_y_marcar(
     will retry with the same patient.
     """
     result = await db.execute(
-        select(ListaDeEspera).where(ListaDeEspera.id == lista_espera_id).with_for_update()
+        select(ListaDeEspera)
+        .where(
+            ListaDeEspera.id == lista_espera_id,
+            ListaDeEspera.profesional_id == profesional_id,
+        )
+        .with_for_update()
     )
     registro = result.scalar_one_or_none()
     if registro is None:
         raise TurnoNoEncontradoError("Registro de lista de espera no encontrado")
 
-    result_turno = await db.execute(select(Turno).where(Turno.id == turno_id))
+    result_turno = await db.execute(
+        select(Turno).where(Turno.id == turno_id, Turno.profesional_id == profesional_id)
+    )
     turno = result_turno.scalar_one_or_none()
     if turno is None:
         raise TurnoNoEncontradoError("Turno no encontrado")
@@ -104,7 +125,15 @@ async def notificar_y_marcar(
         return
 
     try:
-        ok = await enviar_notificacion_lista_espera(chat_id, turno)
+        # Get bot token for this profesional
+        result_prof = await db.execute(select(Profesional).where(Profesional.id == profesional_id))
+        profesional = result_prof.scalar_one_or_none()
+        bot_token = profesional.telegram_bot_token if profesional else None
+        if not bot_token:
+            logger.warning("Profesional %s no tiene telegram_bot_token", profesional_id)
+            return
+
+        ok = await enviar_notificacion_lista_espera(chat_id, turno, bot_token)
         if not ok:
             raise RuntimeError("Telegram notification returned False")
     except Exception as exc:
@@ -123,11 +152,16 @@ async def notificar_y_marcar(
 
 
 async def aceptar_turno_lista_espera(
-    db: AsyncSession, lista_espera_id: int
+    db: AsyncSession, profesional_id: int, lista_espera_id: int
 ) -> Turno:
     """Accept the offered slot, confirm the turno, and remove from queue."""
     result = await db.execute(
-        select(ListaDeEspera).where(ListaDeEspera.id == lista_espera_id).with_for_update()
+        select(ListaDeEspera)
+        .where(
+            ListaDeEspera.id == lista_espera_id,
+            ListaDeEspera.profesional_id == profesional_id,
+        )
+        .with_for_update()
     )
     registro = result.scalar_one_or_none()
     if registro is None:
@@ -145,7 +179,9 @@ async def aceptar_turno_lista_espera(
     # or CANCELADO (if it was the original cancelled turno).  If it is not
     # RESERVADO_TEMPORAL we need to create a fresh reservation for the same slot.
     result_turno = await db.execute(
-        select(Turno).where(Turno.id == turno_ofrecido_id).with_for_update()
+        select(Turno)
+        .where(Turno.id == turno_ofrecido_id, Turno.profesional_id == profesional_id)
+        .with_for_update()
     )
     turno_ofrecido = result_turno.scalar_one_or_none()
     if turno_ofrecido is None:
@@ -162,11 +198,14 @@ async def aceptar_turno_lista_espera(
             "dni": paciente.dni,
             "telefono": paciente.telefono,
         }
-        confirmado = await confirmar_turno(db, turno_id=turno_ofrecido.id, paciente_data=paciente_data)
+        confirmado = await confirmar_turno(
+            db, profesional_id=profesional_id, turno_id=turno_ofrecido.id, paciente_data=paciente_data
+        )
     else:
         # For cancelled (or any other non-reservable) turnos, create a new one
         nuevo_turno = await reservar_turno(
             db,
+            profesional_id=profesional_id,
             fecha=turno_ofrecido.fecha,
             hora_inicio=turno_ofrecido.hora_inicio,
             paciente_id=paciente.id,
@@ -177,7 +216,9 @@ async def aceptar_turno_lista_espera(
             "dni": paciente.dni,
             "telefono": paciente.telefono,
         }
-        confirmado = await confirmar_turno(db, turno_id=nuevo_turno.id, paciente_data=paciente_data)
+        confirmado = await confirmar_turno(
+            db, profesional_id=profesional_id, turno_id=nuevo_turno.id, paciente_data=paciente_data
+        )
 
     # Remove from waiting list
     await db.delete(registro)
@@ -187,11 +228,16 @@ async def aceptar_turno_lista_espera(
 
 
 async def rechazar_turno_lista_espera(
-    db: AsyncSession, lista_espera_id: int, turno_id: int
+    db: AsyncSession, profesional_id: int, lista_espera_id: int, turno_id: int
 ) -> None:
     """Reject the offered slot, reset the record, and offer to next patient."""
     result = await db.execute(
-        select(ListaDeEspera).where(ListaDeEspera.id == lista_espera_id).with_for_update()
+        select(ListaDeEspera)
+        .where(
+            ListaDeEspera.id == lista_espera_id,
+            ListaDeEspera.profesional_id == profesional_id,
+        )
+        .with_for_update()
     )
     registro = result.scalar_one_or_none()
     if registro is None:
@@ -199,7 +245,9 @@ async def rechazar_turno_lista_espera(
 
     # Free the offered turno if it is a temporary reservation
     result_turno = await db.execute(
-        select(Turno).where(Turno.id == turno_id).with_for_update()
+        select(Turno)
+        .where(Turno.id == turno_id, Turno.profesional_id == profesional_id)
+        .with_for_update()
     )
     turno = result_turno.scalar_one_or_none()
     if turno is not None and turno.estado == "RESERVADO_TEMPORAL":
@@ -216,11 +264,12 @@ async def rechazar_turno_lista_espera(
     registro.creado_en = datetime.now()
     await db.commit()
 
-    await evaluar_lista_espera(db, fecha=fecha, turno_id=turno_id)
+    await evaluar_lista_espera(db, profesional_id=profesional_id, fecha=fecha, turno_id=turno_id)
 
 
 async def evaluar_lista_espera(
     db: AsyncSession,
+    profesional_id: int,
     fecha: date,
     turno_id: Optional[int] = None,
 ) -> Optional[Turno]:
@@ -229,14 +278,16 @@ async def evaluar_lista_espera(
     If *turno_id* is provided the slot info (fecha/hora) is read from that turno.
     Otherwise the first available slot on *fecha* is picked.
     """
-    siguiente = await obtener_siguiente_paciente_fifo(db, fecha=fecha)
+    siguiente = await obtener_siguiente_paciente_fifo(db, profesional_id=profesional_id, fecha=fecha)
     if siguiente is None:
         logger.info("No hay pacientes en lista de espera para la fecha %s", fecha)
         return None
 
     # Determine which slot to reserve
     if turno_id is not None:
-        result = await db.execute(select(Turno).where(Turno.id == turno_id))
+        result = await db.execute(
+            select(Turno).where(Turno.id == turno_id, Turno.profesional_id == profesional_id)
+        )
         turno_origen = result.scalar_one_or_none()
         if turno_origen is None:
             logger.warning("Turno origen %s no encontrado; no se puede evaluar lista de espera", turno_id)
@@ -244,13 +295,8 @@ async def evaluar_lista_espera(
         slot_fecha = turno_origen.fecha
         slot_hora = turno_origen.hora_inicio
     else:
-        # Pick first available slot on the date
-        from app.models.profesional import Profesional
-        result_prof = await db.execute(select(Profesional))
-        profesional = result_prof.scalars().first()
-        if profesional is None:
-            return None
-        disponibles = await calcular_disponibilidad(db, fecha, profesional.id)
+        # Pick first available slot on the date for this profesional
+        disponibles = await calcular_disponibilidad(db, fecha, profesional_id)
         if not disponibles:
             logger.info("No hay slots disponibles para la fecha %s", fecha)
             return None
@@ -265,6 +311,7 @@ async def evaluar_lista_espera(
     try:
         turno_reservado = await reservar_turno(
             db,
+            profesional_id=profesional_id,
             fecha=slot_fecha,
             hora_inicio=slot_hora,
             paciente_id=None,
@@ -276,6 +323,7 @@ async def evaluar_lista_espera(
     # Notify the patient
     await notificar_y_marcar(
         db,
+        profesional_id=profesional_id,
         lista_espera_id=siguiente.id,
         turno_id=turno_reservado.id,
         chat_id=siguiente.telegram_chat_id,
@@ -286,6 +334,7 @@ async def evaluar_lista_espera(
 
 async def procesar_timeouts_lista_espera(
     db: AsyncSession,
+    profesional_id: int,
     minutos_timeout: int = 5,
 ) -> int:
     """Process expired waiting-list notifications and re-offer slots.
@@ -295,6 +344,7 @@ async def procesar_timeouts_lista_espera(
     umbral = datetime.now() - timedelta(minutes=minutos_timeout)
     result = await db.execute(
         select(ListaDeEspera).where(
+            ListaDeEspera.profesional_id == profesional_id,
             ListaDeEspera.notificado == True,
             ListaDeEspera.notificado_en < umbral,
         )
@@ -305,7 +355,12 @@ async def procesar_timeouts_lista_espera(
     for registro in vencidos:
         # Re-query with lock to avoid races with user interactions
         result = await db.execute(
-            select(ListaDeEspera).where(ListaDeEspera.id == registro.id).with_for_update()
+            select(ListaDeEspera)
+            .where(
+                ListaDeEspera.id == registro.id,
+                ListaDeEspera.profesional_id == profesional_id,
+            )
+            .with_for_update()
         )
         locked = result.scalar_one_or_none()
         if locked is None:
@@ -320,7 +375,9 @@ async def procesar_timeouts_lista_espera(
         # Free the held turno if it is still a temporary reservation
         if turno_id is not None:
             result_turno = await db.execute(
-                select(Turno).where(Turno.id == turno_id).with_for_update()
+                select(Turno)
+                .where(Turno.id == turno_id, Turno.profesional_id == profesional_id)
+                .with_for_update()
             )
             turno = result_turno.scalar_one_or_none()
             if turno is not None and turno.estado == "RESERVADO_TEMPORAL":
@@ -338,6 +395,6 @@ async def procesar_timeouts_lista_espera(
         count += 1
 
         # Re-evaluate queue for the same date
-        await evaluar_lista_espera(db, fecha=fecha, turno_id=turno_id)
+        await evaluar_lista_espera(db, profesional_id=profesional_id, fecha=fecha, turno_id=turno_id)
 
     return count

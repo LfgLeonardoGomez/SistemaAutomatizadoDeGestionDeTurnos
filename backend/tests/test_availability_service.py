@@ -21,7 +21,7 @@ class TestAvailabilityService:
 
         from app.services.availability_service import calcular_disponibilidad
         fecha = date(2026, 6, 15)  # Monday
-        slots = await calcular_disponibilidad(db_session, fecha)
+        slots = await calcular_disponibilidad(db_session, fecha, profesional.id)
         assert len(slots) == 20
         assert slots[0] == "08:00"
         assert slots[-1] == "17:30"
@@ -41,7 +41,7 @@ class TestAvailabilityService:
 
         from app.services.availability_service import calcular_disponibilidad
         fecha = date(2026, 6, 15)  # Monday
-        slots = await calcular_disponibilidad(db_session, fecha)
+        slots = await calcular_disponibilidad(db_session, fecha, profesional.id)
         assert slots == []
 
     @pytest.mark.asyncio
@@ -68,7 +68,7 @@ class TestAvailabilityService:
         await db_session.commit()
 
         from app.services.availability_service import calcular_disponibilidad
-        slots = await calcular_disponibilidad(db_session, date(2026, 6, 15))
+        slots = await calcular_disponibilidad(db_session, date(2026, 6, 15), profesional.id)
         assert "09:00" not in slots
 
     @pytest.mark.asyncio
@@ -95,7 +95,7 @@ class TestAvailabilityService:
         await db_session.commit()
 
         from app.services.availability_service import calcular_disponibilidad
-        slots = await calcular_disponibilidad(db_session, date(2026, 6, 15))
+        slots = await calcular_disponibilidad(db_session, date(2026, 6, 15), profesional.id)
         assert "10:00" not in slots
 
     @pytest.mark.asyncio
@@ -122,7 +122,7 @@ class TestAvailabilityService:
         await db_session.commit()
 
         from app.services.availability_service import calcular_disponibilidad
-        slots = await calcular_disponibilidad(db_session, date(2026, 6, 15))
+        slots = await calcular_disponibilidad(db_session, date(2026, 6, 15), profesional.id)
         assert "09:00" not in slots
 
     @pytest.mark.asyncio
@@ -149,7 +149,7 @@ class TestAvailabilityService:
         await db_session.commit()
 
         from app.services.availability_service import calcular_disponibilidad
-        slots = await calcular_disponibilidad(db_session, date(2026, 6, 15))
+        slots = await calcular_disponibilidad(db_session, date(2026, 6, 15), profesional.id)
         assert "09:30" in slots
 
     @pytest.mark.asyncio
@@ -166,7 +166,7 @@ class TestAvailabilityService:
         await db_session.commit()
 
         from app.services.availability_service import calcular_disponibilidad
-        slots = await calcular_disponibilidad(db_session, date(2026, 6, 15))
+        slots = await calcular_disponibilidad(db_session, date(2026, 6, 15), profesional.id)
         assert len(slots) == 10
         assert slots[0] == "08:00"
         assert slots[1] == "09:00"
@@ -186,7 +186,7 @@ class TestAvailabilityService:
 
         from app.services.availability_service import calcular_disponibilidad
         fecha = date(2026, 6, 15)  # Monday
-        slots = await calcular_disponibilidad(db_session, fecha)
+        slots = await calcular_disponibilidad(db_session, fecha, profesional.id)
         assert slots == []
 
     @pytest.mark.asyncio
@@ -203,7 +203,7 @@ class TestAvailabilityService:
         await db_session.commit()
 
         from app.services.availability_service import calcular_disponibilidad
-        slots = await calcular_disponibilidad(db_session, date(2026, 6, 15))
+        slots = await calcular_disponibilidad(db_session, date(2026, 6, 15), profesional.id)
         assert "08:00" not in slots
         assert "09:00" not in slots
         assert slots[0] == "10:00"
@@ -240,14 +240,14 @@ class TestAvailabilityService:
         await db_session.commit()
 
         from app.services.availability_service import calcular_disponibilidad
-        slots = await calcular_disponibilidad(db_session, date(2026, 6, 15))
+        slots = await calcular_disponibilidad(db_session, date(2026, 6, 15), profesional.id)
         assert "09:00" not in slots
         assert "10:00" not in slots
 
     @pytest.mark.asyncio
     async def test_profesional_no_encontrado(self, db_session):
         from app.services.availability_service import calcular_disponibilidad
-        slots = await calcular_disponibilidad(db_session, date(2026, 6, 15))
+        slots = await calcular_disponibilidad(db_session, date(2026, 6, 15), profesional_id=99999)
         assert slots == []
 
     @pytest.mark.asyncio
@@ -274,5 +274,5 @@ class TestAvailabilityService:
         await db_session.commit()
 
         from app.services.availability_service import calcular_disponibilidad
-        slots = await calcular_disponibilidad(db_session, date(2026, 6, 15))
+        slots = await calcular_disponibilidad(db_session, date(2026, 6, 15), profesional.id)
         assert "08:30" in slots

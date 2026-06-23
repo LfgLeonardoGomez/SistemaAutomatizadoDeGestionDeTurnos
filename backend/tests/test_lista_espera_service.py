@@ -17,6 +17,7 @@ from app.config import Settings
 def set_env_vars(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test")
+    monkeypatch.setenv("SECRET_KEY", "test-secret-key")
 
 
 @pytest.fixture
@@ -27,6 +28,7 @@ def test_settings():
         google_calendar_credentials='{"type": "service_account"}',
         google_calendar_id="primary",
         lista_espera_minutos=5,
+        secret_key="test-secret",
     )
 
 
@@ -38,6 +40,7 @@ async def _seed_profesional(db_session: AsyncSession) -> Profesional:
         horario_inicio="08:00",
         horario_fin="18:00",
         dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+        telegram_bot_token="test-token",
     )
     db_session.add(p)
     await db_session.commit()
@@ -45,9 +48,10 @@ async def _seed_profesional(db_session: AsyncSession) -> Profesional:
     return p
 
 
-async def _seed_paciente(db_session: AsyncSession, dni: str = "12345678", nombre: str = "Juan", telefono: str = "555-1234") -> Paciente:
+async def _seed_paciente(db_session: AsyncSession, profesional_id: int, dni: str = "12345678", nombre: str = "Juan", telefono: str = "555-1234") -> Paciente:
     paciente = Paciente(
-        nombre=nombre, apellido="Perez", dni=dni, telefono=telefono
+        nombre=nombre, apellido="Perez", dni=dni, telefono=telefono,
+        profesional_id=profesional_id,
     )
     db_session.add(paciente)
     await db_session.commit()
@@ -82,6 +86,7 @@ async def _seed_turno(
 
 async def _seed_lista_espera(
     db_session: AsyncSession,
+    profesional_id: int,
     paciente_id: int,
     fecha_solicitada: date = date(2026, 6, 15),
     telegram_chat_id: Optional[str] = "12345",
@@ -90,6 +95,7 @@ async def _seed_lista_espera(
         paciente_id=paciente_id,
         fecha_solicitada=fecha_solicitada,
         telegram_chat_id=telegram_chat_id,
+        profesional_id=profesional_id,
     )
     db_session.add(registro)
     await db_session.commit()
@@ -107,11 +113,11 @@ class TestRegistrarEnListaEspera:
         from app.services.lista_espera_service import registrar_en_lista_espera
 
         p = await _seed_profesional(db_session)
-        paciente = await _seed_paciente(db_session)
+        paciente = await _seed_paciente(db_session, p.id)
         fecha = date(2026, 6, 15)
 
         registro = await registrar_en_lista_espera(
-            db_session, paciente_id=paciente.id, fecha_solicitada=fecha, telegram_chat_id="12345"
+            db_session, profesional_id=p.id, paciente_id=paciente.id, fecha_solicitada=fecha, telegram_chat_id="12345"
         )
 
         assert registro.id is not None
@@ -121,15 +127,17 @@ class TestRegistrarEnListaEspera:
         assert registro.turno_ofrecido_id is None
         assert registro.notificado_en is None
         assert registro.telegram_chat_id == "12345"
+        assert registro.profesional_id == p.id
 
     @pytest.mark.asyncio
     async def test_registrar_en_lista_espera_paciente_inexistente(self, db_session, test_settings):
         from app.services.lista_espera_service import registrar_en_lista_espera
         from app.exceptions import TurnoNoEncontradoError
 
+        p = await _seed_profesional(db_session)
         with pytest.raises(TurnoNoEncontradoError):
             await registrar_en_lista_espera(
-                db_session, paciente_id=99999, fecha_solicitada=date(2026, 6, 15), telegram_chat_id="12345"
+                db_session, profesional_id=p.id, paciente_id=99999, fecha_solicitada=date(2026, 6, 15), telegram_chat_id="12345"
             )
 
 
@@ -143,10 +151,10 @@ class TestEliminarDeListaEspera:
         from app.services.lista_espera_service import eliminar_de_lista_espera
 
         p = await _seed_profesional(db_session)
-        paciente = await _seed_paciente(db_session)
-        registro = await _seed_lista_espera(db_session, paciente_id=paciente.id)
+        paciente = await _seed_paciente(db_session, p.id)
+        registro = await _seed_lista_espera(db_session, p.id, paciente_id=paciente.id)
 
-        await eliminar_de_lista_espera(db_session, lista_espera_id=registro.id)
+        await eliminar_de_lista_espera(db_session, profesional_id=p.id, lista_espera_id=registro.id)
 
         result = await db_session.execute(
             select(ListaDeEspera).where(ListaDeEspera.id == registro.id)
@@ -158,8 +166,9 @@ class TestEliminarDeListaEspera:
         from app.services.lista_espera_service import eliminar_de_lista_espera
         from app.exceptions import TurnoNoEncontradoError
 
+        p = await _seed_profesional(db_session)
         with pytest.raises(TurnoNoEncontradoError):
-            await eliminar_de_lista_espera(db_session, lista_espera_id=99999)
+            await eliminar_de_lista_espera(db_session, profesional_id=p.id, lista_espera_id=99999)
 
 
 # ---------------------------------------------------------------------------
@@ -172,14 +181,14 @@ class TestObtenerSiguientePacienteFifo:
         from app.services.lista_espera_service import obtener_siguiente_paciente_fifo
 
         p = await _seed_profesional(db_session)
-        paciente1 = await _seed_paciente(db_session, dni="11111111")
-        paciente2 = await _seed_paciente(db_session, dni="22222222")
+        paciente1 = await _seed_paciente(db_session, p.id, dni="11111111")
+        paciente2 = await _seed_paciente(db_session, p.id, dni="22222222")
         fecha = date(2026, 6, 15)
 
-        registro1 = await _seed_lista_espera(db_session, paciente_id=paciente1.id, fecha_solicitada=fecha)
-        registro2 = await _seed_lista_espera(db_session, paciente_id=paciente2.id, fecha_solicitada=fecha)
+        registro1 = await _seed_lista_espera(db_session, p.id, paciente_id=paciente1.id, fecha_solicitada=fecha)
+        registro2 = await _seed_lista_espera(db_session, p.id, paciente_id=paciente2.id, fecha_solicitada=fecha)
 
-        siguiente = await obtener_siguiente_paciente_fifo(db_session, fecha=fecha)
+        siguiente = await obtener_siguiente_paciente_fifo(db_session, profesional_id=p.id, fecha=fecha)
         assert siguiente is not None
         assert siguiente.id == registro1.id
 
@@ -188,19 +197,19 @@ class TestObtenerSiguientePacienteFifo:
         from app.services.lista_espera_service import obtener_siguiente_paciente_fifo
 
         p = await _seed_profesional(db_session)
-        paciente1 = await _seed_paciente(db_session, dni="11111111")
-        paciente2 = await _seed_paciente(db_session, dni="22222222")
+        paciente1 = await _seed_paciente(db_session, p.id, dni="11111111")
+        paciente2 = await _seed_paciente(db_session, p.id, dni="22222222")
         fecha = date(2026, 6, 15)
 
         turno = await _seed_turno(db_session, profesional_id=p.id, estado="CANCELADO")
-        registro1 = await _seed_lista_espera(db_session, paciente_id=paciente1.id, fecha_solicitada=fecha)
+        registro1 = await _seed_lista_espera(db_session, p.id, paciente_id=paciente1.id, fecha_solicitada=fecha)
         registro1.notificado = True
         registro1.turno_ofrecido_id = turno.id
         await db_session.commit()
 
-        registro2 = await _seed_lista_espera(db_session, paciente_id=paciente2.id, fecha_solicitada=fecha)
+        registro2 = await _seed_lista_espera(db_session, p.id, paciente_id=paciente2.id, fecha_solicitada=fecha)
 
-        siguiente = await obtener_siguiente_paciente_fifo(db_session, fecha=fecha)
+        siguiente = await obtener_siguiente_paciente_fifo(db_session, profesional_id=p.id, fecha=fecha)
         assert siguiente is not None
         assert siguiente.id == registro2.id
 
@@ -208,8 +217,9 @@ class TestObtenerSiguientePacienteFifo:
     async def test_obtener_siguiente_paciente_fifo_sin_registros(self, db_session, test_settings):
         from app.services.lista_espera_service import obtener_siguiente_paciente_fifo
 
+        p = await _seed_profesional(db_session)
         fecha = date(2026, 6, 15)
-        siguiente = await obtener_siguiente_paciente_fifo(db_session, fecha=fecha)
+        siguiente = await obtener_siguiente_paciente_fifo(db_session, profesional_id=p.id, fecha=fecha)
         assert siguiente is None
 
 
@@ -223,13 +233,13 @@ class TestNotificarYMarcar:
         from app.services.lista_espera_service import notificar_y_marcar
 
         p = await _seed_profesional(db_session)
-        paciente = await _seed_paciente(db_session)
+        paciente = await _seed_paciente(db_session, p.id)
         turno = await _seed_turno(db_session, profesional_id=p.id, estado="CANCELADO")
-        registro = await _seed_lista_espera(db_session, paciente_id=paciente.id)
+        registro = await _seed_lista_espera(db_session, p.id, paciente_id=paciente.id)
 
         with patch("app.services.lista_espera_service.enviar_notificacion_lista_espera", new=AsyncMock()) as mock_enviar:
             await notificar_y_marcar(
-                db_session, lista_espera_id=registro.id, turno_id=turno.id, chat_id="12345"
+                db_session, profesional_id=p.id, lista_espera_id=registro.id, turno_id=turno.id, chat_id="12345"
             )
 
         result = await db_session.execute(
@@ -246,13 +256,13 @@ class TestNotificarYMarcar:
         from app.services.lista_espera_service import notificar_y_marcar
 
         p = await _seed_profesional(db_session)
-        paciente = await _seed_paciente(db_session)
+        paciente = await _seed_paciente(db_session, p.id)
         turno = await _seed_turno(db_session, profesional_id=p.id, estado="CANCELADO")
-        registro = await _seed_lista_espera(db_session, paciente_id=paciente.id)
+        registro = await _seed_lista_espera(db_session, p.id, paciente_id=paciente.id)
 
         with patch("app.services.lista_espera_service.enviar_notificacion_lista_espera", new=AsyncMock(side_effect=Exception("Telegram down"))) as mock_enviar:
             await notificar_y_marcar(
-                db_session, lista_espera_id=registro.id, turno_id=turno.id, chat_id="12345"
+                db_session, profesional_id=p.id, lista_espera_id=registro.id, turno_id=turno.id, chat_id="12345"
             )
 
         result = await db_session.execute(
@@ -275,9 +285,9 @@ class TestAceptarTurnoListaEspera:
         from app.services.lista_espera_service import aceptar_turno_lista_espera
 
         p = await _seed_profesional(db_session)
-        paciente = await _seed_paciente(db_session)
+        paciente = await _seed_paciente(db_session, p.id)
         turno = await _seed_turno(db_session, profesional_id=p.id, estado="CANCELADO")
-        registro = await _seed_lista_espera(db_session, paciente_id=paciente.id)
+        registro = await _seed_lista_espera(db_session, p.id, paciente_id=paciente.id)
         registro.turno_ofrecido_id = turno.id
         registro.notificado = True
         await db_session.commit()
@@ -288,7 +298,7 @@ class TestAceptarTurnoListaEspera:
             mock_calendar_cls.return_value = mock_service
 
             confirmado = await aceptar_turno_lista_espera(
-                db_session, lista_espera_id=registro.id
+                db_session, profesional_id=p.id, lista_espera_id=registro.id
             )
 
         assert confirmado.estado == "CONFIRMADO"
@@ -307,8 +317,9 @@ class TestAceptarTurnoListaEspera:
         from app.services.lista_espera_service import aceptar_turno_lista_espera
         from app.exceptions import TurnoNoEncontradoError
 
+        p = await _seed_profesional(db_session)
         with pytest.raises(TurnoNoEncontradoError):
-            await aceptar_turno_lista_espera(db_session, lista_espera_id=99999)
+            await aceptar_turno_lista_espera(db_session, profesional_id=p.id, lista_espera_id=99999)
 
 
 # ---------------------------------------------------------------------------
@@ -321,9 +332,9 @@ class TestRechazarTurnoListaEspera:
         from app.services.lista_espera_service import rechazar_turno_lista_espera
 
         p = await _seed_profesional(db_session)
-        paciente = await _seed_paciente(db_session)
+        paciente = await _seed_paciente(db_session, p.id)
         turno = await _seed_turno(db_session, profesional_id=p.id, estado="CANCELADO")
-        registro = await _seed_lista_espera(db_session, paciente_id=paciente.id)
+        registro = await _seed_lista_espera(db_session, p.id, paciente_id=paciente.id)
         registro.turno_ofrecido_id = turno.id
         registro.notificado = True
         registro.notificado_en = datetime.now()
@@ -331,7 +342,7 @@ class TestRechazarTurnoListaEspera:
 
         with patch("app.services.lista_espera_service.evaluar_lista_espera", new=AsyncMock()) as mock_evaluar:
             await rechazar_turno_lista_espera(
-                db_session, lista_espera_id=registro.id, turno_id=turno.id
+                db_session, profesional_id=p.id, lista_espera_id=registro.id, turno_id=turno.id
             )
 
         result = await db_session.execute(
@@ -341,15 +352,16 @@ class TestRechazarTurnoListaEspera:
         assert actualizado.notificado is False
         assert actualizado.turno_ofrecido_id is None
         assert actualizado.notificado_en is None
-        mock_evaluar.assert_awaited_once_with(db_session, fecha=turno.fecha, turno_id=turno.id)
+        mock_evaluar.assert_awaited_once_with(db_session, profesional_id=p.id, fecha=turno.fecha, turno_id=turno.id)
 
     @pytest.mark.asyncio
     async def test_rechazar_turno_lista_espera_inexistente(self, db_session, test_settings):
         from app.services.lista_espera_service import rechazar_turno_lista_espera
         from app.exceptions import TurnoNoEncontradoError
 
+        p = await _seed_profesional(db_session)
         with pytest.raises(TurnoNoEncontradoError):
-            await rechazar_turno_lista_espera(db_session, lista_espera_id=99999, turno_id=1)
+            await rechazar_turno_lista_espera(db_session, profesional_id=p.id, lista_espera_id=99999, turno_id=1)
 
 
 # ---------------------------------------------------------------------------
@@ -362,9 +374,9 @@ class TestProcesarTimeouts:
         from app.services.lista_espera_service import procesar_timeouts_lista_espera
 
         p = await _seed_profesional(db_session)
-        paciente = await _seed_paciente(db_session)
+        paciente = await _seed_paciente(db_session, p.id)
         turno = await _seed_turno(db_session, profesional_id=p.id, estado="CANCELADO")
-        registro = await _seed_lista_espera(db_session, paciente_id=paciente.id)
+        registro = await _seed_lista_espera(db_session, p.id, paciente_id=paciente.id)
         registro.turno_ofrecido_id = turno.id
         registro.notificado = True
         registro.notificado_en = datetime.now() - timedelta(minutes=10)
@@ -372,7 +384,7 @@ class TestProcesarTimeouts:
 
         with patch("app.services.lista_espera_service.evaluar_lista_espera", new=AsyncMock()) as mock_evaluar:
             procesados = await procesar_timeouts_lista_espera(
-                db_session, minutos_timeout=test_settings.lista_espera_minutos
+                db_session, profesional_id=p.id, minutos_timeout=test_settings.lista_espera_minutos
             )
 
         assert procesados == 1
@@ -383,16 +395,16 @@ class TestProcesarTimeouts:
         assert actualizado.notificado is False
         assert actualizado.turno_ofrecido_id is None
         assert actualizado.notificado_en is None
-        mock_evaluar.assert_awaited_once_with(db_session, fecha=turno.fecha, turno_id=turno.id)
+        mock_evaluar.assert_awaited_once_with(db_session, profesional_id=p.id, fecha=turno.fecha, turno_id=turno.id)
 
     @pytest.mark.asyncio
     async def test_procesar_timeouts_no_actua_sobre_recientes(self, db_session, test_settings):
         from app.services.lista_espera_service import procesar_timeouts_lista_espera
 
         p = await _seed_profesional(db_session)
-        paciente = await _seed_paciente(db_session)
+        paciente = await _seed_paciente(db_session, p.id)
         turno = await _seed_turno(db_session, profesional_id=p.id, estado="CANCELADO")
-        registro = await _seed_lista_espera(db_session, paciente_id=paciente.id)
+        registro = await _seed_lista_espera(db_session, p.id, paciente_id=paciente.id)
         registro.turno_ofrecido_id = turno.id
         registro.notificado = True
         registro.notificado_en = datetime.now() - timedelta(minutes=1)
@@ -400,7 +412,7 @@ class TestProcesarTimeouts:
 
         with patch("app.services.lista_espera_service.evaluar_lista_espera", new=AsyncMock()) as mock_evaluar:
             procesados = await procesar_timeouts_lista_espera(
-                db_session, minutos_timeout=test_settings.lista_espera_minutos
+                db_session, profesional_id=p.id, minutos_timeout=test_settings.lista_espera_minutos
             )
 
         assert procesados == 0
@@ -410,8 +422,9 @@ class TestProcesarTimeouts:
     async def test_procesar_timeouts_sin_registros(self, db_session, test_settings):
         from app.services.lista_espera_service import procesar_timeouts_lista_espera
 
+        p = await _seed_profesional(db_session)
         procesados = await procesar_timeouts_lista_espera(
-            db_session, minutos_timeout=test_settings.lista_espera_minutos
+            db_session, profesional_id=p.id, minutos_timeout=test_settings.lista_espera_minutos
         )
         assert procesados == 0
 
@@ -426,12 +439,12 @@ class TestEvaluarListaEspera:
         from app.services.lista_espera_service import evaluar_lista_espera
 
         p = await _seed_profesional(db_session)
-        paciente = await _seed_paciente(db_session)
+        paciente = await _seed_paciente(db_session, p.id)
         turno = await _seed_turno(db_session, profesional_id=p.id, estado="CANCELADO")
-        registro = await _seed_lista_espera(db_session, paciente_id=paciente.id, fecha_solicitada=turno.fecha)
+        registro = await _seed_lista_espera(db_session, p.id, paciente_id=paciente.id, fecha_solicitada=turno.fecha)
 
         with patch("app.services.lista_espera_service.notificar_y_marcar", new=AsyncMock()) as mock_notificar:
-            await evaluar_lista_espera(db_session, fecha=turno.fecha)
+            await evaluar_lista_espera(db_session, profesional_id=p.id, fecha=turno.fecha)
 
         mock_notificar.assert_awaited_once()
 
@@ -443,6 +456,6 @@ class TestEvaluarListaEspera:
         turno = await _seed_turno(db_session, profesional_id=p.id, estado="CANCELADO")
 
         with patch("app.services.lista_espera_service.notificar_y_marcar", new=AsyncMock()) as mock_notificar:
-            await evaluar_lista_espera(db_session, fecha=turno.fecha)
+            await evaluar_lista_espera(db_session, profesional_id=p.id, fecha=turno.fecha)
 
         mock_notificar.assert_not_awaited()

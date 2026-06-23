@@ -23,6 +23,9 @@ class TestModelRelations:
             horario_inicio="08:00",
             horario_fin="18:00",
             dias_atencion=["Lunes"],
+            email="dr.relacion@local.dev",
+            password_hash="$2b$12$dummy",
+            is_active=True,
         )
         db_session.add(profesional)
         await db_session.flush()
@@ -46,12 +49,6 @@ class TestModelRelations:
     @pytest.mark.asyncio
     async def test_paciente_turnos_relation(self, db_session):
         """Scenario: Paciente con 2 turnos — 4.9."""
-        paciente = Paciente(
-            nombre="Ana", apellido="Rel", dni="88888888", telefono="9"
-        )
-        db_session.add(paciente)
-        await db_session.flush()
-
         profesional = Profesional(
             nombre="Dr. PacienteTurnos",
             especialidad="Test",
@@ -59,8 +56,18 @@ class TestModelRelations:
             horario_inicio="08:00",
             horario_fin="18:00",
             dias_atencion=["Lunes"],
+            email="dr.pt@local.dev",
+            password_hash="$2b$12$dummy",
+            is_active=True,
         )
         db_session.add(profesional)
+        await db_session.flush()
+
+        paciente = Paciente(
+            nombre="Ana", apellido="Rel", dni="88888888", telefono="9",
+            profesional_id=profesional.id,
+        )
+        db_session.add(paciente)
         await db_session.flush()
 
         for i in range(2):
@@ -105,6 +112,9 @@ class TestModelRelations:
             horario_inicio="08:00",
             horario_fin="18:00",
             dias_atencion=["Lunes"],
+            email="dr.cascade@local.dev",
+            password_hash="$2b$12$dummy",
+            is_active=True,
         )
         db_session.add(profesional)
         await db_session.flush()
@@ -142,8 +152,23 @@ class TestModelRelations:
     @pytest.mark.asyncio
     async def test_paciente_lista_de_espera_relation(self, db_session):
         """Scenario: Paciente con registros en lista de espera."""
+        profesional = Profesional(
+            nombre="Dr. ListaEspera",
+            especialidad="Test",
+            duracion_turno=30,
+            horario_inicio="08:00",
+            horario_fin="18:00",
+            dias_atencion=["Lunes"],
+            email="dr.le@local.dev",
+            password_hash="$2b$12$dummy",
+            is_active=True,
+        )
+        db_session.add(profesional)
+        await db_session.flush()
+
         paciente = Paciente(
-            nombre="Luis", apellido="Espera", dni="99999999", telefono="10"
+            nombre="Luis", apellido="Espera", dni="99999999", telefono="10",
+            profesional_id=profesional.id,
         )
         db_session.add(paciente)
         await db_session.flush()
@@ -152,6 +177,7 @@ class TestModelRelations:
             registro = ListaDeEspera(
                 paciente_id=paciente.id,
                 fecha_solicitada=date(2026, 6, 15 + i),
+                profesional_id=profesional.id,
             )
             db_session.add(registro)
         await db_session.commit()

@@ -19,6 +19,7 @@ async def _seed_profesional(db_session):
         horario_inicio="08:00",
         horario_fin="18:00",
         dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+        telegram_bot_token="test-token",
     )
     db_session.add(p)
     await db_session.commit()
@@ -26,9 +27,10 @@ async def _seed_profesional(db_session):
     return p
 
 
-async def _seed_paciente(db_session, dni="12345678"):
+async def _seed_paciente(db_session, profesional_id, dni="12345678"):
     paciente = Paciente(
-        nombre="Juan", apellido="Perez", dni=dni, telefono="555-1234"
+        nombre="Juan", apellido="Perez", dni=dni, telefono="555-1234",
+        profesional_id=profesional_id,
     )
     db_session.add(paciente)
     await db_session.commit()
@@ -43,6 +45,7 @@ class TestListaEsperaE2E:
     def set_env_vars(self, monkeypatch):
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
         monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test")
+        monkeypatch.setenv("SECRET_KEY", "test-secret-key")
 
     @pytest.mark.asyncio
     async def test_e2e_cancelar_notificar_aceptar(self, db_session):
@@ -51,7 +54,7 @@ class TestListaEsperaE2E:
         from app.services.lista_espera_service import evaluar_lista_espera, aceptar_turno_lista_espera
 
         p = await _seed_profesional(db_session)
-        paciente = await _seed_paciente(db_session)
+        paciente = await _seed_paciente(db_session, p.id)
         fecha = date(2026, 6, 15)
 
         # Crear turno confirmado
@@ -68,6 +71,7 @@ class TestListaEsperaE2E:
             paciente_id=paciente.id,
             fecha_solicitada=fecha,
             telegram_chat_id="12345",
+            profesional_id=p.id,
         )
         db_session.add(registro)
         await db_session.commit()
@@ -77,7 +81,7 @@ class TestListaEsperaE2E:
             mock_service = MagicMock()
             mock_calendar_cls.return_value = mock_service
             with patch("app.services.lista_espera_service.enviar_notificacion_lista_espera", new=AsyncMock(return_value=True)) as mock_enviar:
-                cancelado = await cancelar_turno(db_session, turno_id=turno.id)
+                cancelado = await cancelar_turno(db_session, profesional_id=p.id, turno_id=turno.id)
 
         assert cancelado.estado == "CANCELADO"
         mock_enviar.assert_awaited_once()
@@ -95,7 +99,7 @@ class TestListaEsperaE2E:
             mock_service = MagicMock()
             mock_service.create_event.return_value = "event_123"
             mock_calendar_cls.return_value = mock_service
-            confirmado = await aceptar_turno_lista_espera(db_session, lista_espera_id=registro_actualizado.id)
+            confirmado = await aceptar_turno_lista_espera(db_session, profesional_id=p.id, lista_espera_id=registro_actualizado.id)
 
         assert confirmado.estado == "CONFIRMADO"
         assert confirmado.paciente_id == paciente.id
@@ -113,7 +117,7 @@ class TestListaEsperaE2E:
         from app.services.lista_espera_service import evaluar_lista_espera
 
         p = await _seed_profesional(db_session)
-        paciente = await _seed_paciente(db_session)
+        paciente = await _seed_paciente(db_session, p.id)
         fecha = date(2026, 6, 15)
 
         turno1 = Turno(
@@ -131,11 +135,12 @@ class TestListaEsperaE2E:
         await db_session.commit()
 
         # Un solo paciente en lista de espera
-        paciente_espera = await _seed_paciente(db_session, dni="99999999")
+        paciente_espera = await _seed_paciente(db_session, p.id, dni="99999999")
         registro = ListaDeEspera(
             paciente_id=paciente_espera.id,
             fecha_solicitada=fecha,
             telegram_chat_id="12345",
+            profesional_id=p.id,
         )
         db_session.add(registro)
         await db_session.commit()
@@ -144,8 +149,8 @@ class TestListaEsperaE2E:
             mock_service = MagicMock()
             mock_calendar_cls.return_value = mock_service
             with patch("app.services.lista_espera_service.enviar_notificacion_lista_espera", new=AsyncMock(return_value=True)) as mock_enviar:
-                await cancelar_turno(db_session, turno_id=turno1.id)
-                await cancelar_turno(db_session, turno_id=turno2.id)
+                await cancelar_turno(db_session, profesional_id=p.id, turno_id=turno1.id)
+                await cancelar_turno(db_session, profesional_id=p.id, turno_id=turno2.id)
 
         # Solo una notificación porque hay un solo paciente en lista
         assert mock_enviar.await_count == 1
@@ -156,8 +161,8 @@ class TestListaEsperaE2E:
         from app.services.lista_espera_service import procesar_timeouts_lista_espera, evaluar_lista_espera
 
         p = await _seed_profesional(db_session)
-        paciente1 = await _seed_paciente(db_session, dni="11111111")
-        paciente2 = await _seed_paciente(db_session, dni="22222222")
+        paciente1 = await _seed_paciente(db_session, p.id, dni="11111111")
+        paciente2 = await _seed_paciente(db_session, p.id, dni="22222222")
         fecha = date(2026, 6, 15)
 
         # Crear turno cancelado para ofrecer
@@ -175,12 +180,14 @@ class TestListaEsperaE2E:
             fecha_solicitada=fecha,
             telegram_chat_id="11111",
             creado_en=ahora - timedelta(minutes=10),
+            profesional_id=p.id,
         )
         registro2 = ListaDeEspera(
             paciente_id=paciente2.id,
             fecha_solicitada=fecha,
             telegram_chat_id="22222",
             creado_en=ahora - timedelta(minutes=5),
+            profesional_id=p.id,
         )
         db_session.add(registro1)
         db_session.add(registro2)
@@ -188,7 +195,7 @@ class TestListaEsperaE2E:
 
         # Notificar al primero
         with patch("app.services.lista_espera_service.enviar_notificacion_lista_espera", new=AsyncMock(return_value=True)) as mock_enviar:
-            await evaluar_lista_espera(db_session, fecha=fecha, turno_id=turno.id)
+            await evaluar_lista_espera(db_session, profesional_id=p.id, fecha=fecha, turno_id=turno.id)
 
         assert mock_enviar.await_count == 1
         result = await db_session.execute(
@@ -203,7 +210,7 @@ class TestListaEsperaE2E:
 
         # Ejecutar job de timeout
         with patch("app.services.lista_espera_service.enviar_notificacion_lista_espera", new=AsyncMock(return_value=True)) as mock_enviar2:
-            procesados = await procesar_timeouts_lista_espera(db_session, minutos_timeout=5)
+            procesados = await procesar_timeouts_lista_espera(db_session, profesional_id=p.id, minutos_timeout=5)
 
         assert procesados == 1
         # El primero fue reseteado, el segundo notificado

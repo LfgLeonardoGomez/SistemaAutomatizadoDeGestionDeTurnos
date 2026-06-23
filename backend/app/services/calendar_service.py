@@ -5,7 +5,7 @@ from typing import Optional
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from google.oauth2.service_account import Credentials
+from google.oauth2.credentials import Credentials
 from tenacity import (
     retry,
     retry_if_exception,
@@ -14,6 +14,7 @@ from tenacity import (
 )
 
 from app.config import Settings
+from app.models.profesional import Profesional
 from app.models.turno import Turno
 
 logger = logging.getLogger(__name__)
@@ -26,25 +27,20 @@ def _is_retryable_error(exc: BaseException) -> bool:
 
 
 class CalendarService:
-    def __init__(self, settings: Optional[Settings] = None):
+    def __init__(self, profesional: Profesional, settings: Optional[Settings] = None):
+        self.profesional = profesional
         self.settings = settings or Settings()
-        try:
-            creds_info = json.loads(self.settings.google_calendar_credentials)
-        except json.JSONDecodeError as exc:
+        if not profesional.google_refresh_token:
             raise ValueError(
-                "GOOGLE_CALENDAR_CREDENTIALS no contiene un JSON válido"
-            ) from exc
-        if not isinstance(creds_info, dict) or not creds_info:
-            raise ValueError(
-                "GOOGLE_CALENDAR_CREDENTIALS está vacío o no es un objeto JSON válido"
+                f"Profesional {profesional.id} no tiene google_refresh_token configurado"
             )
-        try:
-            credentials = Credentials.from_service_account_info(creds_info)
-        except Exception as exc:
-            raise ValueError(
-                "No se pudieron cargar las credenciales de Google Calendar: "
-                f"{exc}"
-            ) from exc
+        credentials = Credentials(
+            token=None,
+            refresh_token=profesional.google_refresh_token,
+            client_id=self.settings.google_client_id,
+            client_secret=self.settings.google_client_secret,
+            token_uri="https://oauth2.googleapis.com/token",
+        )
         self._service = build("calendar", "v3", credentials=credentials)
 
         _retry = retry(
