@@ -72,4 +72,16 @@ The system SHALL ensure a super-admin is never treated as a professional.
 - **WHEN** any professional-scoped query runs
 - **THEN** the SuperAdmin record is not included
 
+### Requirement: Super-admin can create a professional
+Expose `POST /admin/profesionales` restricted to super-admin.
+
+See [professional-onboarding](../professional-onboarding/spec.md) for full scenarios.
+
+### Requirement: Admin read responses mask secrets
+The system SHALL omit `api_key`, `telegram_secret_token`, `telegram_bot_token`, and `google_refresh_token` from admin list/detail responses.
+
+#### Scenario: Admin list omits secrets
+- WHEN super-admin lists professionals
+- THEN the response contains no plaintext credentials
+
 > **Test deferral note**: Tests for this capability are deferred until the v2.0 backend work is complete, per project decision.

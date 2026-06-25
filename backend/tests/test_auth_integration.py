@@ -2,54 +2,6 @@ import pytest
 from fastapi import status
 
 
-class TestRegister:
-    def test_register_with_valid_data_returns_201_and_token(self, api_client):
-        payload = {
-            "email": "new@local.dev",
-            "password": "securepass123",
-            "nombre": "Dr. Nuevo",
-            "especialidad": "Cardiología",
-            "duracion_turno": 30,
-            "horario_inicio": "08:00",
-            "horario_fin": "18:00",
-            "dias_atencion": ["Lunes", "Martes"],
-        }
-        response = api_client.post("/auth/register", json=payload)
-        assert response.status_code == status.HTTP_201_CREATED
-        data = response.json()
-        assert "access_token" in data
-        assert data["token_type"] == "bearer"
-        assert len(data["access_token"]) > 0
-
-    def test_register_with_duplicate_email_returns_409(self, api_client, profesional):
-        payload = {
-            "email": profesional.email,
-            "password": "securepass123",
-            "nombre": "Dr. Duplicado",
-            "especialidad": "Cardiología",
-            "duracion_turno": 30,
-            "horario_inicio": "08:00",
-            "horario_fin": "18:00",
-            "dias_atencion": ["Lunes"],
-        }
-        response = api_client.post("/auth/register", json=payload)
-        assert response.status_code == status.HTTP_409_CONFLICT
-
-    def test_register_with_short_password_returns_422(self, api_client):
-        payload = {
-            "email": "short@local.dev",
-            "password": "short",
-            "nombre": "Dr. Short",
-            "especialidad": "Cardiología",
-            "duracion_turno": 30,
-            "horario_inicio": "08:00",
-            "horario_fin": "18:00",
-            "dias_atencion": ["Lunes"],
-        }
-        response = api_client.post("/auth/register", json=payload)
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-
-
 class TestLogin:
     def test_login_with_valid_credentials_returns_200_and_token(self, api_client, profesional):
         payload = {

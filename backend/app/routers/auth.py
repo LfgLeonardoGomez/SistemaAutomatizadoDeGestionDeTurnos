@@ -7,28 +7,15 @@ from app.models.profesional import Profesional
 from app.schemas.auth import (
     ApiKeyResponse,
     ProfesionalLoginRequest,
-    ProfesionalRegisterRequest,
     TokenResponse,
 )
 from app.services.auth_service import (
     authenticate_profesional,
     create_access_token,
-    register_profesional,
     set_profesional_api_key,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-
-@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-async def auth_register(
-    data: ProfesionalRegisterRequest,
-    db: DbDep,
-    settings: SettingsDep,
-) -> TokenResponse:
-    profesional = await register_profesional(db, data)
-    token = create_access_token(profesional.id, profesional.email, settings)
-    return TokenResponse(access_token=token)
 
 
 @router.post("/login", response_model=TokenResponse)

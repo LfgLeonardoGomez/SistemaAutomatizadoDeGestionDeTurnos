@@ -180,3 +180,17 @@ async def require_super_admin(
 
 
 CurrentSuperAdminDep = Annotated[SuperAdmin, Depends(require_super_admin)]
+
+
+async def require_https(
+    x_forwarded_proto: Annotated[str | None, Header(alias="X-Forwarded-Proto")] = None,
+) -> None:
+    """Reject plain-HTTP requests when running in production."""
+    settings = Settings()
+    if settings.env == "production":
+        proto = x_forwarded_proto or "http"
+        if proto.lower() != "https":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="HTTPS required",
+            )

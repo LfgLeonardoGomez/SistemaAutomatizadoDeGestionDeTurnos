@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.dependencies import CurrentSuperAdminDep, DbDep, SettingsDep
+from app.dependencies import CurrentSuperAdminDep, DbDep, SettingsDep, require_https
 from app.schemas.auth import TokenResponse
+from app.schemas.profesional import ProfesionalCreateRequest, ProfesionalCreateResponse
 from app.schemas.super_admin import (
     GlobalMetricsResponse,
     ProfesionalAdminResponse,
@@ -30,6 +31,35 @@ async def admin_login(
         )
     token = create_super_admin_access_token(admin.id, admin.email, settings)
     return TokenResponse(access_token=token)
+
+
+@router.post(
+    "/profesionales",
+    response_model=ProfesionalCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def admin_create_profesional(
+    data: ProfesionalCreateRequest,
+    _admin: CurrentSuperAdminDep,
+    db: DbDep,
+    _https: None = Depends(require_https),
+) -> ProfesionalCreateResponse:
+    profesional, api_key, telegram_secret_token = (
+        await super_admin_service.create_profesional(db, data)
+    )
+    return ProfesionalCreateResponse(
+        id=profesional.id,
+        nombre=profesional.nombre,
+        email=profesional.email,
+        especialidad=profesional.especialidad,
+        is_active=profesional.is_active,
+        duracion_turno=profesional.duracion_turno,
+        horario_inicio=profesional.horario_inicio,
+        horario_fin=profesional.horario_fin,
+        dias_atencion=profesional.dias_atencion,
+        api_key=api_key,
+        telegram_secret_token=telegram_secret_token,
+    )
 
 
 @router.get(

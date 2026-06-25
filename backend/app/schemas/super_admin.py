@@ -12,7 +12,7 @@ class ProfesionalAdminResponse(BaseModel):
     id: int
     nombre: str
     especialidad: str
-    email: str | None
+    email: str
     is_active: bool
     creado_en: datetime
 

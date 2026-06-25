@@ -6,7 +6,7 @@ from datetime import timedelta
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_db, CurrentProfesionalDep
+from app.dependencies import get_db, CurrentProfesionalDep, require_https
 from app.models.paciente import Paciente
 from app.models.profesional import Profesional
 from app.models.turno import Turno
@@ -14,6 +14,8 @@ from app.schemas.profesional import (
     DisponibilidadResponse,
     ProfesionalConfigResponse,
     ProfesionalConfigUpdate,
+    ProfesionalIntegracionesResponse,
+    ProfesionalIntegracionesUpdate,
     ProfesionalMetricasResponse,
     ProfesionalTurnoHoyResponse,
 )
@@ -49,6 +51,37 @@ async def update_configuracion(
     await db.commit()
     await db.refresh(profesional)
     return ProfesionalConfigResponse.model_validate(profesional)
+
+
+@router.put("/integraciones", response_model=ProfesionalIntegracionesResponse)
+async def update_integraciones(
+    db: DbDep,
+    profesional: CurrentProfesionalDep,
+    update: ProfesionalIntegracionesUpdate,
+    _https: None = Depends(require_https),
+) -> ProfesionalIntegracionesResponse:
+    if update.telegram_bot_token is not None:
+        profesional.telegram_bot_token = update.telegram_bot_token
+    if update.google_refresh_token is not None:
+        profesional.google_refresh_token = update.google_refresh_token
+
+    await db.commit()
+    await db.refresh(profesional)
+    return ProfesionalIntegracionesResponse(
+        has_telegram=bool(profesional.telegram_bot_token),
+        has_google=bool(profesional.google_refresh_token),
+    )
+
+
+@router.get("/integraciones", response_model=ProfesionalIntegracionesResponse)
+async def get_integraciones(
+    profesional: CurrentProfesionalDep,
+    _https: None = Depends(require_https),
+) -> ProfesionalIntegracionesResponse:
+    return ProfesionalIntegracionesResponse(
+        has_telegram=bool(profesional.telegram_bot_token),
+        has_google=bool(profesional.google_refresh_token),
+    )
 
 
 @router.get("/disponibilidad", response_model=DisponibilidadResponse)

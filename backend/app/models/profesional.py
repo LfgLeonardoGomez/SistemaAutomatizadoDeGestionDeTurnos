@@ -22,8 +22,8 @@ class Profesional(Base):
     )
 
     # Auth columns (C-14)
-    email: Mapped[Optional[str]] = mapped_column(
-        String(255), unique=True, nullable=True
+    email: Mapped[str] = mapped_column(
+        String(255), unique=True, nullable=False
     )
     password_hash: Mapped[Optional[str]] = mapped_column(
         String(255), nullable=True

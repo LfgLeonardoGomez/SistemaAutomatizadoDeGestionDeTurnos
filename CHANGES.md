@@ -515,12 +515,14 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 ---
 
 ### [C-20] `professional-onboarding`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` archivado
 - **Scope**: Flujo de registro y onboarding de profesionales
-  - Endpoint de registro self-service o por invitación
-  - Flujo de configuración inicial: datos del profesional, bot de Telegram, calendario Google
-  - Validación de email único, generación de credenciales iniciales
-  - Tests: flujo de registro completo, configuración inicial
+  - Endpoint de creación por super-admin en vez de registro self-service
+  - `POST /admin/profesionales` con generación de credenciales y devolución única de secrets
+  - `PUT /profesional/integraciones` + `GET /profesional/integraciones` para tokens de Telegram/Google
+  - Eliminación de `/auth/register` y `ProfesionalRegisterRequest`
+  - Migración `profesional.email` a NOT NULL
+  - Tests: flujo de registro completo, configuración inicial (deferred)
 - **Dependencias**: C-16, C-17, C-18
 - **Governance**: MEDIO
 - **Leer antes**:
@@ -588,7 +590,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 | C-17 | 7 — Multi-tenancy | `[x]` | ALTO | C-15 |
 | C-18 | 7 — Multi-tenancy | `[x]` | ALTO | C-15 |
 | C-19 | 8 — Super-Admin | `[x]` | ALTO | C-16, C-17, C-18 |
-| C-20 | 8 — Super-Admin | `[ ]` | MEDIO | C-16, C-17, C-18 |
+| C-20 | 8 — Super-Admin | `[x]` | MEDIO | C-16, C-17, C-18 |
 | C-21 | 9 — Migration | `[ ]` | CRITICO | C-19, C-20 |
 | C-22 | 9 — Hardening | `[ ]` | ALTO | C-21 |
 

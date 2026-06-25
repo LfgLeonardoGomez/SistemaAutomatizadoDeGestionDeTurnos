@@ -1,7 +1,7 @@
 from datetime import date, time
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 
 class PacienteInfoResponse(BaseModel):
@@ -85,3 +85,43 @@ class ProfesionalMetricasResponse(BaseModel):
     turnos_hoy: int
     tasa_confirmacion_30d: float
     tasa_cancelacion_30d: float
+
+
+class ProfesionalIntegracionesUpdate(BaseModel):
+    telegram_bot_token: Optional[str] = None
+    google_refresh_token: Optional[str] = None
+
+    @field_validator("telegram_bot_token", "google_refresh_token")
+    @classmethod
+    def reject_empty(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v.strip() == "":
+            raise ValueError("token cannot be empty")
+        return v
+
+
+class ProfesionalIntegracionesResponse(BaseModel):
+    has_telegram: bool
+    has_google: bool
+
+
+class ProfesionalCreateRequest(BaseModel):
+    nombre: str
+    email: EmailStr
+    password: str = Field(..., min_length=8)
+    especialidad: str
+
+
+class ProfesionalCreateResponse(BaseModel):
+    id: int
+    nombre: str
+    email: str
+    especialidad: str
+    is_active: bool
+    duracion_turno: int
+    horario_inicio: str
+    horario_fin: str
+    dias_atencion: list[str]
+    api_key: str
+    telegram_secret_token: str
+
+    model_config = ConfigDict(from_attributes=True)

@@ -1,14 +1,27 @@
 from datetime import datetime, timedelta, timezone
 
+from fastapi import HTTPException, status
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.paciente import Paciente
 from app.models.profesional import Profesional
 from app.models.super_admin import SuperAdmin
 from app.models.turno import Turno
+from app.schemas.profesional import ProfesionalCreateRequest
 from app.schemas.super_admin import GlobalMetricsResponse
-from app.services.auth_service import verify_password
+from app.services.auth_service import (
+    generate_api_key,
+    generate_telegram_secret_token,
+    hash_password,
+    verify_password,
+)
+
+DEFAULT_DURACION_TURNO = 30
+DEFAULT_HORARIO_INICIO = "09:00"
+DEFAULT_HORARIO_FIN = "17:00"
+DEFAULT_DIAS_ATENCION = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]
 
 
 async def authenticate_super_admin(
@@ -23,6 +36,43 @@ async def authenticate_super_admin(
     if not verify_password(password, admin.password_hash):
         return None
     return admin
+
+
+async def create_profesional(
+    db: AsyncSession, data: ProfesionalCreateRequest
+) -> tuple[Profesional, str, str]:
+    """Create a new professional with default schedule and generated credentials.
+
+    Returns (profesional, plaintext_api_key, plaintext_telegram_secret_token).
+    Raises HTTPException 409 on duplicate email.
+    """
+    api_key = generate_api_key()
+    telegram_secret_token = generate_telegram_secret_token()
+
+    profesional = Profesional(
+        nombre=data.nombre,
+        email=data.email,
+        password_hash=hash_password(data.password),
+        especialidad=data.especialidad,
+        duracion_turno=DEFAULT_DURACION_TURNO,
+        horario_inicio=DEFAULT_HORARIO_INICIO,
+        horario_fin=DEFAULT_HORARIO_FIN,
+        dias_atencion=DEFAULT_DIAS_ATENCION,
+        is_active=True,
+        api_key=api_key,
+        telegram_secret_token=telegram_secret_token,
+    )
+    db.add(profesional)
+    try:
+        await db.commit()
+        await db.refresh(profesional)
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email ya registrado",
+        )
+    return profesional, api_key, telegram_secret_token
 
 
 async def list_profesionales(
