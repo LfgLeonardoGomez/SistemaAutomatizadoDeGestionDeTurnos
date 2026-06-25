@@ -23,16 +23,33 @@ C-01 foundation-setup
   └── C-02 core-models
         ├── C-03 professional-config
         ├── C-04 patient-management
-        └── C-05 google-calendar-service
-              └── C-06 turno-reservation
-                    ├── C-07 turno-cancel-reschedule
-                    │     └── C-13 turno-hardening
-                    │           └── C-11 lista-espera
-                    └── C-08 telegram-bot-webhook
-                          └── C-13 turno-hardening
-                                ├── C-09 n8n-workflows
-                                ├── C-10 recordatorios
-                                └── C-12 professional-telegram-dashboard
+        ├── C-05 google-calendar-service
+        │     └── C-06 turno-reservation
+        │           ├── C-07 turno-cancel-reschedule
+        │           │     └── C-13 turno-hardening
+        │           │           └── C-11 lista-espera
+        │           └── C-08 telegram-bot-webhook
+        │                 └── C-13 turno-hardening
+        │                       ├── C-09 n8n-workflows
+        │                       ├── C-10 recordatorios
+        │                       └── C-12 professional-telegram-dashboard
+        └── C-14 tenant-data-model
+              └── C-15 tenant-auth-professional
+                    ├── C-16 tenant-backend-scoping
+                    │     └── C-19 super-admin-role
+                    ├── C-17 telegram-multi-bot
+                    │     └── C-19 super-admin-role
+                    └── C-18 google-multi-calendar
+                          └── C-19 super-admin-role
+```
+
+### v2.0 forward items
+
+```
+C-19 super-admin-role ──┐
+C-20 professional-onboarding ──┤
+                                └── C-21 data-migration-v2
+                                      └── C-22 hardening-config-cleanup
 ```
 
 ### Paralelismo por fase
@@ -62,19 +79,41 @@ GATE 5: C-07 + C-08 ✓                  ← FORK (2 paralelos)
   → C-09 n8n-workflows                   [Agente C]
   → C-13 turno-hardening                 [Agente A]
 
-GATE 6: C-13 ✓                         ← MAYOR FORK (3 paralelos)
+GATE 6: C-13 ✓                         ← MAYOR FORK v1.0 (3 paralelos)
   → C-10 recordatorios                   [Agente B]
   → C-11 lista-espera                    [Agente B]
   → C-12 professional-telegram-dashboard [Agente C]
+
+GATE 7: C-02 ✓ (v1.0 completa)         ← FORK v2.0
+  → C-14 tenant-data-model               [Agente A]
+
+GATE 8: C-14 ✓
+  → C-15 tenant-auth-professional        [Agente A]
+
+GATE 9: C-15 ✓                         ← FORK v2.0 (3 paralelos)
+  → C-16 tenant-backend-scoping          [Agente A]
+  → C-17 telegram-multi-bot              [Agente C]
+  → C-18 google-multi-calendar           [Agente B]
+
+GATE 10: C-16 + C-17 + C-18 ✓          ← FORK v2.0 (2 paralelos)
+  → C-19 super-admin-role                [Agente A]
+  → C-20 professional-onboarding         [Agente B]
+
+GATE 11: C-19 + C-20 ✓
+  → C-21 data-migration-v2               [Agente A]
+
+GATE 12: C-21 ✓
+  → C-22 hardening-config-cleanup        [Agente A]
 ```
 
-### Camino crítico (8 changes — mínimo irreducible)
+### Camino crítico
 
 ```
-C-01 → C-02 → C-03 → C-06 → C-07 → C-08 → C-13 → C-11
+v1.0: C-01 → C-02 → C-03 → C-06 → C-07 → C-08 → C-13 → C-11
+v2.0: C-14 → C-15 → C-16 → C-19 → C-21 → C-22
 ```
 
-> Nota: C-04 y C-05 son prerequisitos paralelos de C-06. El camino crítico asume el orden de finalización más largo entre los tres.
+> Nota: C-04 y C-05 son prerequisitos paralelos de C-06. El camino crítico v1.0 asume el orden de finalización más largo entre los tres. El camino crítico v2.0 pasa por C-16 (backend scoping) por ser la dependencia de mayor complejidad.
 
 ### Plan óptimo con 3 agentes
 
@@ -87,10 +126,19 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
   4  │ —                          │ C-05 google-calendar-service │ —
   5  │ C-06 turno-reservation     │ —                            │ —
   6  │ C-07 turno-cancel-         │ —                            │ C-08 telegram-bot-webhook
-      │    reschedule              │                              │
+     │    reschedule              │                              │
   7  │ C-13 turno-hardening       │ —                            │ C-09 n8n-workflows
   8  │ —                          │ C-10 recordatorios           │ C-12 professional-telegram-
-      │                            │ C-11 lista-espera            │    dashboard
+     │                            │ C-11 lista-espera            │    dashboard
+  9  │ C-14 tenant-data-model     │ —                            │ —
+ 10  │ C-15 tenant-auth-          │ —                            │ —
+     │    professional            │                              │
+ 11  │ C-16 tenant-backend-       │ C-18 google-multi-calendar   │ C-17 telegram-multi-bot
+     │    scoping                 │                              │
+ 12  │ C-19 super-admin-role      │ C-20 professional-onboarding │ —
+ 13  │ C-21 data-migration-v2     │ —                            │ —
+ 14  │ C-22 hardening-config-     │ —                            │ —
+     │    cleanup                 │                              │
 ```
 
 ---
@@ -98,7 +146,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 ## FASE 0 — Cimientos
 
 ### [C-01] `foundation-setup`
-- **Estado**: `[x] completado`
+- **Estado**: `[x]` archivado
 - **Scope**: Scaffolding completo del monorepo + infraestructura base
   - Estructura de directorios: `backend/`, `n8n-workflows/`, `docs/`, `knowledge-base/`
   - `backend/`: FastAPI app mínima con health check `/health`, Alembic inicializado, `app/config.py` con Pydantic Settings
@@ -123,7 +171,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 > Los changes C-03, C-04 y C-05 pueden proponerse en paralelo tras C-02.
 
 ### [C-02] `core-models`
-- **Estado**: `[x] completado`
+- **Estado**: `[x]` archivado
 - **Scope**: Modelos SQLAlchemy + migración inicial + seed mínimo
   - Modelos: `Paciente`, `Profesional`, `Turno`, `ReservaTemporal`, `ListaDeEspera`
   - `Turno.estado`: ENUM (`DISPONIBLE`, `RESERVADO_TEMPORAL`, `CONFIRMADO`, `CANCELADO`, `COMPLETADO`)
@@ -159,7 +207,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 ---
 
 ### [C-04] `patient-management`
-- **Estado**: `[x] completado`
+- **Estado**: `[x]` archivado
 - **Scope**: Registro e identificación de pacientes
   - Endpoints: `POST /pacientes`, `GET /pacientes/{id}`, `GET /pacientes/{id}/turnos`
   - Validación: DNI único, teléfono requerido, datos mínimos (nombre, apellido, DNI, teléfono)
@@ -175,7 +223,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 ---
 
 ### [C-05] `google-calendar-service`
-- **Estado**: `[x] completado`
+- **Estado**: `[x]` archivado
 - **Scope**: Cliente de Google Calendar API para sincronización de eventos
   - Servicio `calendar_service.py`: wrapper con retries y backoff exponencial
   - Métodos: `create_event(turno)`, `update_event(turno)`, `delete_event(event_id)`
@@ -194,7 +242,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 ## FASE 2 — Ciclo de Turnos
 
 ### [C-06] `turno-reservation`
-- **Estado**: `[x] completado`
+- **Estado**: `[x]` archivado
 - **Scope**: Reserva temporal, confirmación y creación de evento en calendario
   - Endpoints:
     - `GET /turnos/disponibles?fecha=YYYY-MM-DD` — lista slots libres
@@ -213,7 +261,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 ---
 
 ### [C-07] `turno-cancel-reschedule`
-- **Estado**: `[x] completado`
+- **Estado**: `[x]` archivado
 - **Scope**: Cancelación y reprogramación con sincronización de calendario
   - Endpoints:
     - `PUT /turnos/{id}/cancelar` — estado `CANCELADO`, elimina evento de Google Calendar, libera slot
@@ -235,7 +283,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 > C-07 y C-08 pueden ejecutarse en paralelo.
 
 ### [C-08] `telegram-bot-webhook`
-- **Estado**: `[x] completado`
+- **Estado**: `[x]` archivado
 - **Scope**: Webhook de Telegram + enrutador de mensajes + respuestas básicas
   - Endpoint: `POST /webhooks/telegram` — recibe updates del Bot API, valida `X-Telegram-Bot-Api-Secret-Token`
   - Router conversacional: parsea texto y botones inline, enruta a acciones
@@ -260,7 +308,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 ---
 
 ### [C-09] `n8n-workflows`
-- **Estado**: `[x]` completado
+- **Estado**: `[x]` archivado
 - **Scope**: Workflows exportables de n8n para orquestar flujos conversacionales
   - Archivos JSON exportables: `flujo-reserva.json`, `flujo-cancelacion.json`, `flujo-recordatorio.json`, `flujo-lista-espera.json`
   - Cada workflow: Webhook Trigger → HTTP Request a FastAPI → Format Response → Telegram Send Message
@@ -280,7 +328,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 > C-13 corrige deudas técnicas del núcleo de turnos antes de construir automatizaciones y panel profesional.
 
 ### [C-13] `turno-hardening`
-- **Estado**: `[x] completado`
+- **Estado**: `[x]` archivado
 - **Scope**: Completar y corregir el núcleo de turnos que quedó incompleto o roto en changes anteriores
   - Persistir `google_event_id` en modelo `Turno`: nueva columna SQLAlchemy + migración Alembic + integración en confirmación/cancelación/reprogramación
   - Transición a estado `COMPLETADO`: endpoint `PUT /turnos/{id}/completar` + scheduler job `marcar_turnos_completados`
@@ -301,7 +349,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 > C-10, C-11 y C-12 pueden proponerse en paralelo tras C-13. C-09 puede ejecutarse en paralelo con C-13.
 
 ### [C-10] `recordatorios`
-- **Estado**: `[x] completado`
+- **Estado**: `[x]` archivado
 - **Scope**: Recordatorios automáticos 24h antes del turno
   - Scheduler APScheduler: job que corre cada hora (o configurado por `RECORDATORIO_HORAS_ANTES`)
   - Query: turnos `CONFIRMADO` con `fecha/hora` dentro de las próximas 24h y sin `recordatorio_enviado`
@@ -340,7 +388,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 ## FASE 6 — Panel del Profesional
 
 ### [C-12] `professional-telegram-dashboard`
-- **Estado**: `[x]` implementado
+- **Estado**: `[x]` archivado
 - **Scope**: Comandos de Telegram para el profesional + métricas básicas
   - Comandos Telegram:
     - `/turnos_hoy` — lista turnos `CONFIRMADO` del día con hora y paciente
@@ -359,10 +407,12 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 
 ---
 
-## FASE 7 — Multi-tenancy (v2.0)
+## FASE 7 — Multi-tenancy v2.0 (Foundation)
+
+> C-14 a C-18 conforman la base multi-tenant del sistema. C-14 y C-15 son secuenciales; C-16, C-17 y C-18 pueden ejecutarse en paralelo tras C-15.
 
 ### [C-14] `tenant-data-model`
-- **Estado**: `[x]` completado
+- **Estado**: `[x]` archivado
 - **Scope**: Preparar el schema de base de datos para aislamiento por profesional (tenant)
   - `Paciente`: agregar `profesional_id` (FK NOT NULL), cambiar `UNIQUE(dni)` a `UNIQUE(profesional_id, dni)`
   - `ListaDeEspera`: agregar `profesional_id` (FK NOT NULL), índice `(profesional_id, paciente_id)`
@@ -377,10 +427,12 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 - **Leer antes**:
   - `knowledge-base/04_modelo_de_datos.md` §Paciente, §Profesional, §ListaDeEspera
   - `knowledge-base/05_reglas_de_negocio.md` §RN-PA-01, §RN-LE-01
-  - `openspec/changes/c-14-tenant-data-model/design.md`
+  - `openspec/changes/archive/2026-06-22-c-14-tenant-data-model/design.md`
+
+---
 
 ### [C-15] `tenant-auth-professional`
-- **Estado**: `[x]` completado
+- **Estado**: `[x]` archivado
 - **Scope**: Autenticación JWT y API keys para profesionales (multi-tenancy v2.0)
   - Endpoints: `POST /auth/register`, `POST /auth/login`, `POST /auth/api-key`
   - Servicio `auth_service.py`: bcrypt password hashing, JWT creation/validation, API key generation
@@ -392,7 +444,124 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 - **Governance**: CRITICO
 - **Leer antes**:
   - `knowledge-base/03_actores_y_roles.md` (matriz de permisos)
-  - `openspec/changes/archive/2026-06-22-c-14-tenant-data-model/design.md`
+  - `openspec/changes/archive/2026-06-22-c-15-tenant-auth-professional/design.md`
+
+---
+
+### [C-16] `tenant-backend-scoping`
+- **Estado**: `[x]` archivado
+- **Scope**: Scoping de todos los endpoints y servicios por `profesional_id`
+  - Refactorizar todos los routers y services para inyectar y filtrar por `profesional_id` del profesional autenticado
+  - Middleware de scoping: extraer `profesional_id` del JWT y validar acceso
+  - Endpoints actualizados: turnos, pacientes, lista de espera, configuración, métricas
+  - Tests de aislamiento: profesional A no ve datos de profesional B
+  - Migración de datos existente: asignar `profesional_id` al profesional seed
+- **Dependencias**: C-15
+- **Governance**: CRITICO
+- **Leer antes**:
+  - `openspec/changes/archive/2026-06-25-c-16-tenant-backend-scoping/design.md`
+  - `openspec/changes/archive/2026-06-25-c-16-tenant-backend-scoping/BREAKING_CHANGES.md`
+
+---
+
+### [C-17] `telegram-multi-bot`
+- **Estado**: `[x]` archivado
+- **Scope**: Soporte de múltiples bots de Telegram, uno por profesional
+  - Refactorizar webhook `/webhooks/telegram` para recibir updates de múltiples bots
+  - Routing: identificar qué bot recibió el update y routear al `Profesional` correspondiente
+  - `telegram_service.py`: aceptar `bot_token` y `profesional_id` por parámetro
+  - Aislamiento de conversaciones por profesional
+  - Tests: dos bots simulados, verificación de aislamiento de conversaciones
+- **Dependencias**: C-15
+- **Governance**: ALTO
+- **Leer antes**:
+  - `knowledge-base/02_descripcion_general.md` §Integraciones externas
+  - `knowledge-base/07_flujos_principales.md` §Flujo 1 (interacción Telegram)
+
+---
+
+### [C-18] `google-multi-calendar`
+- **Estado**: `[x]` archivado
+- **Scope**: Soporte de múltiples cuentas de Google Calendar, una por profesional
+  - Refactorizar `calendar_service.py` para recibir credenciales OAuth2 por parámetro
+  - Cada `Profesional` tiene sus propias credenciales (`google_refresh_token`)
+  - Tests: mock de múltiples cuentas de Google Calendar, verificación de aislamiento
+- **Dependencias**: C-15
+- **Governance**: ALTO
+- **Leer antes**:
+  - `knowledge-base/02_descripcion_general.md` §Integraciones externas
+  - `knowledge-base/05_reglas_de_negocio.md` §RN-GL-01
+
+---
+
+## FASE 8 — Super-Admin & Onboarding
+
+> C-19 y C-20 pueden ejecutarse en paralelo tras completar C-16, C-17 y C-18.
+
+### [C-19] `super-admin-role`
+- **Estado**: `[ ]` pendiente
+- **Scope**: Rol super-admin para operación del SaaS
+  - Rol `SUPER_ADMIN` (operador del SaaS, no es un profesional)
+  - Endpoints: listar profesionales, activar/desactivar, ver métricas globales
+  - Auth: protegido por `SUPER_ADMIN_API_KEY` (env var) o credenciales dedicated
+  - Panel mínimo (puede ser CLI o endpoints REST)
+  - Tests: aislamiento de rol, operaciones admin sobre profesionales
+- **Dependencias**: C-16, C-17, C-18
+- **Governance**: ALTO
+- **Leer antes**:
+  - `knowledge-base/03_actores_y_roles.md`
+  - `NEXT_SESSION.md` §Super-admin
+
+---
+
+### [C-20] `professional-onboarding`
+- **Estado**: `[ ]` pendiente
+- **Scope**: Flujo de registro y onboarding de profesionales
+  - Endpoint de registro self-service o por invitación
+  - Flujo de configuración inicial: datos del profesional, bot de Telegram, calendario Google
+  - Validación de email único, generación de credenciales iniciales
+  - Tests: flujo de registro completo, configuración inicial
+- **Dependencias**: C-16, C-17, C-18
+- **Governance**: MEDIO
+- **Leer antes**:
+  - `knowledge-base/03_actores_y_roles.md`
+  - `knowledge-base/06_funcionalidades.md` (historias de usuario de onboarding)
+
+---
+
+## FASE 9 — Migration & Hardening
+
+> C-21 y C-22 son secuenciales. C-21 depende de C-19 y C-20.
+
+### [C-21] `data-migration-v2`
+- **Estado**: `[ ]` pendiente
+- **Scope**: Script de migración de datos v1.0 → v2.0
+  - Crear profesional "default" si no existe
+  - Asignar `profesional_id` a todos los registros existentes
+  - Migrar `TELEGRAM_BOT_TOKEN` y `GOOGLE_CALENDAR_CREDENTIALS` de env vars a tablas de config
+  - Script ejecutable una sola vez, con rollback en caso de error
+  - Tests: migración con datos de prueba, idempotencia, rollback
+- **Dependencias**: C-19, C-20
+- **Governance**: CRITICO
+- **Leer antes**:
+  - `knowledge-base/04_modelo_de_datos.md`
+  - `openspec/changes/archive/2026-06-25-c-16-tenant-backend-scoping/BREAKING_CHANGES.md`
+
+---
+
+### [C-22] `hardening-config-cleanup`
+- **Estado**: `[ ]` pendiente
+- **Scope**: Limpieza de configuración y hardening final
+  - Eliminar env vars deprecadas (reemplazadas por config en DB)
+  - Validar que todos los endpoints respetan scoping
+  - Audit de seguridad: JWT, API keys, isolation
+  - Documentación de variables de entorno actualizada
+  - Tests: verificación de scoping global, configuración limpia
+- **Dependencias**: C-21
+- **Governance**: ALTO
+- **Leer antes**:
+  - `knowledge-base/08_arquitectura_propuesta.md` §Variables de entorno
+  - `openspec/changes/archive/2026-06-25-c-16-tenant-backend-scoping/BREAKING_CHANGES.md`
 
 ---
 
@@ -415,5 +584,18 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 | C-12 | 6 — Panel Profesional | `[x]` | BAJO | C-03, C-13 |
 | C-14 | 7 — Multi-tenancy | `[x]` | CRITICO | C-02 |
 | C-15 | 7 — Multi-tenancy | `[x]` | CRITICO | C-14 |
+| C-16 | 7 — Multi-tenancy | `[x]` | CRITICO | C-15 |
+| C-17 | 7 — Multi-tenancy | `[x]` | ALTO | C-15 |
+| C-18 | 7 — Multi-tenancy | `[x]` | ALTO | C-15 |
+| C-19 | 8 — Super-Admin | `[ ]` | ALTO | C-16, C-17, C-18 |
+| C-20 | 8 — Super-Admin | `[ ]` | MEDIO | C-16, C-17, C-18 |
+| C-21 | 9 — Migration | `[ ]` | CRITICO | C-19, C-20 |
+| C-22 | 9 — Hardening | `[ ]` | ALTO | C-21 |
 
-**Primer change recomendado**: C-16 (backend scoping por profesional).
+**Primer change recomendado**: C-19 (`super-admin-role`).
+
+---
+
+## Riesgos — TDD Deferral
+
+> **Nota importante**: Los changes C-14 a C-18 fueron implementados sin seguir el ciclo estricto de TDD (test rojo → verde → refactor) debido a la naturaleza exploratoria de la migración multi-tenant. Se debe planificar una sesión de catch-up de tests antes de retomar el desarrollo de backend v2.0 (C-19 en adelante).
