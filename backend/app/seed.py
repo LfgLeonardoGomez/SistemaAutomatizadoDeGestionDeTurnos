@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.models.profesional import Profesional
+from app.models.super_admin import SuperAdmin
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -27,3 +28,17 @@ async def seed_profesional(session: AsyncSession, settings: Settings) -> None:
             is_active=True,
         )
         session.add(profesional)
+
+
+async def seed_super_admin(session: AsyncSession, settings: Settings) -> None:
+    """Seed a SuperAdmin from env vars if the table is empty. Idempotent."""
+    if not settings.super_admin_email or not settings.super_admin_password_hash:
+        return
+    result = await session.execute(select(func.count()).select_from(SuperAdmin))
+    count = result.scalar_one()
+    if count == 0:
+        admin = SuperAdmin(
+            email=settings.super_admin_email,
+            password_hash=settings.super_admin_password_hash,
+        )
+        session.add(admin)

@@ -34,6 +34,21 @@ def create_access_token(profesional_id: int, email: str, settings: Settings) -> 
     return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
 
 
+def create_super_admin_access_token(
+    id: int, email: str, settings: Settings
+) -> str:
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(minutes=settings.access_token_expire_minutes)
+    to_encode = {
+        "sub": str(id),
+        "email": email,
+        "role": "super_admin",
+        "exp": expire,
+        "iat": now,
+    }
+    return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
+
+
 async def register_profesional(
     db: AsyncSession, data: ProfesionalRegisterRequest
 ) -> Profesional:

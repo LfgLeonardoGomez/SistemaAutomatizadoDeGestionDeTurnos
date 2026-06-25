@@ -30,3 +30,5 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440
     seed_default_password: str = ""
+    super_admin_email: str = ""
+    super_admin_password_hash: str = ""

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings
 from app.dependencies import _get_sessionmaker
 from app.scheduler.jobs import init_scheduler, shutdown_scheduler
-from app.seed import seed_profesional
+from app.seed import seed_profesional, seed_super_admin
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,7 @@ async def lifespan(app: FastAPI):
         async_session = _get_sessionmaker()
         async with async_session() as session:
             await seed_profesional(session, settings)
+            await seed_super_admin(session, settings)
             await session.commit()
     except Exception as exc:
         logger.warning(f"Skipping seed on startup: {exc}")
@@ -47,6 +48,7 @@ app = FastAPI(
 
 from app.routers import pacientes
 from app.routers.auth import router as auth_router
+from app.routers.admin import router as admin_router
 from app.routers.profesional import router as profesional_router
 from app.routers.turnos import router as turnos_router
 from app.routers.webhooks import router as webhooks_router
@@ -72,6 +74,7 @@ app.include_router(profesional_router)
 app.include_router(turnos_router)
 app.include_router(webhooks_router)
 app.include_router(lista_espera_router)
+app.include_router(admin_router)
 
 app.add_exception_handler(TurnoNoDisponibleError, turno_no_disponible_handler)
 app.add_exception_handler(TurnoExpiradoError, turno_expirado_handler)

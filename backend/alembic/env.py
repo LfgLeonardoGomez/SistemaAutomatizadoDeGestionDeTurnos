@@ -17,7 +17,7 @@ if config.config_file_name is not None:
 from app.models.base import Base
 
 # Ensure all models are imported so they register with Base.metadata
-from app.models import paciente, profesional, turno, reserva_temporal, lista_de_espera
+from app.models import paciente, profesional, turno, reserva_temporal, lista_de_espera, super_admin
 
 target_metadata = Base.metadata
 

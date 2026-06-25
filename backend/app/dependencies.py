@@ -11,11 +11,13 @@ from starlette.concurrency import run_in_threadpool
 
 from app.config import Settings
 from app.models.profesional import Profesional
+from app.models.super_admin import SuperAdmin
 
 _engine = None
 _async_session = None
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=True)
+admin_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/admin/auth/login", auto_error=True)
 
 
 def _get_engine():
@@ -136,3 +138,45 @@ async def get_profesional_by_telegram_secret_token(
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 DbDep = Annotated[AsyncSession, Depends(get_db)]
 CurrentProfesionalDep = Annotated[Profesional, Depends(get_current_profesional)]
+
+
+async def require_super_admin(
+    token: Annotated[str, Depends(admin_oauth2_scheme)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> SuperAdmin:
+    settings = Settings()
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Credenciales inválidas",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = await run_in_threadpool(
+            jwt.decode,
+            token,
+            settings.secret_key,
+            algorithms=[settings.algorithm],
+        )
+        sub: str | None = payload.get("sub")
+        role: str | None = payload.get("role")
+        if sub is None:
+            raise credentials_exception
+        if role != "super_admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Acceso denegado",
+            )
+        admin_id = int(sub)
+    except (JWTError, ValueError):
+        raise credentials_exception
+
+    result = await db.execute(
+        select(SuperAdmin).where(SuperAdmin.id == admin_id)
+    )
+    admin = result.scalar_one_or_none()
+    if admin is None:
+        raise credentials_exception
+    return admin
+
+
+CurrentSuperAdminDep = Annotated[SuperAdmin, Depends(require_super_admin)]

@@ -499,7 +499,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 > C-19 y C-20 pueden ejecutarse en paralelo tras completar C-16, C-17 y C-18.
 
 ### [C-19] `super-admin-role`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` archivado
 - **Scope**: Rol super-admin para operación del SaaS
   - Rol `SUPER_ADMIN` (operador del SaaS, no es un profesional)
   - Endpoints: listar profesionales, activar/desactivar, ver métricas globales
@@ -587,7 +587,7 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 | C-16 | 7 — Multi-tenancy | `[x]` | CRITICO | C-15 |
 | C-17 | 7 — Multi-tenancy | `[x]` | ALTO | C-15 |
 | C-18 | 7 — Multi-tenancy | `[x]` | ALTO | C-15 |
-| C-19 | 8 — Super-Admin | `[ ]` | ALTO | C-16, C-17, C-18 |
+| C-19 | 8 — Super-Admin | `[x]` | ALTO | C-16, C-17, C-18 |
 | C-20 | 8 — Super-Admin | `[ ]` | MEDIO | C-16, C-17, C-18 |
 | C-21 | 9 — Migration | `[ ]` | CRITICO | C-19, C-20 |
 | C-22 | 9 — Hardening | `[ ]` | ALTO | C-21 |
