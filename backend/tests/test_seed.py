@@ -2,6 +2,7 @@ import pytest
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import Settings
 from app.models.profesional import Profesional
 from app.seed import seed_profesional
 
@@ -16,7 +17,13 @@ class TestSeedProfesional:
         count_before = result.scalar_one()
         assert count_before == 0
 
-        await seed_profesional(db_session)
+        settings = Settings(
+            database_url="sqlite+aiosqlite:///:memory:",
+            telegram_bot_token="dummy",
+            secret_key="dummy",
+            seed_default_password="changeme",
+        )
+        await seed_profesional(db_session, settings)
         await db_session.commit()
 
         result = await db_session.execute(select(func.count()).select_from(Profesional))
@@ -41,10 +48,16 @@ class TestSeedProfesional:
     @pytest.mark.asyncio
     async def test_seed_is_idempotent(self, db_session):
         """Scenario: Seed no duplica registros — 3.3."""
-        await seed_profesional(db_session)
+        settings = Settings(
+            database_url="sqlite+aiosqlite:///:memory:",
+            telegram_bot_token="dummy",
+            secret_key="dummy",
+            seed_default_password="changeme",
+        )
+        await seed_profesional(db_session, settings)
         await db_session.commit()
 
-        await seed_profesional(db_session)
+        await seed_profesional(db_session, settings)
         await db_session.commit()
 
         result = await db_session.execute(select(func.count()).select_from(Profesional))

@@ -12,7 +12,11 @@ from app.schemas.paciente import PacienteCreate, PacienteRead, PacienteConHistor
 async def crear_o_obtener_paciente(
     db_session, profesional_id: int, data: PacienteCreate
 ) -> PacienteRead:
-    """Crea un paciente si no existe; si el DNI ya existe para ese profesional, retorna el existente."""
+    """Crea un paciente si no existe; si el DNI ya existe para ese profesional, retorna el existente.
+
+    Uses a savepoint (begin_nested) for IntegrityError handling so the caller's
+    transaction is NOT destroyed. The caller is responsible for committing.
+    """
     # Buscar con SELECT FOR UPDATE para prevenir race conditions
     stmt = (
         select(Paciente)
@@ -34,11 +38,13 @@ async def crear_o_obtener_paciente(
     )
     db_session.add(paciente)
     try:
-        await db_session.commit()
+        # Use savepoint so IntegrityError doesn't destroy the outer transaction
+        async with db_session.begin_nested():
+            await db_session.flush()
         await db_session.refresh(paciente)
     except IntegrityError:
         # Fallback: otro proceso creó el paciente entre el SELECT y el INSERT
-        await db_session.rollback()
+        db_session.expunge(paciente)
         result = await db_session.execute(
             select(Paciente).where(
                 Paciente.profesional_id == profesional_id, Paciente.dni == data.dni

@@ -103,8 +103,12 @@ def _extract_callback_query_id(update: dict[str, Any]) -> str | None:
 # Message sending helpers
 # ---------------------------------------------------------------------------
 
-async def enviar_mensaje(chat_id: int, text: str, bot_token: str, reply_markup: Any | None = None) -> None:
-    """Send a message to a Telegram chat via run_in_threadpool."""
+async def enviar_mensaje(chat_id: int, text: str, bot_token: str, reply_markup: Any | None = None) -> bool:
+    """Send a message to a Telegram chat via run_in_threadpool.
+
+    Returns True if Telegram accepted the message, False otherwise.
+    Callers decide whether to retry, log, or surface the failure.
+    """
     bot = _get_bot(bot_token)
     try:
         await run_in_threadpool(
@@ -114,8 +118,27 @@ async def enviar_mensaje(chat_id: int, text: str, bot_token: str, reply_markup: 
             parse_mode="MarkdownV2",
             reply_markup=reply_markup,
         )
+        return True
     except Exception as exc:
         logger.error(f"Error enviando mensaje a {chat_id}: {exc}")
+        return False
+
+async def enviar_mensaje_con_log(
+    chat_id: int,
+    text: str,
+    bot_token: str,
+    context: str,
+    reply_markup: Any | None = None,
+) -> bool:
+    """Send a Telegram message and log on failure.
+
+    `context` should describe the caller flow (e.g., "config_dias",
+    "reprogramar_turno", "dashboard_turnos_hoy") so failures are traceable.
+    """
+    ok = await enviar_mensaje(chat_id, text, bot_token, reply_markup)
+    if not ok:
+        logger.error(f"Fallo envío de mensaje a chat_id {chat_id} (contexto: {context})")
+    return ok
 
 
 async def responder_callback_query(callback_query_id: str, bot_token: str) -> None:
@@ -368,12 +391,12 @@ async def _handle_config_callback(db, chat_id: int, valor: str, state: dict[str,
             dias.append(dia)
         state["config_data"]["dias_atencion"] = dias
         keyboard = format_dias_keyboard(dias)
-        await enviar_mensaje(chat_id, "Seleccioná los días de atención:", bot_token, keyboard)
+        await enviar_mensaje_con_log(chat_id, "Seleccioná los días de atención:", bot_token, "config:dias_seleccion", keyboard)
         return
 
     if valor == "confirmar_dias":
         state["estado"] = "config_esperando_duracion"
-        await enviar_mensaje(chat_id, "Ingresá la duración del turno en minutos \(número positivo\)", bot_token)
+        await enviar_mensaje_con_log(chat_id, "Ingresá la duración del turno en minutos \\(número positivo\\)", bot_token, "config:duracion")
         return
 
     if valor == "confirmar":
@@ -384,7 +407,7 @@ async def _handle_config_callback(db, chat_id: int, valor: str, state: dict[str,
         state["estado"] = "idle"
         state["config_paso"] = None
         state["config_data"] = None
-        await enviar_mensaje(chat_id, "Configuración cancelada\. No se guardaron cambios\.", bot_token)
+        await enviar_mensaje_con_log(chat_id, "Configuración cancelada\. No se guardaron cambios\.", bot_token, "config:cancelar")
         return
 
 
@@ -396,7 +419,7 @@ async def _persist_config(db, chat_id: int, state: dict[str, Any], bot_token: st
     result = await db.execute(select(Profesional).where(Profesional.id == profesional_id))
     profesional = result.scalar_one_or_none()
     if profesional is None:
-        await enviar_mensaje(chat_id, format_error("No se encontró el profesional"), bot_token)
+        await enviar_mensaje_con_log(chat_id, format_error("No se encontró el profesional"), bot_token, "config:profesional_no_encontrado")
         return
 
     if config.get("horario_inicio") is not None:
@@ -414,7 +437,7 @@ async def _persist_config(db, chat_id: int, state: dict[str, Any], bot_token: st
     state["estado"] = "idle"
     state["config_paso"] = None
     state["config_data"] = None
-    await enviar_mensaje(chat_id, "✅ *Configuración guardada*\n\nLos cambios fueron aplicados exitosamente\.", bot_token)
+    await enviar_mensaje_con_log(chat_id, "✅ *Configuración guardada*\n\nLos cambios fueron aplicados exitosamente\.", bot_token, "config:guardada")
 
 
 # ---------------------------------------------------------------------------
@@ -562,17 +585,15 @@ def format_lista_espera_mensaje(turno: Any) -> str:
 
 async def enviar_notificacion_lista_espera(chat_id: str, turno: Any, bot_token: str) -> bool:
     """Send waiting list offer notification with Accept/Reject inline keyboard."""
-    try:
-        texto = format_lista_espera_mensaje(turno)
-        keyboard = format_lista_espera_keyboard(turno.id)
-        await enviar_mensaje(int(chat_id), texto, bot_token, keyboard)
-        return True
-    except Exception as exc:
-        logger.error(f"Error enviando notificación de lista de espera a {chat_id}: {exc}")
-        return False
+    texto = format_lista_espera_mensaje(turno)
+    keyboard = format_lista_espera_keyboard(turno.id)
+    ok = await enviar_mensaje(int(chat_id), texto, bot_token, keyboard)
+    if not ok:
+        logger.error(f"Error enviando notificación de lista de espera a {chat_id}")
+    return ok
 
 
-async def accion_aceptar_lista_espera(db, chat_id: int, turno_id: int) -> str:
+async def accion_aceptar_lista_espera(db, chat_id: int, turno_id: int, profesional_id: int) -> str:
     """Accept a waiting-list offered turno."""
     from app.services.lista_espera_service import aceptar_turno_lista_espera
     from sqlalchemy import select
@@ -583,6 +604,7 @@ async def accion_aceptar_lista_espera(db, chat_id: int, turno_id: int) -> str:
         select(ListaDeEspera).where(
             ListaDeEspera.turno_ofrecido_id == turno_id,
             ListaDeEspera.notificado == True,
+            ListaDeEspera.profesional_id == profesional_id,
         )
     )
     registro = result.scalar_one_or_none()
@@ -590,7 +612,7 @@ async def accion_aceptar_lista_espera(db, chat_id: int, turno_id: int) -> str:
         return format_error("No se encontró una oferta de lista de espera activa para este turno")
 
     try:
-        confirmado = await aceptar_turno_lista_espera(db, lista_espera_id=registro.id)
+        confirmado = await aceptar_turno_lista_espera(db, profesional_id=profesional_id, lista_espera_id=registro.id)
         texto = (
             f"✅ *Turno confirmado*\n\n"
             f"*Fecha:* {escape_markdown_v2(str(confirmado.fecha))}\n"
@@ -602,7 +624,7 @@ async def accion_aceptar_lista_espera(db, chat_id: int, turno_id: int) -> str:
         return format_error(str(exc))
 
 
-async def accion_rechazar_lista_espera(db, chat_id: int, turno_id: int) -> str:
+async def accion_rechazar_lista_espera(db, chat_id: int, turno_id: int, profesional_id: int) -> str:
     """Reject a waiting-list offered turno."""
     from app.services.lista_espera_service import rechazar_turno_lista_espera
     from sqlalchemy import select
@@ -612,6 +634,7 @@ async def accion_rechazar_lista_espera(db, chat_id: int, turno_id: int) -> str:
         select(ListaDeEspera).where(
             ListaDeEspera.turno_ofrecido_id == turno_id,
             ListaDeEspera.notificado == True,
+            ListaDeEspera.profesional_id == profesional_id,
         )
     )
     registro = result.scalar_one_or_none()
@@ -619,7 +642,7 @@ async def accion_rechazar_lista_espera(db, chat_id: int, turno_id: int) -> str:
         return format_error("No se encontró una oferta de lista de espera activa para este turno")
 
     try:
-        await rechazar_turno_lista_espera(db, lista_espera_id=registro.id, turno_id=turno_id)
+        await rechazar_turno_lista_espera(db, profesional_id=profesional_id, lista_espera_id=registro.id, turno_id=turno_id)
         return "Turno rechazado\. Si hay otro paciente en lista de espera se le notificará\."
     except Exception as exc:
         logger.exception("Error rechazando turno de lista de espera")
@@ -679,13 +702,13 @@ async def procesar_mensaje(db, update: dict[str, Any], profesional_id: int) -> N
                     state["estado"] = "reprogramando_esperando_hora"
                     state["nueva_fecha_seleccionada"] = valor
                     texto, keyboard = await mostrar_disponibilidad(db, profesional_id, fecha=date.fromisoformat(valor))
-                    await enviar_mensaje(chat_id, texto, bot_token, keyboard)
+                    await enviar_mensaje_con_log(chat_id, texto, bot_token, "reprogramar:seleccion_fecha", keyboard)
                     return
                 # Default booking flow
                 state["estado"] = "esperando_hora"
                 state["fecha_seleccionada"] = valor
                 texto, keyboard = await mostrar_disponibilidad(db, profesional_id, fecha=date.fromisoformat(valor))
-                await enviar_mensaje(chat_id, texto, bot_token, keyboard)
+                await enviar_mensaje_con_log(chat_id, texto, bot_token, "reserva:seleccion_fecha", keyboard)
                 return
 
             if tipo == "hora":
@@ -709,31 +732,31 @@ async def procesar_mensaje(db, update: dict[str, Any], profesional_id: int) -> N
                             state["estado"] = "idle"
                             state["turno_a_reprogramar_id"] = None
                             state["nueva_fecha_seleccionada"] = None
-                            await enviar_mensaje(chat_id, texto, bot_token)
+                            await enviar_mensaje_con_log(chat_id, texto, bot_token, "reprogramar:exitoso")
                         except TurnoNoDisponibleError as exc:
                             texto = format_error(f"{exc.message}\\. Seleccioná otra fecha")
                             state["estado"] = "reprogramando_esperando_fecha"
-                            await enviar_mensaje(chat_id, texto, bot_token)
+                            await enviar_mensaje_con_log(chat_id, texto, bot_token, "reprogramar:error_no_disponible")
                         except TurnoYaCanceladoError as exc:
                             texto = format_error(f"{exc.message}\\. No se puede reprogramar")
                             state["estado"] = "idle"
                             state["turno_a_reprogramar_id"] = None
                             state["nueva_fecha_seleccionada"] = None
-                            await enviar_mensaje(chat_id, texto, bot_token)
+                            await enviar_mensaje_con_log(chat_id, texto, bot_token, "reprogramar:error_ya_cancelado")
                         except Exception as exc:
                             logger.exception("Error reprogramando turno desde Telegram")
                             texto = format_error(f"Error inesperado: {exc}")
                             state["estado"] = "idle"
                             state["turno_a_reprogramar_id"] = None
                             state["nueva_fecha_seleccionada"] = None
-                            await enviar_mensaje(chat_id, texto, bot_token)
+                            await enviar_mensaje_con_log(chat_id, texto, bot_token, "reprogramar:error_inesperado")
                     return
                 # Default booking flow
                 state["estado"] = "esperando_datos"
                 fecha = state.get("fecha_seleccionada")
                 if fecha:
                     texto, keyboard = await accion_reservar_temporal(db, chat_id, fecha, valor, profesional_id)
-                    await enviar_mensaje(chat_id, texto, bot_token, keyboard)
+                    await enviar_mensaje_con_log(chat_id, texto, bot_token, "reserva:seleccion_hora", keyboard)
                 return
 
             if callback_data == "confirmar_datos":
@@ -741,7 +764,7 @@ async def procesar_mensaje(db, update: dict[str, Any], profesional_id: int) -> N
                 # In a real flow, datos_paciente would have been collected earlier
                 datos = state.get("datos_paciente") or {"nombre": "", "apellido": "", "dni": "", "telefono": ""}
                 texto = await accion_confirmar_turno(db, chat_id, datos, profesional_id)
-                await enviar_mensaje(chat_id, texto, bot_token)
+                await enviar_mensaje_con_log(chat_id, texto, bot_token, "confirmacion:datos")
                 return
 
             if callback_data == "cancelar_accion":
@@ -749,25 +772,25 @@ async def procesar_mensaje(db, update: dict[str, Any], profesional_id: int) -> N
                 # Also clear reprogramacion state
                 state["turno_a_reprogramar_id"] = None
                 state["nueva_fecha_seleccionada"] = None
-                await enviar_mensaje(chat_id, texto, bot_token)
+                await enviar_mensaje_con_log(chat_id, texto, bot_token, "reserva:cancelar")
                 return
 
             if tipo == "reprogramar":
                 turno_id = int(valor)
                 texto, keyboard = await accion_iniciar_reprogramacion(db, chat_id, turno_id, profesional_id)
-                await enviar_mensaje(chat_id, texto, bot_token, keyboard)
+                await enviar_mensaje_con_log(chat_id, texto, bot_token, "reprogramar:inicio", keyboard)
                 return
 
             if tipo == "lista_espera":
                 subtipo, turno_id_str = valor.split(":", 1)
                 turno_id = int(turno_id_str)
                 if subtipo == "aceptar":
-                    texto = await accion_aceptar_lista_espera(db, chat_id, turno_id)
+                    texto = await accion_aceptar_lista_espera(db, chat_id, turno_id, profesional_id)
                 elif subtipo == "rechazar":
-                    texto = await accion_rechazar_lista_espera(db, chat_id, turno_id)
+                    texto = await accion_rechazar_lista_espera(db, chat_id, turno_id, profesional_id)
                 else:
                     texto = format_error("Acción no reconocida")
-                await enviar_mensaje(chat_id, texto, bot_token)
+                await enviar_mensaje_con_log(chat_id, texto, bot_token, "lista_espera:respuesta")
                 return
 
             if tipo == "reminder":
@@ -807,11 +830,11 @@ async def procesar_mensaje(db, update: dict[str, Any], profesional_id: int) -> N
                 elif subtipo == "reprogramar":
                     texto, keyboard = await accion_iniciar_reprogramacion(db, chat_id, turno_id, profesional_id)
                     if keyboard:
-                        await enviar_mensaje(chat_id, texto, bot_token, keyboard)
+                        await enviar_mensaje_con_log(chat_id, texto, bot_token, "recordatorio:reprogramar", keyboard)
                         return
                 else:
                     texto = format_error("Acción no reconocida")
-                await enviar_mensaje(chat_id, texto, bot_token)
+                await enviar_mensaje_con_log(chat_id, texto, bot_token, "recordatorio:accion_no_reconocida")
                 return
 
             if tipo == "config":
@@ -824,7 +847,7 @@ async def procesar_mensaje(db, update: dict[str, Any], profesional_id: int) -> N
             if text_lower in ("/start", "quiero un turno"):
                 state["estado"] = "esperando_fecha"
                 texto, keyboard = await mostrar_disponibilidad(db, profesional_id)
-                await enviar_mensaje(chat_id, texto, bot_token, keyboard)
+                await enviar_mensaje_con_log(chat_id, texto, bot_token, "reserva:inicio", keyboard)
                 return
 
             if text_lower == "cancelar":
@@ -832,38 +855,39 @@ async def procesar_mensaje(db, update: dict[str, Any], profesional_id: int) -> N
                     state["estado"] = "idle"
                     state["config_paso"] = None
                     state["config_data"] = None
-                    await enviar_mensaje(chat_id, "Configuración cancelada\. No se guardaron cambios\.", bot_token)
+                    await enviar_mensaje_con_log(chat_id, "Configuración cancelada\. No se guardaron cambios\.", bot_token, "config:cancelar")
                 else:
                     texto = await accion_cancelar_turno(db, chat_id)
-                    await enviar_mensaje(chat_id, texto, bot_token)
+                    await enviar_mensaje_con_log(chat_id, texto, bot_token, "reserva:cancelar")
                 return
 
             if text_lower == "reprogramar":
                 texto, keyboard = await accion_reprogramar_turno(db, chat_id)
-                await enviar_mensaje(chat_id, texto, bot_token, keyboard)
+                await enviar_mensaje_con_log(chat_id, texto, bot_token, "reprogramar:texto", keyboard)
                 return
 
             if text_lower == "/turnos_hoy":
                 texto = await accion_turnos_hoy(db, chat_id, profesional_id)
-                await enviar_mensaje(chat_id, texto, bot_token)
+                await enviar_mensaje_con_log(chat_id, texto, bot_token, "dashboard:turnos_hoy")
                 return
 
             if text_lower == "/metricas":
                 texto = await accion_metricas(db, chat_id, profesional_id)
-                await enviar_mensaje(chat_id, texto, bot_token)
+                await enviar_mensaje_con_log(chat_id, texto, bot_token, "dashboard:metricas")
                 return
 
             if text_lower == "/configurar":
                 texto, keyboard = await accion_configurar(db, chat_id)
-                await enviar_mensaje(chat_id, texto, bot_token, keyboard)
+                await enviar_mensaje_con_log(chat_id, texto, bot_token, "config:inicio", keyboard)
                 return
 
             # Fallback: unrecognized text
             if state["estado"] == "idle":
-                await enviar_mensaje(
+                await enviar_mensaje_con_log(
                     chat_id,
                     "No entendí tu mensaje\n\nComandos disponibles:\n• /start \- Quiero un turno\n• Cancelar\n• Reprogramar",
                     bot_token,
+                    "fallback:mensaje_no_entendido",
                 )
                 return
 
@@ -888,12 +912,13 @@ async def procesar_mensaje(db, update: dict[str, Any], profesional_id: int) -> N
                         f"Teléfono: {escape_markdown_v2(datos['telefono'])}\n\n"
                         "¿Confirmás?"
                     )
-                    await enviar_mensaje(chat_id, texto, bot_token, format_confirmacion_keyboard())
+                    await enviar_mensaje_con_log(chat_id, texto, bot_token, "confirmacion:datos_ingresados", format_confirmacion_keyboard())
                 else:
-                    await enviar_mensaje(
+                    await enviar_mensaje_con_log(
                         chat_id,
                         "Formato incorrecto\n\nIngresá: Nombre, Apellido, DNI, Teléfono",
                         bot_token,
+                        "reserva:datos_invalidos",
                     )
                 return
 
@@ -902,9 +927,9 @@ async def procesar_mensaje(db, update: dict[str, Any], profesional_id: int) -> N
                     time.fromisoformat(text.strip())
                     state["config_data"]["horario_inicio"] = text.strip()
                     state["estado"] = "config_esperando_hora_fin"
-                    await enviar_mensaje(chat_id, "Ingresá el horario de fin en formato HH:MM", bot_token)
+                    await enviar_mensaje_con_log(chat_id, "Ingresá el horario de fin en formato HH:MM", bot_token, "config:hora_inicio_valida")
                 except ValueError:
-                    await enviar_mensaje(chat_id, "❌ Horario inválido\. Ingresá en formato HH:MM", bot_token)
+                    await enviar_mensaje_con_log(chat_id, "❌ Horario inválido\. Ingresá en formato HH:MM", bot_token, "config:hora_inicio_invalida")
                 return
 
             if state["estado"] == "config_esperando_hora_fin":
@@ -912,29 +937,29 @@ async def procesar_mensaje(db, update: dict[str, Any], profesional_id: int) -> N
                     hora_fin = time.fromisoformat(text.strip())
                     hora_inicio = time.fromisoformat(state["config_data"]["horario_inicio"])
                     if hora_fin <= hora_inicio:
-                        await enviar_mensaje(chat_id, "❌ El horario de fin debe ser posterior al de inicio\. Ingresá otro horario:", bot_token)
+                        await enviar_mensaje_con_log(chat_id, "❌ El horario de fin debe ser posterior al de inicio\. Ingresá otro horario:", bot_token, "config:hora_fin_invalida")
                         return
                     state["config_data"]["horario_fin"] = text.strip()
                     state["estado"] = "config_esperando_dias"
                     keyboard = format_dias_keyboard(state["config_data"].get("dias_atencion", []))
-                    await enviar_mensaje(chat_id, "Seleccioná los días de atención:", bot_token, keyboard)
+                    await enviar_mensaje_con_log(chat_id, "Seleccioná los días de atención:", bot_token, "config:dias_seleccion", keyboard)
                 except ValueError:
-                    await enviar_mensaje(chat_id, "❌ Horario inválido\. Ingresá en formato HH:MM", bot_token)
+                    await enviar_mensaje_con_log(chat_id, "❌ Horario inválido\. Ingresá en formato HH:MM", bot_token, "config:hora_fin_invalida")
                 return
 
             if state["estado"] == "config_esperando_duracion":
                 try:
                     duracion = int(text.strip())
                     if duracion <= 0:
-                        await enviar_mensaje(chat_id, "❌ La duración debe ser un número positivo\. Ingresá otro valor:", bot_token)
+                        await enviar_mensaje_con_log(chat_id, "❌ La duración debe ser un número positivo\. Ingresá otro valor:", bot_token, "config:duracion_invalida")
                         return
                     state["config_data"]["duracion_turno"] = duracion
                     state["estado"] = "config_confirmar"
                     texto = format_config_summary(state["config_data"])
                     keyboard = format_config_confirm_keyboard()
-                    await enviar_mensaje(chat_id, texto, bot_token, keyboard)
+                    await enviar_mensaje_con_log(chat_id, texto, bot_token, "config:duracion_valida", keyboard)
                 except ValueError:
-                    await enviar_mensaje(chat_id, "❌ Valor inválido\. Ingresá un número entero positivo:", bot_token)
+                    await enviar_mensaje_con_log(chat_id, "❌ Valor inválido\. Ingresá un número entero positivo:", bot_token, "config:duracion_invalida")
                 return
 
         logger.info("Unhandled update for chat_id %s: %s", chat_id, update)

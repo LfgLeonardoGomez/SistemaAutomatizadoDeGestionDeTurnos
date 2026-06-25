@@ -10,6 +10,7 @@ from app.services.telegram_service import (
     accion_cancelar_turno,
     mostrar_disponibilidad,
     enviar_mensaje,
+    enviar_mensaje_con_log,
     responder_callback_query,
     format_error,
     format_disponibilidad,
@@ -191,14 +192,33 @@ class TestMessageFormatting:
 
     @pytest.mark.asyncio
     async def test_enviar_mensaje_calls_run_in_threadpool(self):
-        with patch("app.services.telegram_service.run_in_threadpool", new=AsyncMock()) as mock_pool:
+        with patch("app.services.telegram_service.run_in_threadpool", new=AsyncMock(return_value=None)) as mock_pool:
             with patch("app.services.telegram_service._get_bot") as mock_bot:
                 mock_bot_instance = MagicMock()
                 mock_bot.return_value = mock_bot_instance
-                await enviar_mensaje(123, "hola", "test_token")
+                ok = await enviar_mensaje(123, "hola", "test_token")
                 mock_pool.assert_awaited_once()
                 args = mock_pool.call_args[0]
                 assert args[0] == mock_bot_instance.send_message
+                assert ok is True
+
+    @pytest.mark.asyncio
+    async def test_enviar_mensaje_retorna_false_cuando_falla(self):
+        with patch("app.services.telegram_service.run_in_threadpool", new=AsyncMock(side_effect=Exception("Telegram API down"))) as mock_pool:
+            with patch("app.services.telegram_service._get_bot") as mock_bot:
+                mock_bot_instance = MagicMock()
+                mock_bot.return_value = mock_bot_instance
+                ok = await enviar_mensaje(123, "hola", "test_token")
+                mock_pool.assert_awaited_once()
+                assert ok is False
+
+    @pytest.mark.asyncio
+    async def test_enviar_mensaje_con_log_loggea_contexto_al_fallar(self, caplog):
+        with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock(return_value=False)):
+            with caplog.at_level("ERROR"):
+                ok = await enviar_mensaje_con_log(123, "hola", "token", "test_contexto")
+                assert ok is False
+                assert "Fallo envío de mensaje a chat_id 123 (contexto: test_contexto)" in caplog.text
 
     @pytest.mark.asyncio
     async def test_responder_callback_query_calls_run_in_threadpool(self):
@@ -257,18 +277,18 @@ class TestListaEsperaTelegram:
         turno.id = 1
         turno.fecha = "2026-06-15"
         turno.hora_inicio = "09:00"
-        with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock(side_effect=Exception("fail"))) as mock_enviar:
+        with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock(return_value=False)) as mock_enviar:
             ok = await enviar_notificacion_lista_espera("12345", turno, "test_token")
             assert ok is False
 
     @pytest.mark.asyncio
     async def test_accion_aceptar_lista_espera_sin_registro(self, db_session):
-        texto = await accion_aceptar_lista_espera(db_session, 123, 999)
+        texto = await accion_aceptar_lista_espera(db_session, 123, 999, profesional_id=1)
         assert "Error" in texto
 
     @pytest.mark.asyncio
     async def test_accion_rechazar_lista_espera_sin_registro(self, db_session):
-        texto = await accion_rechazar_lista_espera(db_session, 123, 999)
+        texto = await accion_rechazar_lista_espera(db_session, 123, 999, profesional_id=1)
         assert "Error" in texto
 
 

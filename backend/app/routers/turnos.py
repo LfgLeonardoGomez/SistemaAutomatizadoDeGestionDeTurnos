@@ -82,11 +82,15 @@ async def confirmar_turno_endpoint(
             turno_id=turno_id,
             paciente_data=data.model_dump(),
         )
+        await db.commit()
     except TurnoNoDisponibleError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=exc.message)
     except TurnoExpiradoError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message)
     except PacienteConTurnoActivoError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message)
     return TurnoResponse.model_validate(turno)
 

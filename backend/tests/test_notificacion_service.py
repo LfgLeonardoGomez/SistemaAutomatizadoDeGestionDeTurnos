@@ -229,7 +229,7 @@ class TestEnviarRecordatorioTelegram:
         await db_session.commit()
         await db_session.refresh(turno)
 
-        with patch("app.services.notificacion_service.enviar_mensaje", new=AsyncMock(side_effect=Exception("fail"))):
+        with patch("app.services.notificacion_service.enviar_mensaje", new=AsyncMock(return_value=False)):
             ok = await enviar_recordatorio_telegram(turno, bot_token="test_token")
             assert ok is False
 

@@ -16,6 +16,14 @@
       "sessions": 0,
       "memories": 1,
       "prompts": 0
+    },
+    {
+      "id": "76d86bcb",
+      "created_by": "zen",
+      "created_at": "2026-06-25T04:08:46Z",
+      "sessions": 3,
+      "memories": 14,
+      "prompts": 32
     }
   ]
 }

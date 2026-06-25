@@ -22,6 +22,7 @@ class TestPacienteService:
         """Scenario: Paciente nuevo → se crea."""
         data = PacienteCreate(nombre="Juan", apellido="Pérez", dni="12345678", telefono="1")
         result = await crear_o_obtener_paciente(db_session, profesional.id, data)
+        await db_session.commit()
         assert result.nombre == "Juan"
         assert result.apellido == "Pérez"
         assert result.dni == "12345678"
@@ -33,6 +34,7 @@ class TestPacienteService:
         """Scenario: DNI ya existe para este profesional → retorna existente sin duplicar."""
         data = PacienteCreate(nombre="Juan", apellido="Pérez", dni="12345678", telefono="1")
         first = await crear_o_obtener_paciente(db_session, profesional.id, data)
+        await db_session.commit()
 
         data2 = PacienteCreate(nombre="Otro", apellido="Nombre", dni="12345678", telefono="2")
         second = await crear_o_obtener_paciente(db_session, profesional.id, data2)
@@ -121,3 +123,26 @@ class TestPacienteService:
 
         turnos = await listar_turnos_por_paciente(db_session, profesional.id, paciente.id)
         assert turnos == []
+
+    @pytest.mark.asyncio
+    async def test_crear_o_obtener_paciente_integrity_error_no_destruye_outer_tx(self, db_session, profesional):
+        """Scenario: IntegrityError en crear_o_obtener_paciente no deja la sesión en estado inválido."""
+        data = PacienteCreate(nombre="Juan", apellido="Perez", dni="12345678", telefono="1")
+        first = await crear_o_obtener_paciente(db_session, profesional.id, data)
+        await db_session.commit()
+
+        data2 = PacienteCreate(nombre="Otro", apellido="Nombre", dni="12345678", telefono="2")
+        second = await crear_o_obtener_paciente(db_session, profesional.id, data2)
+        assert first.id == second.id
+
+        # La sesión debe seguir siendo usable: podemos crear otro objeto y commitear
+        turno = Turno(
+            fecha=date(2026, 6, 15),
+            hora_inicio=time(9, 0),
+            hora_fin=time(9, 30),
+            profesional_id=profesional.id,
+            estado="DISPONIBLE",
+        )
+        db_session.add(turno)
+        await db_session.commit()
+        assert turno.id is not None

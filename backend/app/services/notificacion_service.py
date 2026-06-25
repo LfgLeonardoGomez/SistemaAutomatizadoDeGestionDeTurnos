@@ -63,23 +63,21 @@ async def enviar_recordatorio_telegram(turno: Turno, bot_token: str) -> bool:
         )
         return True
 
-    try:
-        mensaje = format_recordatorio_mensaje(
-            turno={
-                "fecha": turno.fecha,
-                "hora_inicio": turno.hora_inicio,
-            },
-            paciente={
-                "nombre": paciente.nombre,
-                "apellido": paciente.apellido,
-            },
-        )
-        keyboard = format_recordatorio_keyboard(turno.id)
-        await enviar_mensaje(int(chat_id), mensaje, bot_token, keyboard)
-        return True
-    except Exception as exc:
-        logger.error(f"Error enviando recordatorio Telegram para turno {turno.id}: {exc}")
-        return False
+    mensaje = format_recordatorio_mensaje(
+        turno={
+            "fecha": turno.fecha,
+            "hora_inicio": turno.hora_inicio,
+        },
+        paciente={
+            "nombre": paciente.nombre,
+            "apellido": paciente.apellido,
+        },
+    )
+    keyboard = format_recordatorio_keyboard(turno.id)
+    ok = await enviar_mensaje(int(chat_id), mensaje, bot_token, keyboard)
+    if not ok:
+        logger.error(f"Error enviando recordatorio Telegram para turno {turno.id}")
+    return ok
 
 
 async def marcar_recordatorio_enviado(db: AsyncSession, turno_id: int, profesional_id: int) -> None:

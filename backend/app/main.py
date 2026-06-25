@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
     try:
         async_session = _get_sessionmaker()
         async with async_session() as session:
-            await seed_profesional(session)
+            await seed_profesional(session, settings)
             await session.commit()
     except Exception as exc:
         logger.warning(f"Skipping seed on startup: {exc}")

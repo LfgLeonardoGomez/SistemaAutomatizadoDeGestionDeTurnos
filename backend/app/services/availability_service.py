@@ -40,7 +40,7 @@ def _generate_slots(horario_inicio: str, horario_fin: str, duracion: int) -> Lis
 async def calcular_disponibilidad(
     db: AsyncSession,
     fecha: date,
-    profesional_id: int = 1,
+    profesional_id: int,
 ) -> List[str]:
     """Calcula los horarios de inicio disponibles para una fecha dada."""
     result = await db.execute(

@@ -70,7 +70,7 @@ Tesis-N8N-turnos/
 │   ├── tests/                       # Tests unitarios e integración (~40 archivos)
 │   ├── requirements.txt
 │   └── Dockerfile
-├── .jr-orchestrator-state.json      # Estado del orquestador de fundación
+├── .atl/                            # Registry de skills (auto-generado)
 └── CHANGES.md                       # Roadmap de cambios (generado por roadmap-generator)
 ```
 

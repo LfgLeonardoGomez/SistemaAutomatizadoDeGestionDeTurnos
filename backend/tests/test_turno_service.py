@@ -193,6 +193,8 @@ class TestConfirmarTurno:
         assert confirmado.estado == "CONFIRMADO"
         assert confirmado.paciente_id is not None
 
+        await db_session.commit()
+
         # ReservaTemporal debe haberse eliminado
         result = await db_session.execute(
             select(ReservaTemporal).where(ReservaTemporal.turno_id == turno.id)
@@ -301,6 +303,8 @@ class TestConfirmarTurno:
         assert confirmado.estado == "CONFIRMADO"
         assert confirmado.google_event_id == "event_123"
 
+        await db_session.commit()
+
         # Verificar en DB
         result = await db_session.execute(select(Turno).where(Turno.id == turno.id))
         turno_db = result.scalar_one()
@@ -339,10 +343,88 @@ class TestConfirmarTurno:
         assert confirmado.google_event_id is None
         mock_service.create_event.assert_called_once()
 
+        await db_session.commit()
+
         # Verificar en DB
         result = await db_session.execute(select(Turno).where(Turno.id == turno.id))
         turno_db = result.scalar_one()
         assert turno_db.google_event_id is None
+
+    @pytest.mark.asyncio
+    async def test_confirmar_turno_paciente_existente_sin_turno_activo(self, db_session, profesional, test_settings):
+        """Scenario: paciente ya existe y no tiene turno activo → confirmar exitoso sin IntegrityError."""
+        from app.services.turno_service import reservar_turno, confirmar_turno
+        from app.services.paciente_service import crear_o_obtener_paciente
+        from app.schemas.paciente import PacienteCreate
+
+        # Crear paciente existente
+        data = PacienteCreate(nombre="Juan", apellido="Perez", dni="12345678", telefono="555-1234")
+        paciente = await crear_o_obtener_paciente(db_session, profesional.id, data)
+        await db_session.commit()
+
+        fecha = date(2026, 6, 15)
+        turno = await reservar_turno(
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            settings=test_settings,
+        )
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_123"
+            mock_calendar_cls.return_value = mock_service
+
+            confirmado = await confirmar_turno(
+                db_session,
+                profesional_id=profesional.id,
+                turno_id=turno.id,
+                paciente_data={
+                    "nombre": "Juan",
+                    "apellido": "Perez",
+                    "dni": "12345678",
+                    "telefono": "555-1234",
+                },
+            )
+
+        assert confirmado.estado == "CONFIRMADO"
+        assert confirmado.paciente_id == paciente.id
+
+        await db_session.commit()
+
+    @pytest.mark.asyncio
+    async def test_confirmar_turno_calendario_falla_sesion_usable(self, db_session, profesional, test_settings):
+        """Scenario: CalendarService.create_event falla, la sesión externa puede hacer commit."""
+        from app.services.turno_service import reservar_turno, confirmar_turno
+
+        fecha = date(2026, 6, 15)
+        turno = await reservar_turno(
+            db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=None,
+            settings=test_settings,
+        )
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.side_effect = RuntimeError("Calendar API down")
+            mock_calendar_cls.return_value = mock_service
+
+            confirmado = await confirmar_turno(
+                db_session,
+                profesional_id=profesional.id,
+                turno_id=turno.id,
+                paciente_data={
+                    "nombre": "Juan",
+                    "apellido": "Perez",
+                    "dni": "12345678",
+                    "telefono": "555-1234",
+                },
+            )
+
+        assert confirmado.estado == "CONFIRMADO"
+        # El caller debe poder commitear los cambios
+        await db_session.commit()
+        result = await db_session.execute(select(Turno).where(Turno.id == turno.id))
+        db_turno = result.scalar_one()
+        assert db_turno.estado == "CONFIRMADO"
+        assert db_turno.google_event_id is None
 
 
 # ---------------------------------------------------------------------------
@@ -394,6 +476,42 @@ class TestLiberarReservasVencidas:
 
         liberados = await liberar_reservas_vencidas(db_session, profesional.id)
         assert liberados == 0
+
+    @pytest.mark.asyncio
+    async def test_liberar_reservas_vencidas_no_sobrescribe_estado_confirmado(
+        self, db_session, profesional, test_settings
+    ):
+        """Scenario: turno fue confirmado concurrentemente → no se sobreescribe a DISPONIBLE."""
+        from app.services.turno_service import reservar_turno, liberar_reservas_vencidas
+
+        fecha = date(2026, 6, 15)
+        turno = await reservar_turno(
+            db_session,
+            profesional_id=profesional.id,
+            fecha=fecha,
+            hora_inicio=time(9, 0),
+            paciente_id=None,
+            settings=test_settings,
+        )
+
+        # Forzar expiración de la reserva temporal
+        result = await db_session.execute(
+            select(ReservaTemporal).where(ReservaTemporal.turno_id == turno.id)
+        )
+        reserva = result.scalar_one()
+        reserva.expiracion = datetime.now() - timedelta(minutes=1)
+        await db_session.commit()
+
+        # Simular race condition: el turno fue confirmado antes de que el job corra
+        turno.estado = "CONFIRMADO"
+        await db_session.commit()
+
+        liberados = await liberar_reservas_vencidas(db_session, profesional.id)
+        assert liberados == 1  # La reserva temporal se elimina igual
+
+        result = await db_session.execute(select(Turno).where(Turno.id == turno.id))
+        turno_actualizado = result.scalar_one()
+        assert turno_actualizado.estado == "CONFIRMADO"
 
 
 # ---------------------------------------------------------------------------
@@ -758,7 +876,7 @@ class TestReprogramarTurno:
             settings=test_settings,
         )
 
-        with pytest.raises(TurnoYaCanceladoError):
+        with pytest.raises(TurnoNoDisponibleError):
             await reprogramar_turno(
                 db_session,
                 profesional_id=profesional.id,

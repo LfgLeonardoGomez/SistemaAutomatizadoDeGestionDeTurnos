@@ -177,9 +177,6 @@ async def confirmar_turno(
         delete(ReservaTemporal).where(ReservaTemporal.turno_id == turno_id)
     )
 
-    await db.commit()
-    await db.refresh(turno)
-
     # Crear evento en Google Calendar (no bloquea el event loop)
     try:
         # Forzar refresh de relaciones para que CalendarService tenga datos completos
@@ -189,8 +186,6 @@ async def confirmar_turno(
         calendar = CalendarService(turno.profesional)
         event_id = await run_in_threadpool(calendar.create_event, turno)
         turno.google_event_id = event_id
-        await db.commit()
-        await db.refresh(turno)
     except Exception as exc:
         logger.error(f"Fallo al crear evento en Calendar para turno {turno.id}: {exc}")
         # No revertimos la confirmación; el turno es la fuente de verdad
@@ -223,7 +218,7 @@ async def liberar_reservas_vencidas(db: AsyncSession, profesional_id: int) -> in
             .with_for_update()
         )
         turno = result.scalar_one_or_none()
-        if turno is not None:
+        if turno is not None and turno.estado == "RESERVADO_TEMPORAL":
             turno.estado = "DISPONIBLE"
             turno.paciente_id = None
             turnos_liberados.append(turno.id)
@@ -369,7 +364,7 @@ async def reprogramar_turno(
     if turno_viejo.estado == "CANCELADO":
         raise TurnoYaCanceladoError()
     if turno_viejo.estado != "CONFIRMADO":
-        raise TurnoYaCanceladoError("El turno no puede ser reprogramado porque no está confirmado")
+        raise TurnoNoDisponibleError("El turno no puede ser reprogramado porque no está confirmado")
 
     # Reutilizar datos del paciente si no se proporcionan
     if paciente_data is None:
@@ -412,6 +407,7 @@ async def reprogramar_turno(
         paciente_data=paciente_data,
     )
 
+    await db.commit()
     return confirmado
 
 

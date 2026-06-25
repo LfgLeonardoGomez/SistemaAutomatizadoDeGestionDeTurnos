@@ -37,7 +37,9 @@ async def create_paciente(
         return PacienteRead.model_validate(existing)
 
     response.status_code = status.HTTP_201_CREATED
-    return await crear_o_obtener_paciente(db, profesional_id=profesional.id, data=data)
+    paciente = await crear_o_obtener_paciente(db, profesional_id=profesional.id, data=data)
+    await db.commit()
+    return paciente
 
 
 @router.get("/{paciente_id}", response_model=PacienteConHistorial)

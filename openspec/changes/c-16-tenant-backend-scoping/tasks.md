@@ -92,12 +92,12 @@
 
 ## 10. Scheduler Jobs
 
-- [ ] 10.1 Modificar `_liberar_reservas_vencidas_job` para iterar por profesionales activos
-- [ ] 10.2 Modificar `_marcar_turnos_completados_job` para iterar por profesionales activos
-- [ ] 10.3 Modificar `_procesar_timeouts_lista_espera_job` para iterar por profesionales activos
-- [ ] 10.4 Modificar `_enviar_recordatorios_job` para iterar por profesionales activos
-- [ ] 10.5 Asegurar que cada iteración usa una sesión de DB separada (o reutiliza con cuidado)
-- [ ] 10.6 Actualizar tests de `tests/scheduler/test_jobs.py`
+- [x] 10.1 Modificar `_liberar_reservas_vencidas_job` para iterar por profesionales activos
+- [x] 10.2 Modificar `_marcar_turnos_completados_job` para iterar por profesionales activos
+- [x] 10.3 Modificar `_procesar_timeouts_lista_espera_job` para iterar por profesionales activos
+- [x] 10.4 Modificar `_enviar_recordatorios_job` para iterar por profesionales activos
+- [x] 10.5 Asegurar que cada iteración usa una sesión de DB separada (o reutiliza con cuidado)
+- [x] 10.6 Actualizar tests de `tests/scheduler/test_jobs.py`
 
 ## 11. Configuración y Variables de Entorno
 
@@ -119,7 +119,7 @@
 - [x] 12.10 Actualizar `tests/services/test_calendar_service.py`
 - [x] 12.11 Actualizar `tests/services/test_telegram_service.py`
 - [x] 12.12 Actualizar `tests/services/test_notificacion_service.py`
-- [ ] 12.13 Actualizar `tests/scheduler/test_jobs.py`
+- [x] 12.13 Actualizar `tests/scheduler/test_jobs.py`
 - [x] 12.14 Ejecutar suite completa y fixear tests rotos
 
 ## 13. Tests de Aislamiento (Nuevos)
@@ -133,9 +133,9 @@
 
 ## 14. Validación y Cierre
 
-- [ ] 14.1 Ejecutar `pytest` completo y asegurar que pasa 100%
-- [ ] 14.2 Ejecutar `openspec validate` y confirmar que pasa
-- [ ] 14.3 Verificar con `grep` que no quedan referencias a `_get_profesional_default`
-- [ ] 14.4 Verificar con `grep` que no quedan queries sin filtro de `profesional_id` en servicios
-- [ ] 14.5 Revisar código con flake8/mypy si están configurados
-- [ ] 14.6 Documentar breaking changes para integraciones externas (n8n, bots)
+- [x] 14.1 Ejecutar `pytest` completo y asegurar que pasa 100%
+- [x] 14.2 Ejecutar `openspec validate` y confirmar que pasa
+- [x] 14.3 Verificar con `grep` que no quedan referencias a `_get_profesional_default`
+- [x] 14.4 Verificar con `grep` que no quedan queries sin filtro de `profesional_id` en servicios
+- [x] 14.5 Revisar código con flake8/mypy si están configurados
+- [x] 14.6 Documentar breaking changes para integraciones externas (n8n, bots)

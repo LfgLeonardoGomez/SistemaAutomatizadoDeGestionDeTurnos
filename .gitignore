@@ -60,7 +60,5 @@ alembic.ini.bak
 
 # OpenCode / Agent local state
 .opencode/
-.jr-orchestrator-state.json
-
 # Skill registry (auto-generated)
 .atl/

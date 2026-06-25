@@ -50,7 +50,7 @@ La fuente de verdad del dominio vive en `knowledge-base/`. **Leé el archivo rel
 | **Backend Core** | FastAPI / SQLAlchemy / PostgreSQL / Alembic / modelos | `fastapi`, `supabase-postgres-best-practices`, `saas-multi-tenant` |
 | **Backend Aux** | Integraciones, scheduler, calendario, seguridad, DevOps | `google-calendar`, `devops-engineer` |
 | **Bot & n8n** | Telegram, workflows, automatización | `telegram-bot`, `n8n-cli` |
-| **Orquestación** | OPSX / SDD / docs / foundation | `openspec-init`, `openspec-propose`, `openspec-apply-change`, `openspec-archive-change`, `openspec-explore`, `openspec-sync-specs`, `kb-creator`, `roadmap-generator`, `agents-md-generator`, `jr-orchestrator` |
+| **Orquestación** | OPSX / SDD / docs / foundation | `openspec-init`, `openspec-propose`, `openspec-apply-change`, `openspec-archive-change`, `openspec-explore`, `openspec-sync-specs`, `herald`, `chronicle`, `roadmap-generator`, `agents-md-generator`, `sdd-orchestrator` |
 
 Cargá la skill correspondiente al contexto **ANTES** de escribir código.
 
@@ -111,11 +111,17 @@ Acá van las reglas **específicas de este proyecto**, derivadas de su stack (Fa
 ## Flujo de Trabajo
 
 ```
-1. Leer la KB relevante (knowledge-base/)        → entender el dominio
-2. Identificar el change en CHANGES.md           → respetar dependencias
-3. /opsx:propose C-NN-nombre                     → proposal + design + specs + tasks
-4. Implementar las tasks (cargando skills)       → respetando las reglas duras
-5. /opsx:archive C-NN-nombre + marcar [x]        → cerrar el change
+0. Idea / integración nueva → herald               → seed (fact vs proposal)
+1. Leer la KB relevante (knowledge-base/)           → entender el dominio
+2. Identificar el change en CHANGES.md              → respetar dependencias
+3. /sdd-new  o  /opsx:propose C-NN-nombre           → proposal + design + specs + tasks
+4. Implementar las tasks (cargando skills)          → respetando las reglas duras
+5. /sdd-verify-seb  +  /sdd-archive-seb             → validar y cerrar el change
+6. chronicle (update KB)                             → mantener la KB al día
 ```
+
+**Paso 0 — herald**: para ideas no especificadas, features nuevas o integraciones entre sistemas. herald groundea en código real (read-only), separa hecho de propuesta, y entrega un seed listo para SDD. No avanza sin aprobación humana.
+
+**Paso 6 — chronicle**: tras implementar y archivar, actualizá la KB con chronicle (modo update) para que la documentación refleje el cambio real. Los modos reverse y audit sirven para documentar código existente o verificar consistencia.
 
 Aplicar TODAS las reglas duras en cada paso. Ante conflicto entre la KB y este archivo, las reglas duras prevalecen.
