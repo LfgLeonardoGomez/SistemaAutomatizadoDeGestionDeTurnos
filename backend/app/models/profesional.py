@@ -44,6 +44,11 @@ class Profesional(Base):
         String(255), nullable=True
     )
 
+    # Google Calendar target (C-22)
+    google_calendar_id: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True, server_default="primary"
+    )
+
     turnos: Mapped[List["Turno"]] = relationship(
         "Turno", back_populates="profesional", lazy="selectin"
     )

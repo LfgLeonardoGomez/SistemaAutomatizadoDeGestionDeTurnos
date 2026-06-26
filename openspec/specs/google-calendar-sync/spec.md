@@ -18,18 +18,18 @@ El sistema DEBE proporcionar un servicio `calendar_service.py` que actúe como w
 - **THEN** el servicio elimina el evento correspondiente de Google Calendar
 - **AND** retorna confirmación de éxito
 
-### Requirement: Autenticación OAuth 2.0 con cuenta de servicio
-El sistema DEBE autenticarse con Google Calendar API usando una cuenta de servicio OAuth 2.0, cargando las credenciales desde un JSON proporcionado vía variable de entorno.
+### Requirement: Google Calendar authentication per professional
+The system SHALL authenticate with Google Calendar API using each professional's stored `google_refresh_token` together with global OAuth client credentials.
 
-#### Scenario: Autenticación exitosa
-- **WHEN** la aplicación inicia y `GOOGLE_CALENDAR_CREDENTIALS` contiene un JSON válido de cuenta de servicio
-- **THEN** el servicio construye un objeto `Credentials` de `google-auth`
-- **AND** puede realizar llamadas autorizadas a Google Calendar API
+#### Scenario: Authentication succeeds with refresh token
+- GIVEN professional has `google_refresh_token` set
+- WHEN the calendar service is built for that professional
+- THEN it constructs valid OAuth credentials and can call Google Calendar API
 
-#### Scenario: Credenciales inválidas
-- **WHEN** `GOOGLE_CALENDAR_CREDENTIALS` es inválido o está ausente
-- **THEN** el servicio lanza una excepción de configuración al momento de construirse
-- **AND** el error se loguea con contexto (falta de credenciales)
+#### Scenario: Missing refresh token fails fast
+- GIVEN professional has no `google_refresh_token`
+- WHEN the calendar service is built for that professional
+- THEN it raises a configuration error
 
 ### Requirement: Reintentos con backoff exponencial
 El sistema DEBE reintentar automáticamente las operaciones de Google Calendar ante errores transitorios, usando backoff exponencial con jitter configurable.
@@ -49,13 +49,31 @@ El sistema DEBE reintentar automáticamente las operaciones de Google Calendar a
 - **THEN** el servicio usa esos valores para configurar la política de reintentos
 - **AND** si no están definidas, usa valores por defecto (`max_retries=3`, `base_delay=1.0`, `max_delay=10.0`)
 
-### Requirement: Configuración centralizada en Pydantic Settings
-El sistema DEBE declarar todas las variables de configuración de Google Calendar como campos de Pydantic Settings en `app/config.py`, con validación y defaults.
+### Requirement: Calendar target per professional
+The system SHALL target the calendar identified by `profesional.google_calendar_id`, falling back to `"primary"` when the value is null or empty.
 
-#### Scenario: Variables de entorno presentes
-- **WHEN** `GOOGLE_CALENDAR_CREDENTIALS`, `GOOGLE_CALENDAR_ID`, `GOOGLE_CALENDAR_MAX_RETRIES`, `GOOGLE_CALENDAR_BASE_DELAY`, `GOOGLE_CALENDAR_MAX_DELAY` están definidas
-- **THEN** `Settings` las expone como atributos tipados
-- **AND** los valores se validan en el startup de FastAPI
+#### Scenario: Create event on configured calendar
+- GIVEN professional with `google_calendar_id="clinic@example.com"`
+- WHEN `create_event(turno)` is invoked
+- THEN the event is inserted into `"clinic@example.com"`
+
+#### Scenario: Create event with default calendar
+- GIVEN professional with `google_calendar_id` unset
+- WHEN `create_event(turno)` is invoked
+- THEN the event is inserted into `"primary"`
+
+#### Scenario: Update and delete use same calendar
+- GIVEN an existing event on the professional's configured calendar
+- WHEN `update_event(turno)` or `delete_event(event_id)` is invoked
+- THEN the operation targets the same `calendarId` used for creation
+
+### Requirement: Pydantic Settings for Google Calendar
+The system SHALL declare only `google_client_id`, `google_client_secret`, `google_calendar_max_retries`, `google_calendar_base_delay`, and `google_calendar_max_delay` as Pydantic Settings fields for Google Calendar integration.
+
+#### Scenario: Valid settings present
+- WHEN the backend starts with Google OAuth client settings and retry settings
+- THEN `Settings` exposes them as typed attributes
+- AND startup succeeds without `GOOGLE_CALENDAR_CREDENTIALS` or `GOOGLE_CALENDAR_ID`
 
 ### Requirement: Idempotencia en creación de eventos
 El sistema DEBE garantizar que `create_event` sea idempotente: si se invoca múltiples veces para el mismo `Turno`, no debe generar duplicados en Google Calendar.

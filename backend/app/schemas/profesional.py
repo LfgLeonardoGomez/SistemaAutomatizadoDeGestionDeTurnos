@@ -90,8 +90,9 @@ class ProfesionalMetricasResponse(BaseModel):
 class ProfesionalIntegracionesUpdate(BaseModel):
     telegram_bot_token: Optional[str] = None
     google_refresh_token: Optional[str] = None
+    google_calendar_id: Optional[str] = None
 
-    @field_validator("telegram_bot_token", "google_refresh_token")
+    @field_validator("telegram_bot_token", "google_refresh_token", "google_calendar_id")
     @classmethod
     def reject_empty(cls, v: Optional[str]) -> Optional[str]:
         if v is not None and v.strip() == "":
@@ -102,6 +103,7 @@ class ProfesionalIntegracionesUpdate(BaseModel):
 class ProfesionalIntegracionesResponse(BaseModel):
     has_telegram: bool
     has_google: bool
+    google_calendar_id: str
 
 
 class ProfesionalCreateRequest(BaseModel):

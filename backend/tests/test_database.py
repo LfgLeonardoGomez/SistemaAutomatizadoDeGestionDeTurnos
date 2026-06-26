@@ -11,7 +11,6 @@ class TestDatabaseConnectivity:
     def test_async_engine_creation(self, monkeypatch):
         """Scenario: Database engine initialization."""
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
         monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         from app.dependencies import _get_engine
@@ -45,7 +44,6 @@ class TestDatabaseConnectivity:
 
         # Use the Docker Compose PostgreSQL instance on host port 15432
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://turnos:turnos@localhost:15432/turnos")
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
         monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         backend_dir = Path(__file__).parent.parent

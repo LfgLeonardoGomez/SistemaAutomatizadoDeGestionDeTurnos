@@ -25,7 +25,6 @@ class TestProcesarTimeoutsListaEsperaJob:
     @pytest.mark.asyncio
     async def test_job_ejecuta_procesar_timeouts(self, monkeypatch, db_session):
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test")
         monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         p = await _seed_profesional(db_session)
@@ -38,7 +37,6 @@ class TestProcesarTimeoutsListaEsperaJob:
     @pytest.mark.asyncio
     async def test_job_con_session_directa(self, monkeypatch, db_session):
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test")
         monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         p = await _seed_profesional(db_session)

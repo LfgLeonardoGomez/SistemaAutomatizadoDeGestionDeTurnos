@@ -25,6 +25,7 @@ class TestCalendarService:
             duracion_turno=30, horario_inicio="09:00", horario_fin="18:00",
             dias_atencion=["Lunes"],
             google_refresh_token="test_refresh_token",
+            google_calendar_id="test_calendar_id",
         )
 
     @pytest.fixture
@@ -43,11 +44,9 @@ class TestCalendarService:
         from app.config import Settings
         settings = Settings(
             database_url="postgresql+asyncpg://user:pass@localhost/db",
-            telegram_bot_token="test",
             secret_key="test",
             google_client_id="client_id",
             google_client_secret="client_secret",
-            google_calendar_id="primary",
         )
         mock_events = mock_service.events.return_value
         mock_insert = mock_events.insert.return_value
@@ -59,7 +58,7 @@ class TestCalendarService:
         assert result == "event_123"
         mock_events.insert.assert_called_once()
         call_kwargs = mock_events.insert.call_args[1]
-        assert call_kwargs["calendarId"] == "primary"
+        assert call_kwargs["calendarId"] == "test_calendar_id"
         body = call_kwargs["body"]
         assert "Juan" in body["summary"]
         assert "2025-06-15" in body["start"]["dateTime"]
@@ -69,11 +68,9 @@ class TestCalendarService:
         from app.config import Settings
         settings = Settings(
             database_url="postgresql+asyncpg://user:pass@localhost/db",
-            telegram_bot_token="test",
             secret_key="test",
             google_client_id="client_id",
             google_client_secret="client_secret",
-            google_calendar_id="primary",
         )
         turno.google_event_id = "event_123"
         mock_events = mock_service.events.return_value
@@ -86,7 +83,7 @@ class TestCalendarService:
         assert result == "event_123"
         mock_events.update.assert_called_once()
         call_kwargs = mock_events.update.call_args[1]
-        assert call_kwargs["calendarId"] == "primary"
+        assert call_kwargs["calendarId"] == "test_calendar_id"
         assert call_kwargs["eventId"] == "event_123"
         body = call_kwargs["body"]
         assert "Juan" in body["summary"]
@@ -96,11 +93,9 @@ class TestCalendarService:
         from app.config import Settings
         settings = Settings(
             database_url="postgresql+asyncpg://user:pass@localhost/db",
-            telegram_bot_token="test",
             secret_key="test",
             google_client_id="client_id",
             google_client_secret="client_secret",
-            google_calendar_id="primary",
         )
         mock_events = mock_service.events.return_value
         mock_delete = mock_events.delete.return_value
@@ -112,7 +107,7 @@ class TestCalendarService:
         assert result is None
         mock_events.delete.assert_called_once()
         call_kwargs = mock_events.delete.call_args[1]
-        assert call_kwargs["calendarId"] == "primary"
+        assert call_kwargs["calendarId"] == "test_calendar_id"
         assert call_kwargs["eventId"] == "event_123"
 
     def test_create_event_retries_on_500(self, mock_service, turno, profesional_con_refresh):
@@ -121,11 +116,9 @@ class TestCalendarService:
         from googleapiclient.errors import HttpError
         settings = Settings(
             database_url="postgresql+asyncpg://user:pass@localhost/db",
-            telegram_bot_token="test",
             secret_key="test",
             google_client_id="client_id",
             google_client_secret="client_secret",
-            google_calendar_id="primary",
             google_calendar_max_retries=3,
             google_calendar_base_delay=0.1,
             google_calendar_max_delay=0.2,
@@ -150,11 +143,9 @@ class TestCalendarService:
         from googleapiclient.errors import HttpError
         settings = Settings(
             database_url="postgresql+asyncpg://user:pass@localhost/db",
-            telegram_bot_token="test",
             secret_key="test",
             google_client_id="client_id",
             google_client_secret="client_secret",
-            google_calendar_id="primary",
             google_calendar_max_retries=3,
             google_calendar_base_delay=0.1,
             google_calendar_max_delay=0.2,
@@ -177,11 +168,9 @@ class TestCalendarService:
         from app.config import Settings
         settings = Settings(
             database_url="postgresql+asyncpg://user:pass@localhost/db",
-            telegram_bot_token="test",
             secret_key="test",
             google_client_id="client_id",
             google_client_secret="client_secret",
-            google_calendar_id="primary",
         )
         mock_events = mock_service.events.return_value
         mock_insert = mock_events.insert.return_value
@@ -208,11 +197,9 @@ class TestCalendarService:
         from app.config import Settings
         settings = Settings(
             database_url="postgresql+asyncpg://user:pass@localhost/db",
-            telegram_bot_token="test",
             secret_key="test",
             google_client_id="client_id",
             google_client_secret="client_secret",
-            google_calendar_id="primary",
         )
         profesional_sin_token = Profesional(
             id=2, nombre="Dr. Sin Token", especialidad="Test",
@@ -229,11 +216,9 @@ class TestCalendarService:
         from app.config import Settings
         settings = Settings(
             database_url="postgresql+asyncpg://user:pass@localhost/db",
-            telegram_bot_token="test",
             secret_key="test",
             google_client_id="client_id",
             google_client_secret="client_secret",
-            google_calendar_id="primary",
         )
         profesional_vacio = Profesional(
             id=3, nombre="Dr. Vacio", especialidad="Test",
@@ -244,3 +229,37 @@ class TestCalendarService:
         with pytest.raises(ValueError) as exc_info:
             CalendarService(profesional_vacio, settings=settings)
         assert "no tiene google_refresh_token" in str(exc_info.value).lower()
+
+    def test_create_event_fallback_to_primary_when_no_calendar_id(
+        self, mock_service, turno
+    ):
+        """RED: create_event falls back to 'primary' when professional has no google_calendar_id."""
+        from app.config import Settings
+
+        # Professional without google_calendar_id — fallback to "primary"
+        profesional_sin_calendar = Profesional(
+            id=10, nombre="Dra. Sin Calendar", especialidad="Cardiologia",
+            duracion_turno=30, horario_inicio="09:00", horario_fin="18:00",
+            dias_atencion=["Lunes"],
+            google_refresh_token="test_refresh_token",
+            google_calendar_id=None,
+        )
+        # Rebind turno to this professional
+        turno.profesional = profesional_sin_calendar
+
+        settings = Settings(
+            database_url="postgresql+asyncpg://user:pass@localhost/db",
+            secret_key="test",
+            google_client_id="client_id",
+            google_client_secret="client_secret",
+        )
+        mock_events = mock_service.events.return_value
+        mock_insert = mock_events.insert.return_value
+        mock_insert.execute.return_value = {"id": "event_fallback"}
+
+        service = CalendarService(profesional_sin_calendar, settings=settings)
+        result = service.create_event(turno)
+
+        assert result == "event_fallback"
+        call_kwargs = mock_events.insert.call_args[1]
+        assert call_kwargs["calendarId"] == "primary"

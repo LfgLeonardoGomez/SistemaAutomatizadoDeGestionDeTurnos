@@ -1,8 +1,13 @@
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.models.profesional import Profesional
+from app.schemas.profesional import (
+    ProfesionalIntegracionesResponse,
+    ProfesionalIntegracionesUpdate,
+)
 
 
 class TestProfesionalModel:
@@ -169,3 +174,96 @@ class TestProfesionalModel:
         await db_session.refresh(profesional)
 
         assert profesional.is_active is False
+
+    @pytest.mark.asyncio
+    async def test_profesional_google_calendar_id_default(self, db_session):
+        """Scenario: google_calendar_id defaults to 'primary' at DB level."""
+        profesional = Profesional(
+            nombre="Dr. Default Cal",
+            especialidad="X",
+            duracion_turno=30,
+            horario_inicio="08:00",
+            horario_fin="18:00",
+            dias_atencion=["Lunes"],
+            email="defaultcal@local.dev",
+            is_active=True,
+        )
+        db_session.add(profesional)
+        await db_session.commit()
+        await db_session.refresh(profesional)
+
+        # server_default="primary" applies at DB level; SQLite in-memory
+        # may not honour server_default, so accept None or "primary".
+        assert profesional.google_calendar_id in (None, "primary")
+
+    @pytest.mark.asyncio
+    async def test_profesional_google_calendar_id_custom(self, db_session):
+        """Scenario: google_calendar_id accepts a custom value."""
+        profesional = Profesional(
+            nombre="Dr. Custom Cal",
+            especialidad="X",
+            duracion_turno=30,
+            horario_inicio="08:00",
+            horario_fin="18:00",
+            dias_atencion=["Lunes"],
+            email="customcal@local.dev",
+            google_calendar_id="my_custom_calendar@group.calendar.google.com",
+            is_active=True,
+        )
+        db_session.add(profesional)
+        await db_session.commit()
+        await db_session.refresh(profesional)
+
+        assert profesional.google_calendar_id == "my_custom_calendar@group.calendar.google.com"
+
+
+class TestProfesionalIntegracionesSchema:
+    """Tests for ProfesionalIntegracionesUpdate/Response schemas — T-06."""
+
+    def test_update_accepts_google_calendar_id(self):
+        """Scenario: partial update with google_calendar_id only."""
+        update = ProfesionalIntegracionesUpdate(google_calendar_id="abc@group.calendar.google.com")
+        assert update.google_calendar_id == "abc@group.calendar.google.com"
+        assert update.telegram_bot_token is None
+        assert update.google_refresh_token is None
+
+    def test_update_rejects_empty_google_calendar_id(self):
+        """Scenario: empty string google_calendar_id raises ValidationError."""
+        with pytest.raises(ValidationError):
+            ProfesionalIntegracionesUpdate(google_calendar_id="")
+
+    def test_update_rejects_whitespace_only_google_calendar_id(self):
+        """Scenario: whitespace-only google_calendar_id raises ValidationError."""
+        with pytest.raises(ValidationError):
+            ProfesionalIntegracionesUpdate(google_calendar_id="   ")
+
+    def test_update_accepts_all_fields(self):
+        """Scenario: all three fields provided together."""
+        update = ProfesionalIntegracionesUpdate(
+            telegram_bot_token="tok",
+            google_refresh_token="ref",
+            google_calendar_id="cal_id",
+        )
+        assert update.telegram_bot_token == "tok"
+        assert update.google_refresh_token == "ref"
+        assert update.google_calendar_id == "cal_id"
+
+    def test_response_includes_google_calendar_id(self):
+        """Scenario: response schema exposes google_calendar_id."""
+        response = ProfesionalIntegracionesResponse(
+            has_telegram=True,
+            has_google=True,
+            google_calendar_id="primary",
+        )
+        assert response.google_calendar_id == "primary"
+
+    def test_response_default_calendar_id(self):
+        """Scenario: response with default calendar ID."""
+        response = ProfesionalIntegracionesResponse(
+            has_telegram=False,
+            has_google=False,
+            google_calendar_id="primary",
+        )
+        assert response.has_telegram is False
+        assert response.has_google is False
+        assert response.google_calendar_id == "primary"

@@ -21,7 +21,6 @@ class TestSchedulerSkeleton:
         """Scenario: Scheduler shuts down gracefully."""
         import asyncio
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
 
         from fastapi import FastAPI
         from app.scheduler.jobs import init_scheduler, shutdown_scheduler

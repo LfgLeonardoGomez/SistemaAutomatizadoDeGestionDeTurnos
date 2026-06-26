@@ -19,7 +19,6 @@ TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
     monkeypatch.setenv("SECRET_KEY", "test-secret-key")
     from app.main import app
     with TestClient(app) as test_client:
@@ -77,6 +76,7 @@ async def profesional(db_session) -> Profesional:
         email="test@local.dev",
         password_hash=hash_password("changeme"),
         is_active=True,
+        google_calendar_id="primary",
     )
     db_session.add(p)
     await db_session.commit()
@@ -88,7 +88,6 @@ async def profesional(db_session) -> Profesional:
 def api_client(db_session, monkeypatch):
     """TestClient with get_db overridden to use the in-memory db_session."""
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
     monkeypatch.setenv("SECRET_KEY", "test-secret-key")
 
     from app.dependencies import get_db

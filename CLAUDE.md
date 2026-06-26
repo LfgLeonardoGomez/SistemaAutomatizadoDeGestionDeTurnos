@@ -80,7 +80,7 @@ Acá van las reglas **específicas de este proyecto**, derivadas de su stack (Fa
 - **NUNCA** dejar un endpoint FastAPI sin tipo de retorno o `response_model` → declarar siempre para filtrar/serializar con Pydantic v2.
 - **NUNCA** omitir type hints en funciones públicas del backend → tipado estricto; `Any` solo con justificación documentada.
 - **NUNCA** hacer commit de código de negocio sin test que lo respalde → pytest obligatorio; modo TDD estricto (test rojo → verde → refactor).
-- **NUNCA** hardcodear configuración (URLs, tokens, tiempos de expiración) → usar Pydantic Settings con variables de entorno (ej. `RESERVA_TEMPORAL_MINUTOS`, `GOOGLE_CALENDAR_CREDENTIALS`).
+- **NUNCA** hardcodear configuración (URLs, tokens, tiempos de expiración) → usar Pydantic Settings con variables de entorno (ej. `RESERVA_TEMPORAL_MINUTOS`, `GOOGLE_CLIENT_ID`).
 - **NUNCA** mezclar operaciones HTTP en una misma función → una función por operación (GET, POST, PUT, DELETE).
 - **NUNCA** ignorar concurrencia en reservas de turnos → usar transacciones de base de datos (`SELECT FOR UPDATE` o patterns de SQLAlchemy) para evitar race conditions en slots.
 - **NUNCA** guardar secrets en código commiteado → usar secret managers o `.env` local (`.env` en `.gitignore`); credenciales de Google Calendar vía JSON externo.

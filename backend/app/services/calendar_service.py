@@ -56,6 +56,10 @@ class CalendarService:
         self.update_event = _retry(self.update_event)
         self.delete_event = _retry(self.delete_event)
 
+    def _calendar_id(self) -> str:
+        """Return the professional's configured calendar ID, falling back to 'primary'."""
+        return self.profesional.google_calendar_id or "primary"
+
     def _make_event_body(self, turno: Turno) -> dict:
         paciente = turno.paciente
         profesional = turno.profesional
@@ -76,7 +80,7 @@ class CalendarService:
             return self.update_event(turno)
         body = self._make_event_body(turno)
         result = self._service.events().insert(
-            calendarId=self.settings.google_calendar_id,
+            calendarId=self._calendar_id(),
             body=body,
         ).execute()
         event_id = result["id"]
@@ -89,7 +93,7 @@ class CalendarService:
             raise ValueError("Turno no tiene google_event_id")
         body = self._make_event_body(turno)
         result = self._service.events().update(
-            calendarId=self.settings.google_calendar_id,
+            calendarId=self._calendar_id(),
             eventId=event_id,
             body=body,
         ).execute()
@@ -98,7 +102,7 @@ class CalendarService:
 
     def delete_event(self, event_id: str) -> None:
         self._service.events().delete(
-            calendarId=self.settings.google_calendar_id,
+            calendarId=self._calendar_id(),
             eventId=event_id,
         ).execute()
         logger.info(f"Evento eliminado: {event_id}")

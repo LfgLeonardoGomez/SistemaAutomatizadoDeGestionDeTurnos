@@ -65,7 +65,6 @@ Jobs registrados:
 | Variable | Default | Descripción |
 |----------|---------|-------------|
 | `DATABASE_URL` | — | URL de PostgreSQL (asyncpg) |
-| `TELEGRAM_BOT_TOKEN` | — | Token del bot de Telegram |
 | `RECORDATORIO_HORAS_ANTES` | `24` | Ventana de horas para enviar recordatorios |
 | `RECORDATORIO_JOB_INTERVAL_MINUTOS` | `60` | Intervalo del job de recordatorios |
 | `RESERVA_TEMPORAL_MINUTOS` | `10` | Minutos de expiración de reserva temporal |

@@ -81,17 +81,16 @@ Tesis-N8N-turnos/
 - **Autenticación**: No hay autenticación de usuarios formales en v1.0. El acceso al panel del profesional se asume restringido por red o URL en esta versión.
 - **Autorización**: Basada en lógica de negocio (un paciente solo opera sobre sus propios turnos) y validación de IDs de Telegram.
 - **Validación de input**: Pydantic en FastAPI para validación automática de payloads REST; validaciones de negocio en servicios.
-- **Secrets management**: Variables de entorno para tokens de Telegram, credenciales de Google Calendar (OAuth 2.0), y cadena de conexión a PostgreSQL. Nunca hardcodear secrets.
+- **Secrets management**: Variables de entorno para credenciales OAuth de Google Calendar (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) y cadena de conexión a PostgreSQL. Los tokens de Telegram y Google Calendar por profesional se almacenan en la base de datos. Nunca hardcodear secrets.
 
 ## Variables de entorno
 
 | Variable | Descripción | Ejemplo | Sensible |
 |----------|-------------|---------|----------|
 | `DATABASE_URL` | Cadena de conexión a PostgreSQL | `postgresql+asyncpg://user:pass@localhost/turnos` | Sí |
-| `TELEGRAM_BOT_TOKEN` | Token del bot de Telegram | `123456:ABC-DEF...` | Sí |
 | `TELEGRAM_WEBHOOK_SECRET` | Secret token para validar webhooks de Telegram | `mi-secreto` | Sí |
-| `GOOGLE_CALENDAR_CREDENTIALS` | JSON de credenciales de cuenta de servicio de Google | `{...}` | Sí |
-| `GOOGLE_CALENDAR_ID` | ID del calendario destino | `primary` o ID específico | No |
+| `GOOGLE_CLIENT_ID` | Client ID de OAuth 2.0 para Google Calendar | `abc123.apps.googleusercontent.com` | Sí |
+| `GOOGLE_CLIENT_SECRET` | Client Secret de OAuth 2.0 para Google Calendar | `GOCSPX-abc123...` | Sí |
 | `GOOGLE_CALENDAR_MAX_RETRIES` | Máximo de reintentos ante errores 5xx de Google Calendar | `3` | No |
 | `GOOGLE_CALENDAR_BASE_DELAY` | Delay inicial (segundos) para backoff exponencial | `1.0` | No |
 | `GOOGLE_CALENDAR_MAX_DELAY` | Delay máximo (segundos) para backoff exponencial | `10.0` | No |

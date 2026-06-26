@@ -16,7 +16,6 @@ from app.config import Settings
 @pytest.fixture(autouse=True)
 def set_env_vars(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test")
     monkeypatch.setenv("SECRET_KEY", "test-secret-key")
 
 
@@ -24,9 +23,6 @@ def set_env_vars(monkeypatch):
 def test_settings():
     return Settings(
         database_url="postgresql+asyncpg://user:pass@localhost/db",
-        telegram_bot_token="test",
-        google_calendar_credentials='{"type": "service_account"}',
-        google_calendar_id="primary",
         lista_espera_minutos=5,
         secret_key="test-secret",
     )

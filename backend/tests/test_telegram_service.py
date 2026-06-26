@@ -325,7 +325,6 @@ class TestRecordatorioCallbacks:
     def _reset_and_env(self, monkeypatch):
         _reset_state()
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
         monkeypatch.setenv("SECRET_KEY", "test-secret-key")
 
     @pytest.mark.asyncio

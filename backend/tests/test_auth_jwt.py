@@ -11,7 +11,6 @@ from app.services.auth_service import create_access_token
 def jwt_settings(monkeypatch):
     monkeypatch.setenv("SECRET_KEY", "test-secret-key-for-jwt")
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
     return Settings()
 
 

@@ -10,12 +10,9 @@ class Settings(BaseSettings):
     )
 
     database_url: str
-    telegram_bot_token: str
     telegram_webhook_secret: str = ""
     google_client_id: str = ""
     google_client_secret: str = ""
-    google_calendar_credentials: str = "{}"
-    google_calendar_id: str = "primary"
     google_calendar_max_retries: int = 3
     google_calendar_base_delay: float = 1.0
     google_calendar_max_delay: float = 10.0

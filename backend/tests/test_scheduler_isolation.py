@@ -31,9 +31,6 @@ class TestSchedulerIsolation:
     async def test_job_procesa_todos_los_profesionales(self, db_session, monkeypatch):
         """Scenario: dos profesionales activos con reservas vencidas → job libera ambas independientemente."""
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
-        monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
-        monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
         monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         settings = Settings()

@@ -24,9 +24,6 @@ from app.exceptions import (
 def test_settings():
     return Settings(
         database_url="postgresql+asyncpg://user:pass@localhost/db",
-        telegram_bot_token="test",
-        google_calendar_credentials='{"type": "service_account"}',
-        google_calendar_id="primary",
         secret_key="test-secret",
     )
 

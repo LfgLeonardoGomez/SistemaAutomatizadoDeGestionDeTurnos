@@ -48,9 +48,10 @@ C-01 foundation-setup
 ```
 C-19 super-admin-role ──┐
 C-20 professional-onboarding ──┤
-                                └── C-21 data-migration-v2
-                                      └── C-22 hardening-config-cleanup
+                                 └── C-22 hardening-config-cleanup
 ```
+
+> Nota: C-21 `data-migration-v2` fue marcado como **N/A**. No hay base de datos v1.0 que migrar; el cleanup de env vars legacy y ajuste de tests se absorbió en C-22.
 
 ### Paralelismo por fase
 
@@ -100,11 +101,10 @@ GATE 10: C-16 + C-17 + C-18 ✓          ← FORK v2.0 (2 paralelos)
   → C-20 professional-onboarding         [Agente B]
 
 GATE 11: C-19 + C-20 ✓
-  → C-21 data-migration-v2               [Agente A]
-
-GATE 12: C-21 ✓
   → C-22 hardening-config-cleanup        [Agente A]
 ```
+
+> C-21 `data-migration-v2` no aplica (ver sección C-21).
 
 ### Camino crítico
 
@@ -536,30 +536,24 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 > C-21 y C-22 son secuenciales. C-21 depende de C-19 y C-20.
 
 ### [C-21] `data-migration-v2`
-- **Estado**: `[ ]` pendiente
-- **Scope**: Script de migración de datos v1.0 → v2.0
-  - Crear profesional "default" si no existe
-  - Asignar `profesional_id` a todos los registros existentes
-  - Migrar `TELEGRAM_BOT_TOKEN` y `GOOGLE_CALENDAR_CREDENTIALS` de env vars a tablas de config
-  - Script ejecutable una sola vez, con rollback en caso de error
-  - Tests: migración con datos de prueba, idempotencia, rollback
-- **Dependencias**: C-19, C-20
-- **Governance**: CRITICO
-- **Leer antes**:
-  - `knowledge-base/04_modelo_de_datos.md`
-  - `openspec/changes/archive/2026-06-25-c-16-tenant-backend-scoping/BREAKING_CHANGES.md`
+- **Estado**: `[N/A]` no aplica
+- **Razón**: No existe una base de datos v1.0 productiva que migrar. El proyecto está en etapa de desarrollo/tesis, por lo que no hay datos legacy que re-etiquetar. El flujo v2.0 es: super-admin crea profesional → profesional configura sus propios tokens. Forzar una asignación masiva a `profesional_id = 1` hubiera sido un atajo inconsistente con el modelo multi-tenant.
+- **Dependencias**: —
+- **Governance**: —
+- **Nota**: El trabajo de eliminar variables de entorno deprecadas y ajustar tests/fixtures se absorbió en C-22.
 
 ---
 
 ### [C-22] `hardening-config-cleanup`
-- **Estado**: `[ ]` pendiente
-- **Scope**: Limpieza de configuración y hardening final
-  - Eliminar env vars deprecadas (reemplazadas por config en DB)
+- **Estado**: `[x]` archivado
+- **Scope**: Limpieza de configuración, hardening final y ajuste de tests legacy
+  - Eliminar env vars deprecadas (reemplazadas por config en DB): `TELEGRAM_BOT_TOKEN`, `GOOGLE_CALENDAR_CREDENTIALS`
+  - Ajustar `seed.py`, fixtures y tests para no depender de tokens globales en env vars
   - Validar que todos los endpoints respetan scoping
   - Audit de seguridad: JWT, API keys, isolation
   - Documentación de variables de entorno actualizada
   - Tests: verificación de scoping global, configuración limpia
-- **Dependencias**: C-21
+- **Dependencias**: C-19, C-20
 - **Governance**: ALTO
 - **Leer antes**:
   - `knowledge-base/08_arquitectura_propuesta.md` §Variables de entorno
@@ -591,8 +585,8 @@ Paso │ Agente A (Backend Core)    │ Agente B (Backend Aux)       │ Agente 
 | C-18 | 7 — Multi-tenancy | `[x]` | ALTO | C-15 |
 | C-19 | 8 — Super-Admin | `[x]` | ALTO | C-16, C-17, C-18 |
 | C-20 | 8 — Super-Admin | `[x]` | MEDIO | C-16, C-17, C-18 |
-| C-21 | 9 — Migration | `[ ]` | CRITICO | C-19, C-20 |
-| C-22 | 9 — Hardening | `[ ]` | ALTO | C-21 |
+| C-21 | 9 — Migration | `[N/A]` | — | — |
+| C-22 | 9 — Hardening | `[x]` | ALTO | C-19, C-20 |
 
 **Primer change recomendado**: C-19 (`super-admin-role`).
 

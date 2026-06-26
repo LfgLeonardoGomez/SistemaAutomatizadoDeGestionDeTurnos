@@ -29,9 +29,6 @@ class TestSchedulerJob:
     async def test_scheduler_job_liberar_reservas_vencidas(self, db_session, monkeypatch):
         """Scenario: job ejecuta liberar_reservas_vencidas sin errores."""
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
-        monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
-        monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
         monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         from app.scheduler.jobs import _liberar_reservas_vencidas_job
@@ -70,9 +67,6 @@ class TestSchedulerJob:
     async def test_scheduler_job_sin_vencidas(self, db_session, monkeypatch):
         """Scenario: job ejecuta sin errores cuando no hay vencidas."""
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
-        monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
-        monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
         monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         from app.scheduler.jobs import _liberar_reservas_vencidas_job
@@ -96,9 +90,6 @@ class TestSchedulerJob:
     async def test_scheduler_job_marcar_turnos_completados(self, db_session, monkeypatch):
         """Scenario: job ejecuta marcar_turnos_completados sin errores."""
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
-        monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
-        monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
         monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         from app.scheduler.jobs import _marcar_turnos_completados_job
@@ -134,9 +125,6 @@ class TestSchedulerJob:
     async def test_scheduler_job_marcar_turnos_completados_sin_candidatos(self, db_session, monkeypatch):
         """Scenario: job ejecuta sin errores cuando no hay candidatos."""
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
-        monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
-        monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
         monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         from app.scheduler.jobs import _marcar_turnos_completados_job
@@ -148,9 +136,6 @@ class TestSchedulerJob:
     async def test_scheduler_job_marcar_turnos_completados_loguea_excepciones(self, db_session, monkeypatch, caplog):
         """Scenario: job loguea excepciones sin detener el scheduler."""
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
-        monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
-        monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
         monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         from app.scheduler.jobs import _marcar_turnos_completados_job
@@ -172,9 +157,6 @@ class TestSchedulerJob:
     async def test_scheduler_job_enviar_recordatorios_dos_turnos(self, db_session, monkeypatch):
         """Scenario: job encuentra 2 turnos y envía 2 mensajes."""
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
-        monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
-        monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
         monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         from app.scheduler.jobs import _enviar_recordatorios_job
@@ -217,9 +199,6 @@ class TestSchedulerJob:
     async def test_scheduler_job_enviar_recordatorios_sin_candidatos(self, db_session, monkeypatch):
         """Scenario: job no encuentra turnos y no envía nada."""
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
-        monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
-        monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
         monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         from app.scheduler.jobs import _enviar_recordatorios_job
@@ -232,9 +211,6 @@ class TestSchedulerJob:
     async def test_scheduler_job_enviar_recordatorios_maneja_excepcion(self, db_session, monkeypatch, caplog):
         """Scenario: job maneja excepción de Telegram sin detenerse."""
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
-        monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
-        monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
         monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         from app.scheduler.jobs import _enviar_recordatorios_job
@@ -275,9 +251,6 @@ class TestSchedulerJob:
     async def test_scheduler_job_enviar_recordatorios_e2e(self, db_session, monkeypatch):
         """Scenario: crear turno CONFIRMADO dentro de 24h → ejecutar job → verificar mock y flag."""
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
-        monkeypatch.setenv("GOOGLE_CALENDAR_CREDENTIALS", '{"type": "service_account"}')
-        monkeypatch.setenv("GOOGLE_CALENDAR_ID", "primary")
         monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         from app.scheduler.jobs import _enviar_recordatorios_job

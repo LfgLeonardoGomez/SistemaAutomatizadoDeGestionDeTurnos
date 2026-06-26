@@ -64,12 +64,15 @@ async def update_integraciones(
         profesional.telegram_bot_token = update.telegram_bot_token
     if update.google_refresh_token is not None:
         profesional.google_refresh_token = update.google_refresh_token
+    if update.google_calendar_id is not None:
+        profesional.google_calendar_id = update.google_calendar_id
 
     await db.commit()
     await db.refresh(profesional)
     return ProfesionalIntegracionesResponse(
         has_telegram=bool(profesional.telegram_bot_token),
         has_google=bool(profesional.google_refresh_token),
+        google_calendar_id=profesional.google_calendar_id or "primary",
     )
 
 
@@ -81,6 +84,7 @@ async def get_integraciones(
     return ProfesionalIntegracionesResponse(
         has_telegram=bool(profesional.telegram_bot_token),
         has_google=bool(profesional.google_refresh_token),
+        google_calendar_id=profesional.google_calendar_id or "primary",
     )
 
 
