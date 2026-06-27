@@ -1,21 +1,14 @@
 import pytest
 from datetime import date, time
 
-from app.models.profesional import Profesional
 from app.models.turno import Turno
+from tests.conftest import make_profesional
 
 
 class TestAvailabilityService:
     @pytest.mark.asyncio
     async def test_dia_laborable_sin_turnos(self, db_session):
-        profesional = Profesional(
-            nombre="Dr. Test",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Lunes"],
-        )
+        profesional = make_profesional(dias_atencion=["Lunes"])
         db_session.add(profesional)
         await db_session.commit()
 
@@ -28,14 +21,7 @@ class TestAvailabilityService:
 
     @pytest.mark.asyncio
     async def test_dia_no_laborable(self, db_session):
-        profesional = Profesional(
-            nombre="Dr. Test",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Martes"],
-        )
+        profesional = make_profesional(dias_atencion=["Martes"])
         db_session.add(profesional)
         await db_session.commit()
 
@@ -46,14 +32,7 @@ class TestAvailabilityService:
 
     @pytest.mark.asyncio
     async def test_turnos_confirmados_excluyen_slots(self, db_session):
-        profesional = Profesional(
-            nombre="Dr. Test",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Lunes"],
-        )
+        profesional = make_profesional(dias_atencion=["Lunes"])
         db_session.add(profesional)
         await db_session.flush()
 
@@ -73,14 +52,7 @@ class TestAvailabilityService:
 
     @pytest.mark.asyncio
     async def test_turnos_reservado_temporal_excluyen_slots(self, db_session):
-        profesional = Profesional(
-            nombre="Dr. Test",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Lunes"],
-        )
+        profesional = make_profesional(dias_atencion=["Lunes"])
         db_session.add(profesional)
         await db_session.flush()
 
@@ -100,14 +72,7 @@ class TestAvailabilityService:
 
     @pytest.mark.asyncio
     async def test_solapamiento_parcial(self, db_session):
-        profesional = Profesional(
-            nombre="Dr. Test",
-            especialidad="Test",
-            duracion_turno=45,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Lunes"],
-        )
+        profesional = make_profesional(duracion_turno=45, dias_atencion=["Lunes"])
         db_session.add(profesional)
         await db_session.flush()
 
@@ -127,14 +92,7 @@ class TestAvailabilityService:
 
     @pytest.mark.asyncio
     async def test_turno_adyacente_sin_solapamiento(self, db_session):
-        profesional = Profesional(
-            nombre="Dr. Test",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Lunes"],
-        )
+        profesional = make_profesional(dias_atencion=["Lunes"])
         db_session.add(profesional)
         await db_session.flush()
 
@@ -154,14 +112,7 @@ class TestAvailabilityService:
 
     @pytest.mark.asyncio
     async def test_cambio_duracion_turno(self, db_session):
-        profesional = Profesional(
-            nombre="Dr. Test",
-            especialidad="Test",
-            duracion_turno=60,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Lunes"],
-        )
+        profesional = make_profesional(duracion_turno=60, dias_atencion=["Lunes"])
         db_session.add(profesional)
         await db_session.commit()
 
@@ -173,14 +124,7 @@ class TestAvailabilityService:
 
     @pytest.mark.asyncio
     async def test_cambio_dias_atencion(self, db_session):
-        profesional = Profesional(
-            nombre="Dr. Test",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Martes"],
-        )
+        profesional = make_profesional(dias_atencion=["Martes"])
         db_session.add(profesional)
         await db_session.commit()
 
@@ -191,14 +135,7 @@ class TestAvailabilityService:
 
     @pytest.mark.asyncio
     async def test_cambio_horario_inicio(self, db_session):
-        profesional = Profesional(
-            nombre="Dr. Test",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="10:00",
-            horario_fin="18:00",
-            dias_atencion=["Lunes"],
-        )
+        profesional = make_profesional(horario_inicio="10:00", dias_atencion=["Lunes"])
         db_session.add(profesional)
         await db_session.commit()
 
@@ -210,14 +147,7 @@ class TestAvailabilityService:
 
     @pytest.mark.asyncio
     async def test_dos_turnos_confirmados_excluyen_slots(self, db_session):
-        profesional = Profesional(
-            nombre="Dr. Test",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Lunes"],
-        )
+        profesional = make_profesional(dias_atencion=["Lunes"])
         db_session.add(profesional)
         await db_session.flush()
 
@@ -252,14 +182,7 @@ class TestAvailabilityService:
 
     @pytest.mark.asyncio
     async def test_slot_antes_de_turno(self, db_session):
-        profesional = Profesional(
-            nombre="Dr. Test",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Lunes"],
-        )
+        profesional = make_profesional(dias_atencion=["Lunes"])
         db_session.add(profesional)
         await db_session.flush()
 

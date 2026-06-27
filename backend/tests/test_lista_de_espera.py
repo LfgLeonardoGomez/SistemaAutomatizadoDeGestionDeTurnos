@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models.lista_de_espera import ListaDeEspera
 from app.models.paciente import Paciente
-from app.models.profesional import Profesional
+from tests.conftest import make_profesional
 
 
 class TestListaDeEsperaModel:
@@ -14,16 +14,9 @@ class TestListaDeEsperaModel:
 
     @pytest_asyncio.fixture
     async def profesional(self, db_session):
-        p = Profesional(
-            nombre="Dr. Test",
-            especialidad="Odontología general",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+        p = make_profesional(
             email="test@local.dev",
             password_hash="$2b$12$dummy",
-            is_active=True,
         )
         db_session.add(p)
         await db_session.commit()

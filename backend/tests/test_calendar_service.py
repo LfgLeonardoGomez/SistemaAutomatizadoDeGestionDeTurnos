@@ -3,9 +3,9 @@ from datetime import date, time
 from unittest.mock import patch, MagicMock
 
 from app.models.paciente import Paciente
-from app.models.profesional import Profesional
 from app.models.turno import Turno
 from app.services.calendar_service import CalendarService
+from tests.conftest import make_profesional
 
 
 class TestCalendarService:
@@ -20,9 +20,9 @@ class TestCalendarService:
 
     @pytest.fixture
     def profesional_con_refresh(self):
-        return Profesional(
+        return make_profesional(
             id=1, nombre="Dra. Garcia", especialidad="Cardiologia",
-            duracion_turno=30, horario_inicio="09:00", horario_fin="18:00",
+            horario_inicio="09:00", horario_fin="18:00",
             dias_atencion=["Lunes"],
             google_refresh_token="test_refresh_token",
             google_calendar_id="test_calendar_id",
@@ -201,9 +201,8 @@ class TestCalendarService:
             google_client_id="client_id",
             google_client_secret="client_secret",
         )
-        profesional_sin_token = Profesional(
-            id=2, nombre="Dr. Sin Token", especialidad="Test",
-            duracion_turno=30, horario_inicio="08:00", horario_fin="18:00",
+        profesional_sin_token = make_profesional(
+            id=2, nombre="Dr. Sin Token",
             dias_atencion=["Lunes"],
             google_refresh_token=None,
         )
@@ -220,9 +219,8 @@ class TestCalendarService:
             google_client_id="client_id",
             google_client_secret="client_secret",
         )
-        profesional_vacio = Profesional(
-            id=3, nombre="Dr. Vacio", especialidad="Test",
-            duracion_turno=30, horario_inicio="08:00", horario_fin="18:00",
+        profesional_vacio = make_profesional(
+            id=3, nombre="Dr. Vacio",
             dias_atencion=["Lunes"],
             google_refresh_token="",
         )
@@ -237,9 +235,9 @@ class TestCalendarService:
         from app.config import Settings
 
         # Professional without google_calendar_id — fallback to "primary"
-        profesional_sin_calendar = Profesional(
+        profesional_sin_calendar = make_profesional(
             id=10, nombre="Dra. Sin Calendar", especialidad="Cardiologia",
-            duracion_turno=30, horario_inicio="09:00", horario_fin="18:00",
+            horario_inicio="09:00", horario_fin="18:00",
             dias_atencion=["Lunes"],
             google_refresh_token="test_refresh_token",
             google_calendar_id=None,

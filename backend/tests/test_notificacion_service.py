@@ -4,7 +4,6 @@ from unittest.mock import patch, MagicMock, AsyncMock
 
 from sqlalchemy import select
 
-from app.models.profesional import Profesional
 from app.models.paciente import Paciente
 from app.models.turno import Turno
 from app.services.notificacion_service import (
@@ -12,18 +11,11 @@ from app.services.notificacion_service import (
     enviar_recordatorio_telegram,
     marcar_recordatorio_enviado,
 )
+from tests.conftest import make_profesional
 
 
 async def _seed_profesional(db_session):
-    p = Profesional(
-        nombre="Dr. Test",
-        especialidad="Test",
-        duracion_turno=30,
-        horario_inicio="08:00",
-        horario_fin="18:00",
-        dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
-        telegram_bot_token="test_bot_token",
-    )
+    p = make_profesional(telegram_bot_token="test_bot_token")
     db_session.add(p)
     await db_session.commit()
     await db_session.refresh(p)
@@ -146,12 +138,8 @@ class TestObtenerTurnosParaRecordar:
     async def test_turno_de_otro_profesional_es_excluido(self, db_session):
         """Scenario: Turno de otro profesional es excluido."""
         profesional_a = await _seed_profesional(db_session)
-        profesional_b = Profesional(
+        profesional_b = make_profesional(
             nombre="Dr. B",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             telegram_bot_token="test_bot_token_b",
         )
@@ -294,12 +282,8 @@ class TestMarcarRecordatorioEnviado:
     async def test_marcar_turno_de_otro_profesional_no_falla(self, db_session):
         """Scenario: Marcar recordatorio de turno de otro profesional no modifica nada."""
         profesional_a = await _seed_profesional(db_session)
-        profesional_b = Profesional(
+        profesional_b = make_profesional(
             nombre="Dr. B",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             telegram_bot_token="test_bot_token_b",
         )

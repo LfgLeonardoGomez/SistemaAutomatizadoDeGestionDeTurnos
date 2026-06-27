@@ -3,7 +3,7 @@ from datetime import date
 from unittest.mock import patch, AsyncMock
 
 from app.models.paciente import Paciente
-from app.models.profesional import Profesional
+from tests.conftest import make_profesional
 
 
 class TestListaEsperaAPI:
@@ -85,16 +85,11 @@ class TestListaEsperaAPI:
     @pytest.mark.asyncio
     async def test_delete_lista_espera_otro_profesional(self, authenticated_client, db_session, profesional):
         """Scenario: DELETE /lista-espera/{id} de otro profesional retorna 404."""
-        otro_profesional = Profesional(
+        otro_profesional = make_profesional(
             nombre="Dr. B",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="drb@local.dev",
             password_hash="fakehash",
-            is_active=True,
         )
         db_session.add(otro_profesional)
         await db_session.commit()

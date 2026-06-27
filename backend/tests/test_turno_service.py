@@ -6,7 +6,6 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.profesional import Profesional
 from app.models.paciente import Paciente
 from app.models.turno import Turno
 from app.models.reserva_temporal import ReservaTemporal
@@ -18,6 +17,7 @@ from app.exceptions import (
     TurnoNoEncontradoError,
     TurnoYaCanceladoError,
 )
+from tests.conftest import make_profesional
 
 
 @pytest.fixture
@@ -32,15 +32,8 @@ def test_settings():
 # Helpers
 # ---------------------------------------------------------------------------
 
-async def _seed_profesional(db_session: AsyncSession) -> Profesional:
-    p = Profesional(
-        nombre="Dr. Test",
-        especialidad="Test",
-        duracion_turno=30,
-        horario_inicio="08:00",
-        horario_fin="18:00",
-        dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
-    )
+async def _seed_profesional(db_session: AsyncSession):
+    p = make_profesional()
     db_session.add(p)
     await db_session.commit()
     await db_session.refresh(p)
@@ -540,14 +533,7 @@ class TestConsultarDisponibilidad:
         """Scenario: día no laborable → lista vacía."""
         from app.services.turno_service import consultar_disponibilidad
 
-        p = Profesional(
-            nombre="Dr. Test",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Martes"],
-        )
+        p = make_profesional(dias_atencion=["Martes"])
         db_session.add(p)
         await db_session.commit()
 
