@@ -1,5 +1,5 @@
 import pytest
-from datetime import date, time, datetime, timedelta
+from datetime import date, time, datetime, timedelta, timezone
 from unittest.mock import patch, MagicMock, AsyncMock
 from typing import Optional
 
@@ -90,7 +90,7 @@ class TestReservarTurno:
         )
         reserva = result.scalar_one_or_none()
         assert reserva is not None
-        assert reserva.expiracion > datetime.now()
+        assert reserva.expiracion > datetime.now(timezone.utc)
 
     @pytest.mark.asyncio
     async def test_reservar_turno_bloqueado_por_turno_activo(self, db_session, profesional, test_settings):
@@ -446,7 +446,7 @@ class TestLiberarReservasVencidas:
             select(ReservaTemporal).where(ReservaTemporal.turno_id == turno.id)
         )
         reserva = result.scalar_one()
-        reserva.expiracion = datetime.now() - timedelta(minutes=1)
+        reserva.expiracion = datetime.now(timezone.utc) - timedelta(minutes=1)
         await db_session.commit()
 
         liberados = await liberar_reservas_vencidas(db_session, profesional.id)
@@ -496,7 +496,7 @@ class TestLiberarReservasVencidas:
             select(ReservaTemporal).where(ReservaTemporal.turno_id == turno.id)
         )
         reserva = result.scalar_one()
-        reserva.expiracion = datetime.now() - timedelta(minutes=1)
+        reserva.expiracion = datetime.now(timezone.utc) - timedelta(minutes=1)
         await db_session.commit()
 
         # Simular race condition: el turno fue confirmado antes de que el job corra
@@ -558,21 +558,34 @@ class TestConsultarDisponibilidad:
 
 # ---------------------------------------------------------------------------
 # 6.3 condición de carrera (simulada)
+#
+# NOTA sobre concurrencia real: este test es SECUENCIAL y solo valida que el
+# servicio detecta el slot ya ocupado. La verdadera condición de carrera
+# (dos requests HTTP simultáneos contra el mismo slot) solo se puede
+# reproducir con dos sesiones AsyncSession independientes ejecutadas vía
+# asyncio.gather contra el mismo PostgreSQL, y queda fuera del alcance de
+# la suite pytest. Ver docs/knowledge-base/05_reglas_de_negocio.md (RN-TU-02)
+# y design.md D7. Ese test vive como script de integración manual.
 # ---------------------------------------------------------------------------
 
 class TestRaceCondition:
     @pytest.mark.asyncio
-    async def test_doble_reserva_concurrente_mismo_slot(self, db_session, profesional, test_settings):
-        """Scenario: dos reservas simultáneas sobre mismo slot → solo uno gana."""
+    async def test_doble_reserva_secuencial_mismo_slot(self, db_session, profesional, test_settings):
+        """Scenario: dos reservas secuenciales sobre mismo slot → la segunda falla.
+
+        Renombrado desde ``test_doble_reserva_concurrente_mismo_slot`` (F-7 del
+        change test-suite-postgresql). El nombre reflejaba una condicion de
+        carrera que este test NO reproduce — es secuencial, sobre la misma
+        sesion, en el mismo event loop. La version concurrente real (con dos
+        sesiones independientes via asyncio.gather) es un test de integracion
+        que se ejecuta manualmente contra un PostgreSQL real.
+        """
         from app.services.turno_service import reservar_turno
 
         paciente1 = await _seed_paciente(db_session, profesional.id, dni="11111111")
         paciente2 = await _seed_paciente(db_session, profesional.id, dni="22222222")
         fecha = date(2026, 6, 15)
 
-        # In SQLite, concurrent writes on the same session are serialized,
-        # so one will succeed and the second will get an exception.
-        # We simulate two calls sequentially to show the logic path.
         t1 = await reservar_turno(
             db_session, profesional_id=profesional.id, fecha=fecha, hora_inicio=time(9, 0), paciente_id=paciente1.id,
             settings=test_settings,
@@ -1266,7 +1279,7 @@ class TestHookListaEspera:
             select(ReservaTemporal).where(ReservaTemporal.turno_id == turno.id)
         )
         reserva = result.scalar_one()
-        reserva.expiracion = datetime.now() - timedelta(minutes=1)
+        reserva.expiracion = datetime.now(timezone.utc) - timedelta(minutes=1)
         await db_session.commit()
 
         with patch("app.services.lista_espera_service.evaluar_lista_espera", new=AsyncMock()) as mock_evaluar:

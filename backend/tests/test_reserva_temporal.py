@@ -1,5 +1,5 @@
 import pytest
-from datetime import datetime, timedelta, date, time
+from datetime import datetime, timedelta, date, time, timezone
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -36,7 +36,7 @@ class TestReservaTemporalModel:
 
         reserva = ReservaTemporal(
             turno_id=turno.id,
-            expiracion=datetime.now() + timedelta(minutes=10),
+            expiracion=datetime.now(timezone.utc) + timedelta(minutes=10),
         )
         db_session.add(reserva)
         await db_session.commit()
@@ -71,14 +71,14 @@ class TestReservaTemporalModel:
 
         reserva1 = ReservaTemporal(
             turno_id=turno.id,
-            expiracion=datetime.now() + timedelta(minutes=10),
+            expiracion=datetime.now(timezone.utc) + timedelta(minutes=10),
         )
         db_session.add(reserva1)
         await db_session.commit()
 
         reserva2 = ReservaTemporal(
             turno_id=turno.id,
-            expiracion=datetime.now() + timedelta(minutes=15),
+            expiracion=datetime.now(timezone.utc) + timedelta(minutes=15),
         )
         db_session.add(reserva2)
         with pytest.raises(IntegrityError):
@@ -108,7 +108,7 @@ class TestReservaTemporalModel:
         db_session.add(turno)
         await db_session.flush()
 
-        expiracion = datetime.now() + timedelta(minutes=2)
+        expiracion = datetime.now(timezone.utc) + timedelta(minutes=2)
         reserva = ReservaTemporal(turno_id=turno.id, expiracion=expiracion)
         db_session.add(reserva)
         await db_session.commit()

@@ -1,5 +1,5 @@
 import pytest
-from datetime import date, time, datetime, timedelta
+from datetime import date, time, datetime, timedelta, timezone
 from unittest.mock import patch, AsyncMock, MagicMock
 
 from sqlalchemy import select
@@ -173,7 +173,7 @@ class TestListaEsperaE2E:
         await db_session.commit()
 
         # Dos pacientes en lista de espera (registro1 más antiguo que registro2)
-        ahora = datetime.now()
+        ahora = datetime.now(timezone.utc)
         registro1 = ListaDeEspera(
             paciente_id=paciente1.id,
             fecha_solicitada=fecha,
@@ -204,7 +204,7 @@ class TestListaEsperaE2E:
         assert r1.notificado is True
 
         # Simular vencimiento forzando notificado_en al pasado
-        r1.notificado_en = datetime.now() - timedelta(minutes=10)
+        r1.notificado_en = datetime.now(timezone.utc) - timedelta(minutes=10)
         await db_session.commit()
 
         # Ejecutar job de timeout

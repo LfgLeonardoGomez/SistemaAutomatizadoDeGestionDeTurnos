@@ -9,6 +9,7 @@ from sqlalchemy import (
     Date,
     Time,
     DateTime,
+    Enum as SAEnum,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -23,7 +24,18 @@ class Turno(Base):
     hora_inicio: Mapped[time] = mapped_column(Time, nullable=False)
     hora_fin: Mapped[time] = mapped_column(Time, nullable=False)
     estado: Mapped[str] = mapped_column(
-        String(50), nullable=False, default="DISPONIBLE"
+        SAEnum(
+            "DISPONIBLE",
+            "RESERVADO_TEMPORAL",
+            "CONFIRMADO",
+            "CANCELADO",
+            "COMPLETADO",
+            name="turno_estado_enum",
+            create_type=False,
+            native_enum=True,
+        ),
+        nullable=False,
+        default="DISPONIBLE",
     )
     paciente_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("paciente.id", ondelete="SET NULL"), nullable=True

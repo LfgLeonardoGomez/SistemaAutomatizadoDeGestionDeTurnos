@@ -35,7 +35,7 @@ class TestCalendarService:
         )
         return Turno(
             id=1, fecha=date(2025, 6, 15), hora_inicio=time(10, 0),
-            hora_fin=time(10, 30), estado="RESERVADO",
+            hora_fin=time(10, 30), estado="CONFIRMADO",
             paciente=paciente, profesional=profesional_con_refresh
         )
 

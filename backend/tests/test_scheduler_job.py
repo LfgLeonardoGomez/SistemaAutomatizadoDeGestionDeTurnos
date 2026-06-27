@@ -1,5 +1,5 @@
 import pytest
-from datetime import date, time, datetime, timedelta
+from datetime import date, time, datetime, timedelta, timezone
 from unittest.mock import patch, MagicMock, AsyncMock
 
 from app.models.profesional import Profesional
@@ -50,7 +50,7 @@ class TestSchedulerJob:
             select(ReservaTemporal).where(ReservaTemporal.turno_id == turno.id)
         )
         reserva = result.scalar_one()
-        reserva.expiracion = datetime.now() - timedelta(minutes=1)
+        reserva.expiracion = datetime.now(timezone.utc) - timedelta(minutes=1)
         await db_session.commit()
 
         # Ejecutar el job directamente pasando la sesión de test
@@ -172,7 +172,7 @@ class TestSchedulerJob:
         db_session.add(paciente)
         await db_session.commit()
 
-        ahora = datetime.now()
+        ahora = datetime.now(timezone.utc)
         for i in range(2):
             turno = Turno(
                 fecha=ahora.date(),
@@ -227,7 +227,7 @@ class TestSchedulerJob:
         db_session.add(paciente)
         await db_session.commit()
 
-        ahora = datetime.now()
+        ahora = datetime.now(timezone.utc)
         turno = Turno(
             fecha=ahora.date(),
             hora_inicio=(ahora + timedelta(hours=1)).time(),
@@ -267,7 +267,7 @@ class TestSchedulerJob:
         db_session.add(paciente)
         await db_session.commit()
 
-        ahora = datetime.now()
+        ahora = datetime.now(timezone.utc)
         turno = Turno(
             fecha=ahora.date(),
             hora_inicio=(ahora + timedelta(hours=2)).time(),

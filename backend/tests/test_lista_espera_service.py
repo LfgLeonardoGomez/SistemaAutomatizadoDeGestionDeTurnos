@@ -1,5 +1,5 @@
 import pytest
-from datetime import date, time, datetime, timedelta
+from datetime import date, time, datetime, timedelta, timezone
 from unittest.mock import patch, MagicMock, AsyncMock
 from typing import Optional
 
@@ -333,7 +333,7 @@ class TestRechazarTurnoListaEspera:
         registro = await _seed_lista_espera(db_session, p.id, paciente_id=paciente.id)
         registro.turno_ofrecido_id = turno.id
         registro.notificado = True
-        registro.notificado_en = datetime.now()
+        registro.notificado_en = datetime.now(timezone.utc)
         await db_session.commit()
 
         with patch("app.services.lista_espera_service.evaluar_lista_espera", new=AsyncMock()) as mock_evaluar:
@@ -375,7 +375,7 @@ class TestProcesarTimeouts:
         registro = await _seed_lista_espera(db_session, p.id, paciente_id=paciente.id)
         registro.turno_ofrecido_id = turno.id
         registro.notificado = True
-        registro.notificado_en = datetime.now() - timedelta(minutes=10)
+        registro.notificado_en = datetime.now(timezone.utc) - timedelta(minutes=10)
         await db_session.commit()
 
         with patch("app.services.lista_espera_service.evaluar_lista_espera", new=AsyncMock()) as mock_evaluar:
@@ -403,7 +403,7 @@ class TestProcesarTimeouts:
         registro = await _seed_lista_espera(db_session, p.id, paciente_id=paciente.id)
         registro.turno_ofrecido_id = turno.id
         registro.notificado = True
-        registro.notificado_en = datetime.now() - timedelta(minutes=1)
+        registro.notificado_en = datetime.now(timezone.utc) - timedelta(minutes=1)
         await db_session.commit()
 
         with patch("app.services.lista_espera_service.evaluar_lista_espera", new=AsyncMock()) as mock_evaluar:
