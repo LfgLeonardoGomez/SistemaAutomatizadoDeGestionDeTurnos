@@ -322,3 +322,65 @@ class TestDockerComposeBackendEnvironment:
             "docker-compose.yml service 'backend' is missing env vars "
             f"required by config.py: {sorted(missing)}"
         )
+
+
+class TestEnvExampleLoadsIntoSettings:
+    """Spec: Settings() loads correctly with the canonical .env.example values.
+
+    This is the automated check for task 6.2: we feed the .env.example into
+    Settings() and assert that all fields are populated without error.
+    """
+
+    @staticmethod
+    def _apply_env_example_to_environ(monkeypatch) -> None:
+        """Load .env.example into os.environ via monkeypatch.
+
+        Required vars (no default in Settings) are populated with safe
+        stand-ins so the Settings() constructor doesn't raise.
+        """
+        from pathlib import Path
+        env_path = Path(__file__).resolve().parent.parent.parent / ".env.example"
+        # Required keys (no default in Settings) get a non-empty placeholder.
+        required_placeholders = {
+            "DATABASE_URL": "postgresql+asyncpg://user:pass@localhost/db",
+            "SECRET_KEY": "testsecret-from-env-example-check",
+        }
+        for key, value in required_placeholders.items():
+            monkeypatch.setenv(key, value)
+        # Read .env.example line by line, set everything else verbatim.
+        with open(env_path, encoding="utf-8") as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#") or "=" not in stripped:
+                    continue
+                name, _, value = stripped.partition("=")
+                name = name.strip()
+                value = value.strip()
+                if not name:
+                    continue
+                monkeypatch.setenv(name, value)
+
+    def test_settings_loads_with_env_example_values(self, monkeypatch):
+        """Spec: Settings() loads with every value defined in .env.example."""
+        self._apply_env_example_to_environ(monkeypatch)
+
+        from app.config import Settings
+        settings = Settings()
+
+        # Spot-check the values the .env.example explicitly sets.
+        assert settings.database_url.startswith("postgresql+asyncpg://")
+        assert settings.env == "development"
+        assert settings.secret_key == "change-me-in-production"
+        assert settings.algorithm == "HS256"
+        assert settings.access_token_expire_minutes == 1440
+        assert settings.reserva_temporal_minutos == 10
+        assert settings.lista_espera_minutos == 5
+        assert settings.recordatorio_horas_antes == 24
+        assert settings.recordatorio_job_interval_minutos == 60
+        assert settings.completado_job_interval_minutos == 5
+        assert settings.google_calendar_max_retries == 3
+        assert settings.google_calendar_base_delay == 1.0
+        assert settings.google_calendar_max_delay == 10.0
+        # Vars that are not in the cleaned-up .env.example must still default
+        # to the empty string (not raise).
+        assert settings.super_admin_password == ""
