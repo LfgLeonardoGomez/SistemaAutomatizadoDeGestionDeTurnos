@@ -3,9 +3,7 @@
 ## Purpose
 
 Authenticate SaaS operators (`SuperAdmin`) separately from `Profesional` users using email/password and a role-bearing JWT.
-
 ## Requirements
-
 ### Requirement: SuperAdmin data model
 The system SHALL store super-admins in a dedicated `super_admin` table, isolated from `profesional`.
 
@@ -67,11 +65,21 @@ The system SHALL hash super-admin passwords with bcrypt using the same `CryptCon
 - **THEN** verification succeeds; incorrect passwords fail
 
 ### Requirement: Bootstrap super-admin from environment
-The system SHALL create an initial SuperAdmin from `SUPER_ADMIN_EMAIL` and `SUPER_ADMIN_PASSWORD_HASH` during migration/seed.
+The system SHALL create an initial SuperAdmin from `SUPER_ADMIN_EMAIL` and `SUPER_ADMIN_PASSWORD` during migration/seed. The system SHALL hash the plain-text password with bcrypt before persisting it.
 
-#### Scenario: Seed creates one admin
-- **GIVEN** the environment variables are set
+#### Scenario: Seed creates one admin with hashed password
+- **GIVEN** the environment variables `SUPER_ADMIN_EMAIL` and `SUPER_ADMIN_PASSWORD` are set
 - **WHEN** the migration or seed runs
 - **THEN** exactly one SuperAdmin exists with the configured email
+- **AND** the stored `password_hash` is a valid bcrypt hash of the configured password
 
-> **Test deferral note**: Tests for this capability are deferred until the v2.0 backend work is complete, per project decision.
+#### Scenario: Seed skips when password is empty
+- **GIVEN** `SUPER_ADMIN_EMAIL` is set but `SUPER_ADMIN_PASSWORD` is empty or absent
+- **WHEN** the migration or seed runs
+- **THEN** no SuperAdmin is created
+
+#### Scenario: Login succeeds with seeded plaintext password
+- **GIVEN** a SuperAdmin was seeded from `SUPER_ADMIN_PASSWORD=secret123`
+- **WHEN** the client sends `POST /admin/auth/login` with the same email and password
+- **THEN** the system returns `200 OK` with an `access_token`
+
