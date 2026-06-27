@@ -31,14 +31,19 @@ async def seed_profesional(session: AsyncSession, settings: Settings) -> None:
 
 
 async def seed_super_admin(session: AsyncSession, settings: Settings) -> None:
-    """Seed a SuperAdmin from env vars if the table is empty. Idempotent."""
-    if not settings.super_admin_email or not settings.super_admin_password_hash:
+    """Seed a SuperAdmin from env vars if the table is empty. Idempotent.
+
+    The plain-text password is hashed with bcrypt before persistence, so the
+    operator can set `SUPER_ADMIN_PASSWORD` directly without pre-computing a
+    hash (config-cleanup-v3, H-2).
+    """
+    if not settings.super_admin_email or not settings.super_admin_password:
         return
     result = await session.execute(select(func.count()).select_from(SuperAdmin))
     count = result.scalar_one()
     if count == 0:
         admin = SuperAdmin(
             email=settings.super_admin_email,
-            password_hash=settings.super_admin_password_hash,
+            password_hash=pwd_context.hash(settings.super_admin_password),
         )
         session.add(admin)
