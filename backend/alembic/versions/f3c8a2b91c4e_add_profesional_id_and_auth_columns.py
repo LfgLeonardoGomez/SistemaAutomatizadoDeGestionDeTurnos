@@ -18,10 +18,6 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-def _is_sqlite() -> bool:
-    return op.get_bind().dialect.name == "sqlite"
-
-
 def upgrade() -> None:
     """Upgrade schema."""
     # 1. Add auth/integration columns to profesional
@@ -30,7 +26,7 @@ def upgrade() -> None:
     op.add_column('profesional', sa.Column('password_hash', sa.String(length=255), nullable=True))
     op.add_column('profesional', sa.Column('api_key', sa.String(length=255), nullable=True))
     op.create_unique_constraint('uq_profesional_api_key', 'profesional', ['api_key'])
-    op.add_column('profesional', sa.Column('is_active', sa.Boolean(), nullable=False, server_default=sa.text('1')))
+    op.add_column('profesional', sa.Column('is_active', sa.Boolean(), nullable=False, server_default=sa.true()))
     op.add_column('profesional', sa.Column('google_refresh_token', sa.Text(), nullable=True))
     op.add_column('profesional', sa.Column('telegram_bot_token', sa.String(length=255), nullable=True))
     op.add_column('profesional', sa.Column('telegram_secret_token', sa.String(length=255), nullable=True))
@@ -40,25 +36,18 @@ def upgrade() -> None:
     op.create_foreign_key('fk_paciente_profesional', 'paciente', 'profesional', ['profesional_id'], ['id'], ondelete='CASCADE')
 
     # Drop old unique constraint on dni and add composite unique
-    if _is_sqlite():
-        with op.batch_alter_table('paciente') as batch_op:
-            batch_op.drop_constraint('uq_paciente_dni', type_='unique')
-            batch_op.create_unique_constraint('uq_paciente_profesional_dni', ['profesional_id', 'dni'])
-    else:
-        op.drop_constraint('uq_paciente_dni', 'paciente', type_='unique')
-        op.create_unique_constraint('uq_paciente_profesional_dni', 'paciente', ['profesional_id', 'dni'])
+    op.drop_constraint('paciente_dni_key', 'paciente', type_='unique')
+    op.create_unique_constraint('uq_paciente_profesional_dni', 'paciente', ['profesional_id', 'dni'])
 
     # Remove server_default after column is added
-    if not _is_sqlite():
-        op.alter_column('paciente', 'profesional_id', server_default=None)
+    op.alter_column('paciente', 'profesional_id', server_default=None)
 
     # 3. Add profesional_id to lista_de_espera
     op.add_column('lista_de_espera', sa.Column('profesional_id', sa.Integer(), nullable=False, server_default=sa.text('1')))
     op.create_foreign_key('fk_lista_de_espera_profesional', 'lista_de_espera', 'profesional', ['profesional_id'], ['id'], ondelete='CASCADE')
     op.create_index('ix_lista_de_espera_profesional_paciente', 'lista_de_espera', ['profesional_id', 'paciente_id'], unique=False)
 
-    if not _is_sqlite():
-        op.alter_column('lista_de_espera', 'profesional_id', server_default=None)
+    op.alter_column('lista_de_espera', 'profesional_id', server_default=None)
 
 
 def downgrade() -> None:
@@ -69,17 +58,10 @@ def downgrade() -> None:
     op.drop_column('lista_de_espera', 'profesional_id')
 
     # 2. Revert paciente
-    if _is_sqlite():
-        with op.batch_alter_table('paciente') as batch_op:
-            batch_op.drop_constraint('uq_paciente_profesional_dni', type_='unique')
-            batch_op.create_unique_constraint('uq_paciente_dni', ['dni'])
-            batch_op.drop_constraint('fk_paciente_profesional', type_='foreignkey')
-            batch_op.drop_column('profesional_id')
-    else:
-        op.drop_constraint('uq_paciente_profesional_dni', 'paciente', type_='unique')
-        op.create_unique_constraint('uq_paciente_dni', 'paciente', ['dni'])
-        op.drop_constraint('fk_paciente_profesional', 'paciente', type_='foreignkey')
-        op.drop_column('paciente', 'profesional_id')
+    op.drop_constraint('uq_paciente_profesional_dni', 'paciente', type_='unique')
+    op.create_unique_constraint('paciente_dni_key', 'paciente', ['dni'])
+    op.drop_constraint('fk_paciente_profesional', 'paciente', type_='foreignkey')
+    op.drop_column('paciente', 'profesional_id')
 
     # 1. Revert profesional
     op.drop_column('profesional', 'telegram_secret_token')
