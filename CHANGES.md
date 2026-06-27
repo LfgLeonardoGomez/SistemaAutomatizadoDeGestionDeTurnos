@@ -51,7 +51,7 @@ C-20 professional-onboarding ──┤
                                  └── C-22 hardening-config-cleanup
 ```
 
-> Nota: C-21 `data-migration-v2` fue marcado como **N/A**. No hay base de datos v1.0 que migrar; el cleanup de env vars legacy y ajuste de tests se absorbió en C-22.
+> Nota: C-21 `data-migration-v2` fue marcado como **N/A**. No hay base de datos v1.0 que migrar; el cleanup de env vars legacy y ajuste de tests se absorbió en C-22. Una carpeta de exploración huérfana en `openspec/changes/C-21-data-migration-v2/` (sin `.openspec.yaml`, sin proposal) se eliminó el 2026-06-27 al confirmarse que C-22 ya cubre los hallazgos que aquella planteaba (env vars deprecadas, riesgo de `profesional_id=1`, tokens en DB).
 
 ### Paralelismo por fase
 
