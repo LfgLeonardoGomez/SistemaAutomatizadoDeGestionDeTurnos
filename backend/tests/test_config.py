@@ -266,3 +266,59 @@ class TestEnvExampleCompleteness:
         assert not extra, (
             f"Variables in .env.example but not declared in config.py: {sorted(extra)}"
         )
+
+
+class TestDockerComposeBackendEnvironment:
+    """Spec: docker-compose.yml injects all critical backend variables.
+
+    The `backend` service must declare every environment variable required by
+    `backend/app/config.py` in its `environment` block, either as a literal
+    value or as a `${VAR:-default}` shell-style fallback.
+    """
+
+    @staticmethod
+    def _compose_path() -> str:
+        from pathlib import Path
+        return str(Path(__file__).resolve().parent.parent.parent / "docker-compose.yml")
+
+    @staticmethod
+    def _load_compose_backend_environment() -> dict:
+        import yaml
+        from pathlib import Path
+        path = Path(__file__).resolve().parent.parent.parent / "docker-compose.yml"
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        services = data.get("services", {}) or {}
+        backend = services.get("backend", {}) or {}
+        env = backend.get("environment", {}) or {}
+        if isinstance(env, list):
+            # Compose supports list form ("VAR=value" entries) — normalise to dict.
+            env = dict(item.split("=", 1) for item in env if "=" in item)
+        return env
+
+    def test_docker_compose_exists(self):
+        """Sanity: docker-compose.yml exists at repo root."""
+        import os
+        assert os.path.isfile(self._compose_path()), (
+            "docker-compose.yml must exist at the repo root"
+        )
+
+    def test_docker_compose_backend_declares_all_config_vars(self):
+        """Spec: backend service declares every variable from config.py.
+
+        Each required env var must appear as a key in the `backend.environment`
+        block. The value can be literal or a `${VAR:-default}` reference.
+        """
+        from app.config import Settings
+        required = set()
+        for name, field in Settings.model_fields.items():
+            required.add((field.alias or name).upper())
+
+        env = self._load_compose_backend_environment()
+        declared = {k.upper() for k in env.keys()}
+        missing = required - declared
+
+        assert not missing, (
+            "docker-compose.yml service 'backend' is missing env vars "
+            f"required by config.py: {sorted(missing)}"
+        )
