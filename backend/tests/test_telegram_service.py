@@ -2,6 +2,7 @@ import pytest
 from datetime import date, time
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from app.models.profesional import Profesional
 from app.services.telegram_service import (
     _get_state,
     _reset_state,
@@ -37,6 +38,7 @@ from app.services.telegram_service import (
     accion_metricas,
     accion_configurar,
 )
+from tests.conftest import make_profesional
 
 
 class TestTelegramServiceIntegration:
@@ -56,11 +58,9 @@ class TestTelegramServiceIntegration:
     @pytest.mark.asyncio
     async def test_mostrar_disponibilidad_with_fecha_returns_slots(self, db_session):
         """When a date is provided, show available slots."""
-        from app.models.profesional import Profesional
         from app.models.turno import Turno
-        db_session.add(Profesional(
-            nombre="Dr", especialidad="Od", duracion_turno=30,
-            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+        db_session.add(make_profesional(
+            nombre="Dr", especialidad="Od", horario_fin="09:00",
         ))
         await db_session.commit()
 
@@ -75,11 +75,9 @@ class TestTelegramServiceIntegration:
     @pytest.mark.asyncio
     async def test_accion_reservar_temporal_creates_turno(self, db_session):
         """Temporary reservation should create a turno and update state."""
-        from app.models.profesional import Profesional
         from app.models.turno import Turno
-        db_session.add(Profesional(
-            nombre="Dr", especialidad="Od", duracion_turno=30,
-            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+        db_session.add(make_profesional(
+            nombre="Dr", especialidad="Od", horario_fin="09:00",
         ))
         await db_session.commit()
 
@@ -329,14 +327,12 @@ class TestRecordatorioCallbacks:
 
     @pytest.mark.asyncio
     async def test_callback_reminder_confirmar(self, db_session):
-        from app.models.profesional import Profesional
         from app.models.paciente import Paciente
         from app.models.turno import Turno
         from unittest.mock import patch
 
-        p = Profesional(
-            nombre="Dr", especialidad="Od", duracion_turno=30,
-            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+        p = make_profesional(
+            nombre="Dr", especialidad="Od", horario_fin="09:00",
             telegram_bot_token="test_token",
         )
         db_session.add(p)
@@ -369,14 +365,12 @@ class TestRecordatorioCallbacks:
 
     @pytest.mark.asyncio
     async def test_callback_reminder_cancelar(self, db_session):
-        from app.models.profesional import Profesional
         from app.models.paciente import Paciente
         from app.models.turno import Turno
         from unittest.mock import patch
 
-        p = Profesional(
-            nombre="Dr", especialidad="Od", duracion_turno=30,
-            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+        p = make_profesional(
+            nombre="Dr", especialidad="Od", horario_fin="09:00",
             telegram_bot_token="test_token",
         )
         db_session.add(p)
@@ -409,12 +403,10 @@ class TestRecordatorioCallbacks:
 
     @pytest.mark.asyncio
     async def test_callback_reminder_reprogramar(self, db_session):
-        from app.models.profesional import Profesional
         from unittest.mock import patch
 
-        p = Profesional(
-            nombre="Dr", especialidad="Od", duracion_turno=30,
-            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+        p = make_profesional(
+            nombre="Dr", especialidad="Od", horario_fin="09:00",
             telegram_bot_token="test_token",
         )
         db_session.add(p)
@@ -546,13 +538,11 @@ class TestProfesionalCommands:
 
     @pytest.mark.asyncio
     async def test_accion_turnos_hoy_returns_formatted_list(self, db_session):
-        from app.models.profesional import Profesional
         from app.models.paciente import Paciente
         from app.models.turno import Turno
 
-        p = Profesional(
-            nombre="Dr", especialidad="Od", duracion_turno=30,
-            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+        p = make_profesional(
+            nombre="Dr", especialidad="Od", horario_fin="09:00",
             telegram_bot_token="test_token",
         )
         db_session.add(p)
@@ -581,12 +571,10 @@ class TestProfesionalCommands:
 
     @pytest.mark.asyncio
     async def test_accion_metricas_returns_summary(self, db_session):
-        from app.models.profesional import Profesional
         from app.models.turno import Turno
 
-        p = Profesional(
-            nombre="Dr", especialidad="Od", duracion_turno=30,
-            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+        p = make_profesional(
+            nombre="Dr", especialidad="Od", horario_fin="09:00",
             telegram_bot_token="test_token",
         )
         db_session.add(p)
@@ -609,11 +597,8 @@ class TestProfesionalCommands:
 
     @pytest.mark.asyncio
     async def test_accion_configurar_starts_wizard(self, db_session):
-        from app.models.profesional import Profesional
-
-        p = Profesional(
-            nombre="Dr", especialidad="Od", duracion_turno=30,
-            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+        p = make_profesional(
+            nombre="Dr", especialidad="Od", horario_fin="09:00",
             telegram_bot_token="test_token",
         )
         db_session.add(p)
@@ -644,10 +629,9 @@ class TestConfigWizard:
 
     @pytest.mark.asyncio
     async def test_config_hora_inicio_valid(self, db_session, wizard_state):
-        from app.models.profesional import Profesional
-        p = Profesional(
-            nombre="Dr", especialidad="Od", duracion_turno=30,
-            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes"],
+        p = make_profesional(
+            nombre="Dr", especialidad="Od", horario_fin="09:00",
+            dias_atencion=["Lunes"],
             telegram_bot_token="test_token",
         )
         db_session.add(p)
@@ -664,10 +648,9 @@ class TestConfigWizard:
 
     @pytest.mark.asyncio
     async def test_config_hora_inicio_invalid(self, db_session, wizard_state):
-        from app.models.profesional import Profesional
-        p = Profesional(
-            nombre="Dr", especialidad="Od", duracion_turno=30,
-            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes"],
+        p = make_profesional(
+            nombre="Dr", especialidad="Od", horario_fin="09:00",
+            dias_atencion=["Lunes"],
             telegram_bot_token="test_token",
         )
         db_session.add(p)
@@ -683,10 +666,9 @@ class TestConfigWizard:
 
     @pytest.mark.asyncio
     async def test_config_hora_fin_valid(self, db_session, wizard_state):
-        from app.models.profesional import Profesional
-        p = Profesional(
-            nombre="Dr", especialidad="Od", duracion_turno=30,
-            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes"],
+        p = make_profesional(
+            nombre="Dr", especialidad="Od", horario_fin="09:00",
+            dias_atencion=["Lunes"],
             telegram_bot_token="test_token",
         )
         db_session.add(p)
@@ -707,10 +689,9 @@ class TestConfigWizard:
 
     @pytest.mark.asyncio
     async def test_config_hora_fin_invalid_before_start(self, db_session, wizard_state):
-        from app.models.profesional import Profesional
-        p = Profesional(
-            nombre="Dr", especialidad="Od", duracion_turno=30,
-            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes"],
+        p = make_profesional(
+            nombre="Dr", especialidad="Od", horario_fin="09:00",
+            dias_atencion=["Lunes"],
             telegram_bot_token="test_token",
         )
         db_session.add(p)
@@ -730,10 +711,9 @@ class TestConfigWizard:
 
     @pytest.mark.asyncio
     async def test_config_dias_toggle(self, db_session, wizard_state):
-        from app.models.profesional import Profesional
-        p = Profesional(
-            nombre="Dr", especialidad="Od", duracion_turno=30,
-            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes"],
+        p = make_profesional(
+            nombre="Dr", especialidad="Od", horario_fin="09:00",
+            dias_atencion=["Lunes"],
             telegram_bot_token="test_token",
         )
         db_session.add(p)
@@ -763,10 +743,9 @@ class TestConfigWizard:
 
     @pytest.mark.asyncio
     async def test_config_dias_confirm(self, db_session, wizard_state):
-        from app.models.profesional import Profesional
-        p = Profesional(
-            nombre="Dr", especialidad="Od", duracion_turno=30,
-            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes"],
+        p = make_profesional(
+            nombre="Dr", especialidad="Od", horario_fin="09:00",
+            dias_atencion=["Lunes"],
             telegram_bot_token="test_token",
         )
         db_session.add(p)
@@ -793,10 +772,9 @@ class TestConfigWizard:
 
     @pytest.mark.asyncio
     async def test_config_duracion_valid(self, db_session, wizard_state):
-        from app.models.profesional import Profesional
-        p = Profesional(
-            nombre="Dr", especialidad="Od", duracion_turno=30,
-            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes"],
+        p = make_profesional(
+            nombre="Dr", especialidad="Od", horario_fin="09:00",
+            dias_atencion=["Lunes"],
             telegram_bot_token="test_token",
         )
         db_session.add(p)
@@ -821,10 +799,9 @@ class TestConfigWizard:
 
     @pytest.mark.asyncio
     async def test_config_duracion_invalid(self, db_session, wizard_state):
-        from app.models.profesional import Profesional
-        p = Profesional(
-            nombre="Dr", especialidad="Od", duracion_turno=30,
-            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes"],
+        p = make_profesional(
+            nombre="Dr", especialidad="Od", horario_fin="09:00",
+            dias_atencion=["Lunes"],
             telegram_bot_token="test_token",
         )
         db_session.add(p)
@@ -844,11 +821,9 @@ class TestConfigWizard:
 
     @pytest.mark.asyncio
     async def test_config_confirmar_persists(self, db_session, wizard_state):
-        from app.models.profesional import Profesional
-
-        p = Profesional(
-            nombre="Dr", especialidad="Od", duracion_turno=30,
-            horario_inicio="08:00", horario_fin="18:00", dias_atencion=["Lunes"],
+        p = make_profesional(
+            nombre="Dr", especialidad="Od", horario_fin="09:00",
+            dias_atencion=["Lunes"],
             telegram_bot_token="test_token",
         )
         db_session.add(p)
@@ -886,10 +861,9 @@ class TestConfigWizard:
 
     @pytest.mark.asyncio
     async def test_config_cancelar_resets_state(self, db_session, wizard_state):
-        from app.models.profesional import Profesional
-        p = Profesional(
-            nombre="Dr", especialidad="Od", duracion_turno=30,
-            horario_inicio="08:00", horario_fin="09:00", dias_atencion=["Lunes"],
+        p = make_profesional(
+            nombre="Dr", especialidad="Od", horario_fin="09:00",
+            dias_atencion=["Lunes"],
             telegram_bot_token="test_token",
         )
         db_session.add(p)
