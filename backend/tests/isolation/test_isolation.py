@@ -2,9 +2,9 @@ import pytest
 from datetime import date, time
 
 from app.models.paciente import Paciente
-from app.models.profesional import Profesional
 from app.models.turno import Turno
 from app.models.lista_de_espera import ListaDeEspera
+from tests.conftest import make_profesional
 
 
 class TestIsolationTurnos:
@@ -12,16 +12,11 @@ class TestIsolationTurnos:
 
     @pytest.mark.asyncio
     async def test_get_turno_otro_profesional_404(self, authenticated_client, db_session, profesional):
-        otro = Profesional(
+        otro = make_profesional(
             nombre="Dr. B",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="drb@local.dev",
             password_hash="fakehash",
-            is_active=True,
         )
         db_session.add(otro)
         await db_session.commit()
@@ -43,16 +38,11 @@ class TestIsolationTurnos:
 
     @pytest.mark.asyncio
     async def test_put_turno_otro_profesional_404(self, authenticated_client, db_session, profesional):
-        otro = Profesional(
+        otro = make_profesional(
             nombre="Dr. B",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="drb@local.dev",
             password_hash="fakehash",
-            is_active=True,
         )
         db_session.add(otro)
         await db_session.commit()
@@ -78,16 +68,11 @@ class TestIsolationPacientes:
 
     @pytest.mark.asyncio
     async def test_get_paciente_otro_profesional_404(self, authenticated_client, db_session, profesional):
-        otro = Profesional(
+        otro = make_profesional(
             nombre="Dr. B",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="drb@local.dev",
             password_hash="fakehash",
-            is_active=True,
         )
         db_session.add(otro)
         await db_session.commit()
@@ -105,16 +90,11 @@ class TestIsolationPacientes:
 
     @pytest.mark.asyncio
     async def test_get_paciente_turnos_otro_profesional_404(self, authenticated_client, db_session, profesional):
-        otro = Profesional(
+        otro = make_profesional(
             nombre="Dr. B",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="drb@local.dev",
             password_hash="fakehash",
-            is_active=True,
         )
         db_session.add(otro)
         await db_session.commit()
@@ -136,16 +116,11 @@ class TestIsolationListaEspera:
 
     @pytest.mark.asyncio
     async def test_delete_lista_espera_otro_profesional_404(self, authenticated_client, db_session, profesional):
-        otro = Profesional(
+        otro = make_profesional(
             nombre="Dr. B",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="drb@local.dev",
             password_hash="fakehash",
-            is_active=True,
         )
         db_session.add(otro)
         await db_session.commit()
@@ -184,16 +159,11 @@ class TestIsolationProfesional:
 
     @pytest.mark.asyncio
     async def test_get_metricas_only_self(self, authenticated_client, db_session, profesional):
-        otro = Profesional(
+        otro = make_profesional(
             nombre="Dr. B",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="drb@local.dev",
             password_hash="fakehash",
-            is_active=True,
         )
         db_session.add(otro)
         await db_session.commit()
@@ -216,16 +186,11 @@ class TestIsolationProfesional:
 
     @pytest.mark.asyncio
     async def test_get_turnos_hoy_only_self(self, authenticated_client, db_session, profesional):
-        otro = Profesional(
+        otro = make_profesional(
             nombre="Dr. B",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="drb@local.dev",
             password_hash="fakehash",
-            is_active=True,
         )
         db_session.add(otro)
         await db_session.commit()

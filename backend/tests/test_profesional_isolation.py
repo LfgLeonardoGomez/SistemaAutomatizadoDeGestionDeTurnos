@@ -11,24 +11,17 @@ from datetime import date, time
 
 from app.models.lista_de_espera import ListaDeEspera
 from app.models.paciente import Paciente
-from app.models.profesional import Profesional
 from app.models.turno import Turno
 from app.services.auth_service import hash_password
+from tests.conftest import make_profesional
 
 
-async def _create_profesional(db_session, email: str, nombre: str = "Dr. Test") -> Profesional:
+async def _create_profesional(db_session, email: str, nombre: str = "Dr. Test"):
     """Create and persist a second profesional for isolation tests."""
-    p = Profesional(
+    p = make_profesional(
         nombre=nombre,
-        especialidad="Test",
-        duracion_turno=30,
-        horario_inicio="08:00",
-        horario_fin="18:00",
-        dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
         email=email,
         password_hash=hash_password("changeme"),
-        is_active=True,
-        google_calendar_id="primary",
     )
     db_session.add(p)
     await db_session.commit()

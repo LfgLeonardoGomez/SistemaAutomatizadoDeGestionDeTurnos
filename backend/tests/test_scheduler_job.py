@@ -2,22 +2,14 @@ import pytest
 from datetime import date, time, datetime, timedelta
 from unittest.mock import patch, MagicMock, AsyncMock
 
-from app.models.profesional import Profesional
 from app.models.turno import Turno
 from app.models.reserva_temporal import ReservaTemporal
 from sqlalchemy import select
+from tests.conftest import make_profesional
 
 
 async def _seed_profesional(db_session):
-    p = Profesional(
-        nombre="Dr. Test",
-        especialidad="Odontología",
-        duracion_turno=30,
-        horario_inicio="08:00",
-        horario_fin="18:00",
-        dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
-        is_active=True,
-    )
+    p = make_profesional(especialidad="Odontología")
     db_session.add(p)
     await db_session.commit()
     await db_session.refresh(p)

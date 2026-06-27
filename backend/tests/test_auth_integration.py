@@ -1,6 +1,8 @@
 import pytest
 from fastapi import status
 
+from tests.conftest import make_profesional
+
 
 class TestLogin:
     def test_login_with_valid_credentials_returns_200_and_token(self, api_client, profesional):
@@ -61,15 +63,10 @@ class TestProtectedEndpoint:
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_access_protected_endpoint_for_inactive_professional_returns_401(self, api_client, db_session):
-        from app.models.profesional import Profesional
         from app.services.auth_service import hash_password
 
-        inactive = Profesional(
+        inactive = make_profesional(
             nombre="Dr. Inactivo",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="inactive@local.dev",
             password_hash=hash_password("inactivepass"),
@@ -112,16 +109,11 @@ class TestApiKeyAuth:
     @pytest.mark.asyncio
     async def test_api_key_for_inactive_professional_returns_401(self, db_session):
         from app.dependencies import get_profesional_by_api_key
-        from app.models.profesional import Profesional
         from app.services.auth_service import hash_password, set_profesional_api_key
         from fastapi import HTTPException
 
-        inactive = Profesional(
+        inactive = make_profesional(
             nombre="Dr. Inactivo",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="inactive_api@local.dev",
             password_hash=hash_password("inactivepass"),

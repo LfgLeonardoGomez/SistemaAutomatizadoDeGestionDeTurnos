@@ -2,8 +2,8 @@ import pytest
 from datetime import date, time
 
 from app.models.paciente import Paciente
-from app.models.profesional import Profesional
 from app.models.turno import Turno
+from tests.conftest import make_profesional
 
 
 class TestPacientesRouter:
@@ -154,16 +154,11 @@ class TestPacientesRouter:
     @pytest.mark.asyncio
     async def test_get_paciente_otro_profesional_devuelve_404(self, authenticated_client, db_session, profesional):
         """Scenario: GET /pacientes/{id} de otro profesional → 404."""
-        otro_profesional = Profesional(
+        otro_profesional = make_profesional(
             nombre="Dr. B",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="drb@local.dev",
             password_hash="fakehash",
-            is_active=True,
         )
         db_session.add(otro_profesional)
         await db_session.commit()

@@ -3,23 +3,15 @@ from datetime import date, time, datetime, timedelta
 from sqlalchemy import select
 
 from app.scheduler.jobs import _liberar_reservas_vencidas_job
-from app.models.profesional import Profesional
 from app.models.turno import Turno
 from app.models.reserva_temporal import ReservaTemporal
 from app.services.turno_service import reservar_turno
 from app.config import Settings
+from tests.conftest import make_profesional
 
 
 async def _seed_profesional(db_session, nombre):
-    p = Profesional(
-        nombre=nombre,
-        especialidad="Odontología",
-        duracion_turno=30,
-        horario_inicio="08:00",
-        horario_fin="18:00",
-        dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
-        is_active=True,
-    )
+    p = make_profesional(nombre=nombre, especialidad="Odontología")
     db_session.add(p)
     await db_session.commit()
     await db_session.refresh(p)

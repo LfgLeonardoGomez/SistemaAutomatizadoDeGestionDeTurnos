@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch
 
-from app.models.profesional import Profesional
+from tests.conftest import make_profesional
 
 
 class TestWebhooksRouter:
@@ -89,16 +89,11 @@ class TestWebhooksRouter:
         profesional.telegram_bot_token = "bot-a"
         await db_session.commit()
 
-        otro = Profesional(
+        otro = make_profesional(
             nombre="Dr. B",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="drb@local.dev",
             password_hash="fakehash",
-            is_active=True,
             telegram_secret_token="secret-b",
             telegram_bot_token="bot-b",
         )
