@@ -105,3 +105,73 @@ class TestSettings:
         from app.config import Settings
         settings = Settings()
         assert settings.algorithm == "HS256"
+
+    def test_settings_does_not_expose_n8n_webhook_url(self, monkeypatch):
+        """Spec: N8N_WEBHOOK_URL is not declared in Pydantic Settings.
+
+        Scenario: n8n_webhook_url is dead config — it MUST NOT be exposed.
+        """
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+        monkeypatch.setenv("SECRET_KEY", "testsecret")
+        monkeypatch.setenv("ENV", "test")
+        monkeypatch.delenv("N8N_WEBHOOK_URL", raising=False)
+
+        from app.config import Settings
+        settings = Settings()
+        assert not hasattr(settings, "n8n_webhook_url"), (
+            "n8n_webhook_url is dead config and must be removed from Settings"
+        )
+
+    def test_settings_does_not_expose_telegram_webhook_secret(self, monkeypatch):
+        """Spec: TELEGRAM_WEBHOOK_SECRET is not declared in Pydantic Settings.
+
+        Scenario: telegram_webhook_secret was replaced by per-professional tokens
+        in C-16 and MUST NOT be exposed anymore.
+        """
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+        monkeypatch.setenv("SECRET_KEY", "testsecret")
+        monkeypatch.setenv("ENV", "test")
+        monkeypatch.delenv("TELEGRAM_WEBHOOK_SECRET", raising=False)
+
+        from app.config import Settings
+        settings = Settings()
+        assert not hasattr(settings, "telegram_webhook_secret"), (
+            "telegram_webhook_secret was replaced by per-professional tokens; "
+            "it must be removed from Settings"
+        )
+
+    def test_settings_exposes_super_admin_password_not_hash(self, monkeypatch):
+        """Spec: Super-admin bootstrap uses plain-text SUPER_ADMIN_PASSWORD.
+
+        Scenario: the field is renamed from super_admin_password_hash to
+        super_admin_password and accepts a plain-text value.
+        """
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+        monkeypatch.setenv("SECRET_KEY", "testsecret")
+        monkeypatch.setenv("ENV", "test")
+        monkeypatch.setenv("SUPER_ADMIN_PASSWORD", "plaintext-secret-123")
+
+        from app.config import Settings
+        settings = Settings()
+        assert hasattr(settings, "super_admin_password"), (
+            "Settings must expose super_admin_password (plain-text) for seed hashing"
+        )
+        assert settings.super_admin_password == "plaintext-secret-123"
+        assert not hasattr(settings, "super_admin_password_hash"), (
+            "Legacy super_admin_password_hash field must be removed; "
+            "the seed now hashes the plain-text password itself"
+        )
+
+    def test_settings_super_admin_password_defaults_to_empty(self, monkeypatch):
+        """Edge case: when SUPER_ADMIN_PASSWORD is absent, the field defaults to "".
+
+        The seed uses this to skip creating an admin in dev environments.
+        """
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+        monkeypatch.setenv("SECRET_KEY", "testsecret")
+        monkeypatch.setenv("ENV", "test")
+        monkeypatch.delenv("SUPER_ADMIN_PASSWORD", raising=False)
+
+        from app.config import Settings
+        settings = Settings()
+        assert settings.super_admin_password == ""

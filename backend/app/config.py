@@ -10,13 +10,11 @@ class Settings(BaseSettings):
     )
 
     database_url: str
-    telegram_webhook_secret: str = ""
     google_client_id: str = ""
     google_client_secret: str = ""
     google_calendar_max_retries: int = 3
     google_calendar_base_delay: float = 1.0
     google_calendar_max_delay: float = 10.0
-    n8n_webhook_url: str = ""
     reserva_temporal_minutos: int = 10
     lista_espera_minutos: int = 5
     recordatorio_horas_antes: int = 24
@@ -28,4 +26,4 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 1440
     seed_default_password: str = ""
     super_admin_email: str = ""
-    super_admin_password_hash: str = ""
+    super_admin_password: str = ""
