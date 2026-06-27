@@ -13,11 +13,19 @@ Resolution order for the test database:
 
 Schema is created via ``alembic upgrade head`` (session-scoped) and tables
 are truncated between tests to keep isolation fast.
+
+Also exports two factories for building ``Profesional`` instances in tests:
+``make_profesional(**overrides)`` (in-memory) and
+``make_profesional_persisted(db_session, **overrides)`` (add+commit+refresh).
+The factories guarantee a unique, RFC-6761 ``@test.local`` email per call so
+that the ``email NOT NULL UNIQUE`` constraint introduced in C-14 is respected
+on PostgreSQL.
 """
 import os
+import uuid
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
-from typing import Optional
+from typing import Any, Optional
 
 import pytest
 import pytest_asyncio
@@ -40,6 +48,67 @@ from app.models import (
 )
 from app.models.profesional import Profesional
 from app.services.auth_service import hash_password
+
+
+# ---------------------------------------------------------------------------
+# Factories for Profesional instances
+# ---------------------------------------------------------------------------
+
+#: Default values shared by ``make_profesional`` and ``make_profesional_persisted``.
+#: Every ``nullable=False`` column on ``Profesional`` is covered. Optional columns
+#: (``api_key``, ``google_refresh_token``, ``telegram_*``) default to ``None``.
+_PROFESIONAL_DEFAULTS: dict[str, Any] = {
+    "nombre": "Dr. Test",
+    "especialidad": "Odontología general",
+    "duracion_turno": 30,
+    "horario_inicio": "08:00",
+    "horario_fin": "18:00",
+    "dias_atencion": ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+    "is_active": True,
+    "google_calendar_id": "primary",
+}
+
+
+def make_profesional(**overrides: Any) -> Profesional:
+    """Build a ``Profesional`` instance with valid defaults for every required field.
+
+    The default ``email`` is generated as ``test-<8hex>@test.local`` (RFC 6761
+    reserved TLD for testing) so that multiple invocations within a single test
+    or session never collide on the ``UNIQUE`` constraint.
+
+    Use ``**overrides`` to set any field explicitly — e.g.
+    ``make_profesional(email="login@x.com", nombre="Dr. X")``.
+
+    The instance is NOT persisted; the caller controls the session lifecycle
+    (``add`` + ``commit`` + ``refresh``). For the common "give me a persisted
+    Profesional with id" case use :func:`make_profesional_persisted`.
+    """
+    defaults = {
+        **_PROFESIONAL_DEFAULTS,
+        "email": f"test-{uuid.uuid4().hex[:8]}@test.local",
+        "password_hash": hash_password("test-password"),
+    }
+    defaults.update(overrides)
+    return Profesional(**defaults)
+
+
+async def make_profesional_persisted(
+    db_session: AsyncSession, **overrides: Any
+) -> Profesional:
+    """Build a ``Profesional`` and persist it in ``db_session``; return it with ``id``.
+
+    Convenience wrapper around :func:`make_profesional` for tests that just want
+    "a Profesional in the DB with its ``id`` assigned". The session is
+    committed and the instance is refreshed so relationship loading works
+    transparently.
+
+    Use ``**overrides`` for any field (e.g. ``email="specific@x.com"``).
+    """
+    p = make_profesional(**overrides)
+    db_session.add(p)
+    await db_session.commit()
+    await db_session.refresh(p)
+    return p
 
 
 # Module-level handle for the testcontainers PG container so it survives across
