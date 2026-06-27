@@ -1,5 +1,5 @@
 import pytest
-from datetime import date, time, datetime, timedelta, timezone
+from datetime import date, time, datetime, timedelta
 from sqlalchemy import select
 
 from app.scheduler.jobs import _liberar_reservas_vencidas_job
@@ -53,7 +53,7 @@ class TestSchedulerIsolation:
                 select(ReservaTemporal).where(ReservaTemporal.turno_id == turno.id)
             )
             reserva = result.scalar_one()
-            reserva.expiracion = datetime.now(timezone.utc) - timedelta(minutes=1)
+            reserva.expiracion = datetime.now() - timedelta(minutes=1)
         await db_session.commit()
 
         await _liberar_reservas_vencidas_job(session=db_session)

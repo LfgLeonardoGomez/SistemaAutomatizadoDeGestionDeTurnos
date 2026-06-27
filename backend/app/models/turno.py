@@ -50,7 +50,7 @@ class Turno(Base):
         default=False, nullable=False
     )
     creado_en: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(), default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
     )
 
     paciente: Mapped[Optional["Paciente"]] = relationship(

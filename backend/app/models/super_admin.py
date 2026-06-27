@@ -15,5 +15,5 @@ class SuperAdmin(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     creado_en: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(), default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
     )

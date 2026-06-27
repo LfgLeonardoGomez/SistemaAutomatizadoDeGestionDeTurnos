@@ -1,5 +1,5 @@
 import pytest
-from datetime import date, time, datetime, timedelta, timezone
+from datetime import date, time, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -131,7 +131,7 @@ class TestModelRelations:
 
         reserva = ReservaTemporal(
             turno_id=turno.id,
-            expiracion=datetime.now(timezone.utc) + timedelta(minutes=10),
+            expiracion=datetime.now() + timedelta(minutes=10),
         )
         db_session.add(reserva)
         await db_session.commit()

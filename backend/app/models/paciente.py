@@ -19,7 +19,7 @@ class Paciente(Base):
         String(50), nullable=True
     )
     creado_en: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(), default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
     )
 
     profesional_id: Mapped[int] = mapped_column(

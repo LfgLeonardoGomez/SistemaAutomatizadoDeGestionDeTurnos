@@ -38,7 +38,7 @@ def upgrade() -> None:
     sa.Column('apellido', sa.String(length=255), nullable=False),
     sa.Column('dni', sa.String(length=50), nullable=False),
     sa.Column('telefono', sa.String(length=50), nullable=False),
-    sa.Column('creado_en', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('creado_en', sa.DateTime(), nullable=False),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('dni')
     )
@@ -50,14 +50,14 @@ def upgrade() -> None:
     sa.Column('horario_inicio', sa.String(length=5), nullable=False),
     sa.Column('horario_fin', sa.String(length=5), nullable=False),
     sa.Column('dias_atencion', sa.JSON(), nullable=False),
-    sa.Column('creado_en', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('creado_en', sa.DateTime(), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('lista_de_espera',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('paciente_id', sa.Integer(), nullable=False),
     sa.Column('fecha_solicitada', sa.Date(), nullable=False),
-    sa.Column('creado_en', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('creado_en', sa.DateTime(), nullable=False),
     sa.Column('notificado', sa.Boolean(), nullable=False),
     sa.ForeignKeyConstraint(['paciente_id'], ['paciente.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
@@ -70,7 +70,7 @@ def upgrade() -> None:
     sa.Column('estado', turno_estado_enum, nullable=False),
     sa.Column('paciente_id', sa.Integer(), nullable=True),
     sa.Column('profesional_id', sa.Integer(), nullable=False),
-    sa.Column('creado_en', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('creado_en', sa.DateTime(), nullable=False),
     sa.CheckConstraint('hora_fin > hora_inicio', name='ck_turno_horario_valido'),
     sa.ForeignKeyConstraint(['paciente_id'], ['paciente.id'], ondelete='SET NULL'),
     sa.ForeignKeyConstraint(['profesional_id'], ['profesional.id'], ondelete='CASCADE'),
@@ -82,7 +82,7 @@ def upgrade() -> None:
     op.create_table('reserva_temporal',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('turno_id', sa.Integer(), nullable=False),
-    sa.Column('expiracion', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('expiracion', sa.DateTime(), nullable=False),
     sa.ForeignKeyConstraint(['turno_id'], ['turno.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('turno_id')

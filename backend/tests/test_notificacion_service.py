@@ -1,5 +1,5 @@
 import pytest
-from datetime import date, time, datetime, timedelta, timezone
+from datetime import date, time, datetime, timedelta
 from unittest.mock import patch, MagicMock, AsyncMock
 
 from sqlalchemy import select
@@ -34,7 +34,7 @@ async def _seed_paciente(db_session, profesional_id: int, telegram_chat_id: str 
     paciente = Paciente(
         nombre="Juan",
         apellido="Perez",
-        dni=f"{datetime.now(timezone.utc).timestamp()}",
+        dni=f"{datetime.now().timestamp()}",
         telefono="555-1234",
         telegram_chat_id=telegram_chat_id,
         profesional_id=profesional_id,
@@ -55,7 +55,7 @@ class TestObtenerTurnosParaRecordar:
         paciente = await _seed_paciente(db_session, profesional.id)
 
         from unittest.mock import patch
-        ahora = datetime.now(timezone.utc).replace(hour=10, minute=0, second=0, microsecond=0)
+        ahora = datetime.now().replace(hour=10, minute=0, second=0, microsecond=0)
         turno = Turno(
             fecha=ahora.date(),
             hora_inicio=(ahora + timedelta(hours=2)).time(),
@@ -82,7 +82,7 @@ class TestObtenerTurnosParaRecordar:
         profesional = await _seed_profesional(db_session)
         paciente = await _seed_paciente(db_session, profesional.id)
 
-        futuro = datetime.now(timezone.utc) + timedelta(days=2)
+        futuro = datetime.now() + timedelta(days=2)
         turno = Turno(
             fecha=futuro.date(),
             hora_inicio=time(9, 0),
@@ -104,7 +104,7 @@ class TestObtenerTurnosParaRecordar:
         profesional = await _seed_profesional(db_session)
         paciente = await _seed_paciente(db_session, profesional.id)
 
-        ahora = datetime.now(timezone.utc)
+        ahora = datetime.now()
         turno = Turno(
             fecha=ahora.date(),
             hora_inicio=(ahora + timedelta(hours=2)).time(),
@@ -126,7 +126,7 @@ class TestObtenerTurnosParaRecordar:
         profesional = await _seed_profesional(db_session)
         paciente = await _seed_paciente(db_session, profesional.id)
 
-        ahora = datetime.now(timezone.utc)
+        ahora = datetime.now()
         turno = Turno(
             fecha=ahora.date(),
             hora_inicio=(ahora + timedelta(hours=2)).time(),
@@ -161,7 +161,7 @@ class TestObtenerTurnosParaRecordar:
 
         paciente = await _seed_paciente(db_session, profesional_a.id)
 
-        ahora = datetime.now(timezone.utc)
+        ahora = datetime.now()
         turno = Turno(
             fecha=ahora.date(),
             hora_inicio=(ahora + timedelta(hours=2)).time(),

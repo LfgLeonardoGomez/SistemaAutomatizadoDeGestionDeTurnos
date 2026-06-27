@@ -162,8 +162,19 @@ async def profesional(db_session) -> Profesional:
 
 
 @pytest.fixture
-def client(test_database_url, db_session, monkeypatch):
-    """TestClient with get_db overridden to use the test session.
+def client(test_database_url, engine, monkeypatch):
+    """TestClient with ``get_db`` overridden to yield a fresh per-request
+    AsyncSession bound to the shared test engine.
+
+    The override creates a new session per request (instead of yielding
+    the test's ``db_session``) because asyncpg connections are bound to
+    the event loop where they were created. With ``TestClient``'s anyio
+    portal running in its own event loop, a session that was created in
+    pytest's loop would raise ``RuntimeError: ... attached to a
+    different loop`` on the first asyncpg operation. The new session
+    shares the same engine (and therefore the same DB), so any data
+    inserted via ``db_session`` in the test is still visible to the
+    route through the shared database.
 
     The app's lifespan is replaced with a no-op so:
     - The APScheduler is NOT started in tests (avoids background jobs
@@ -183,8 +194,13 @@ def client(test_database_url, db_session, monkeypatch):
     from app.dependencies import get_db
     from app.main import app
 
+    async_session_factory = sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
+    )
+
     async def override_get_db():
-        yield db_session
+        async with async_session_factory() as session:
+            yield session
 
     app.router.lifespan_context = _noop_lifespan
     app.dependency_overrides[get_db] = override_get_db

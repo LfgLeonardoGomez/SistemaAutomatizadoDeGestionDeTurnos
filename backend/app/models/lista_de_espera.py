@@ -17,7 +17,7 @@ class ListaDeEspera(Base):
     )
     fecha_solicitada: Mapped[date] = mapped_column(Date, nullable=False)
     creado_en: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(), default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
     )
     notificado: Mapped[bool] = mapped_column(default=False, nullable=False)
     turno_ofrecido_id: Mapped[Optional[int]] = mapped_column(
@@ -25,7 +25,7 @@ class ListaDeEspera(Base):
         nullable=True,
     )
     notificado_en: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        DateTime(), nullable=True
     )
     telegram_chat_id: Mapped[Optional[str]] = mapped_column(nullable=True)
 

@@ -18,7 +18,7 @@ class Profesional(Base):
     horario_fin: Mapped[str] = mapped_column(String(5), nullable=False)
     dias_atencion: Mapped[list[str]] = mapped_column(JSON, nullable=False)
     creado_en: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(), default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
     )
 
     # Auth columns (C-14)

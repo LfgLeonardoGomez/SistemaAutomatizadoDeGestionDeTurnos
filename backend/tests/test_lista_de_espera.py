@@ -128,9 +128,9 @@ class TestListaDeEsperaModel:
         assert len(registros) == 2
 
     @pytest.mark.asyncio
-    async def test_lista_de_espera_index_exists(self, async_engine):
+    async def test_lista_de_espera_index_exists(self, engine):
         """Scenario: Índice (profesional_id, paciente_id) existe."""
-        async with async_engine.connect() as conn:
+        async with engine.connect() as conn:
             def get_indexes(connection):
                 inspector = inspect(connection)
                 return inspector.get_indexes("lista_de_espera")
