@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models.reserva_temporal import ReservaTemporal
 from app.models.turno import Turno
-from app.models.profesional import Profesional
+from tests.conftest import make_profesional
 
 
 class TestReservaTemporalModel:
@@ -14,14 +14,7 @@ class TestReservaTemporalModel:
     @pytest.mark.asyncio
     async def test_reserva_temporal_creation(self, db_session):
         """Scenario: Reserva exitosa."""
-        profesional = Profesional(
-            nombre="Dr. Reserva",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Lunes"],
-        )
+        profesional = make_profesional(nombre="Dr. Reserva", dias_atencion=["Lunes"])
         db_session.add(profesional)
         await db_session.flush()
 
@@ -49,14 +42,7 @@ class TestReservaTemporalModel:
     @pytest.mark.asyncio
     async def test_reserva_temporal_unique_turno(self, db_session):
         """Scenario: Reserva duplicada bloqueada — 4.5."""
-        profesional = Profesional(
-            nombre="Dr. Unique",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Lunes"],
-        )
+        profesional = make_profesional(nombre="Dr. Unique", dias_atencion=["Lunes"])
         db_session.add(profesional)
         await db_session.flush()
 
@@ -88,14 +74,7 @@ class TestReservaTemporalModel:
     @pytest.mark.asyncio
     async def test_reserva_temporal_expiracion_futura(self, db_session):
         """Scenario: Expiración futura."""
-        profesional = Profesional(
-            nombre="Dr. Expira",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Lunes"],
-        )
+        profesional = make_profesional(nombre="Dr. Expira", dias_atencion=["Lunes"])
         db_session.add(profesional)
         await db_session.flush()
 

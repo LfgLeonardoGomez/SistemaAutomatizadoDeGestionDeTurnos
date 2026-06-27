@@ -8,6 +8,7 @@ from app.schemas.profesional import (
     ProfesionalIntegracionesResponse,
     ProfesionalIntegracionesUpdate,
 )
+from tests.conftest import make_profesional
 
 
 class TestProfesionalModel:
@@ -16,16 +17,9 @@ class TestProfesionalModel:
     @pytest.mark.asyncio
     async def test_profesional_creation(self, db_session):
         """Scenario: Crear profesional con datos básicos."""
-        profesional = Profesional(
-            nombre="Dr. Test",
-            especialidad="Odontología general",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+        profesional = make_profesional(
             email="dr.test@local.dev",
             password_hash="$2b$12$dummyhash",
-            is_active=True,
         )
         db_session.add(profesional)
         await db_session.commit()
@@ -46,7 +40,7 @@ class TestProfesionalModel:
     @pytest.mark.asyncio
     async def test_profesional_query_by_nombre(self, db_session):
         """Scenario: Triangulate — query profesional by nombre."""
-        profesional = Profesional(
+        profesional = make_profesional(
             nombre="Dr. García",
             especialidad="Cardiología",
             duracion_turno=45,
@@ -55,7 +49,6 @@ class TestProfesionalModel:
             dias_atencion=["Lunes", "Miércoles"],
             email="dr.garcia@local.dev",
             password_hash="$2b$12$dummyhash",
-            is_active=True,
         )
         db_session.add(profesional)
         await db_session.commit()
@@ -69,30 +62,22 @@ class TestProfesionalModel:
     @pytest.mark.asyncio
     async def test_profesional_email_unique(self, db_session):
         """Scenario: Email único por profesional."""
-        p1 = Profesional(
+        p1 = make_profesional(
             nombre="Dr. A",
             especialidad="X",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="same@local.dev",
             password_hash="hash1",
-            is_active=True,
         )
         db_session.add(p1)
         await db_session.commit()
 
-        p2 = Profesional(
+        p2 = make_profesional(
             nombre="Dr. B",
             especialidad="Y",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="same@local.dev",
             password_hash="hash2",
-            is_active=True,
         )
         db_session.add(p2)
         with pytest.raises(IntegrityError):
@@ -102,32 +87,24 @@ class TestProfesionalModel:
     @pytest.mark.asyncio
     async def test_profesional_api_key_unique(self, db_session):
         """Scenario: API key única por profesional."""
-        p1 = Profesional(
+        p1 = make_profesional(
             nombre="Dr. A",
             especialidad="X",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="a@local.dev",
             password_hash="hash1",
             api_key="key-123",
-            is_active=True,
         )
         db_session.add(p1)
         await db_session.commit()
 
-        p2 = Profesional(
+        p2 = make_profesional(
             nombre="Dr. B",
             especialidad="Y",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="b@local.dev",
             password_hash="hash2",
             api_key="key-123",
-            is_active=True,
         )
         db_session.add(p2)
         with pytest.raises(IntegrityError):
@@ -137,13 +114,12 @@ class TestProfesionalModel:
     @pytest.mark.asyncio
     async def test_profesional_new_columns_nullable(self, db_session):
         """Scenario: Nuevas columnas aceptan nulos salvo is_active."""
-        profesional = Profesional(
+        profesional = make_profesional(
             nombre="Dr. Minimal",
             especialidad="X",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
+            email=None,
+            password_hash=None,
         )
         db_session.add(profesional)
         await db_session.commit()
@@ -160,12 +136,9 @@ class TestProfesionalModel:
     @pytest.mark.asyncio
     async def test_profesional_is_active_false(self, db_session):
         """Scenario: Profesional inactivo."""
-        profesional = Profesional(
+        profesional = make_profesional(
             nombre="Dr. Inactivo",
             especialidad="X",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             is_active=False,
         )
@@ -178,15 +151,11 @@ class TestProfesionalModel:
     @pytest.mark.asyncio
     async def test_profesional_google_calendar_id_default(self, db_session):
         """Scenario: google_calendar_id defaults to 'primary' at DB level."""
-        profesional = Profesional(
+        profesional = make_profesional(
             nombre="Dr. Default Cal",
             especialidad="X",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="defaultcal@local.dev",
-            is_active=True,
         )
         db_session.add(profesional)
         await db_session.commit()
@@ -199,16 +168,12 @@ class TestProfesionalModel:
     @pytest.mark.asyncio
     async def test_profesional_google_calendar_id_custom(self, db_session):
         """Scenario: google_calendar_id accepts a custom value."""
-        profesional = Profesional(
+        profesional = make_profesional(
             nombre="Dr. Custom Cal",
             especialidad="X",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="customcal@local.dev",
             google_calendar_id="my_custom_calendar@group.calendar.google.com",
-            is_active=True,
         )
         db_session.add(profesional)
         await db_session.commit()

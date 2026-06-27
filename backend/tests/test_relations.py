@@ -8,6 +8,7 @@ from app.models.profesional import Profesional
 from app.models.turno import Turno
 from app.models.reserva_temporal import ReservaTemporal
 from app.models.lista_de_espera import ListaDeEspera
+from tests.conftest import make_profesional
 
 
 class TestModelRelations:
@@ -16,16 +17,11 @@ class TestModelRelations:
     @pytest.mark.asyncio
     async def test_profesional_turnos_relation(self, db_session):
         """Scenario: Profesional con 3 turnos — 4.8."""
-        profesional = Profesional(
+        profesional = make_profesional(
             nombre="Dr. Relación",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="dr.relacion@local.dev",
             password_hash="$2b$12$dummy",
-            is_active=True,
         )
         db_session.add(profesional)
         await db_session.flush()
@@ -49,16 +45,11 @@ class TestModelRelations:
     @pytest.mark.asyncio
     async def test_paciente_turnos_relation(self, db_session):
         """Scenario: Paciente con 2 turnos — 4.9."""
-        profesional = Profesional(
+        profesional = make_profesional(
             nombre="Dr. PacienteTurnos",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="dr.pt@local.dev",
             password_hash="$2b$12$dummy",
-            is_active=True,
         )
         db_session.add(profesional)
         await db_session.flush()
@@ -105,16 +96,11 @@ class TestModelRelations:
     @pytest.mark.asyncio
     async def test_turno_reserva_temporal_relation(self, db_session):
         """Scenario: Reserva temporal se elimina al confirmar turno."""
-        profesional = Profesional(
+        profesional = make_profesional(
             nombre="Dr. Cascade",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="dr.cascade@local.dev",
             password_hash="$2b$12$dummy",
-            is_active=True,
         )
         db_session.add(profesional)
         await db_session.flush()
@@ -152,16 +138,11 @@ class TestModelRelations:
     @pytest.mark.asyncio
     async def test_paciente_lista_de_espera_relation(self, db_session):
         """Scenario: Paciente con registros en lista de espera."""
-        profesional = Profesional(
+        profesional = make_profesional(
             nombre="Dr. ListaEspera",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="dr.le@local.dev",
             password_hash="$2b$12$dummy",
-            is_active=True,
         )
         db_session.add(profesional)
         await db_session.flush()

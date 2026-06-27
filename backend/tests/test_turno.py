@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models.turno import Turno
 from app.models.paciente import Paciente
-from app.models.profesional import Profesional
+from tests.conftest import make_profesional
 
 
 class TestTurnoModel:
@@ -14,14 +14,7 @@ class TestTurnoModel:
     @pytest.mark.asyncio
     async def test_turno_creation(self, db_session):
         """Scenario: Turno disponible sin paciente."""
-        profesional = Profesional(
-            nombre="Dr. Turno",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Lunes"],
-        )
+        profesional = make_profesional(nombre="Dr. Turno", dias_atencion=["Lunes"])
         db_session.add(profesional)
         await db_session.flush()
 
@@ -47,14 +40,7 @@ class TestTurnoModel:
     @pytest.mark.asyncio
     async def test_turno_estado_invalido(self, db_session):
         """Scenario: Estado inválido — 4.4."""
-        profesional = Profesional(
-            nombre="Dr. Estado",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Lunes"],
-        )
+        profesional = make_profesional(nombre="Dr. Estado", dias_atencion=["Lunes"])
         db_session.add(profesional)
         await db_session.flush()
 
@@ -90,14 +76,7 @@ class TestTurnoModel:
     @pytest.mark.asyncio
     async def test_turno_check_horario(self, db_session):
         """Scenario: Horario inválido — CHECK(hora_fin > hora_inicio) — 4.3."""
-        profesional = Profesional(
-            nombre="Dr. Check",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Lunes"],
-        )
+        profesional = make_profesional(nombre="Dr. Check", dias_atencion=["Lunes"])
         db_session.add(profesional)
         await db_session.flush()
 
@@ -115,14 +94,7 @@ class TestTurnoModel:
     @pytest.mark.asyncio
     async def test_turno_hora_fin_calculada(self, db_session):
         """Scenario: hora_fin calculada según duración — 4.11."""
-        profesional = Profesional(
-            nombre="Dr. Calc",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Lunes"],
-        )
+        profesional = make_profesional(nombre="Dr. Calc", dias_atencion=["Lunes"])
         db_session.add(profesional)
         await db_session.flush()
 
@@ -140,14 +112,7 @@ class TestTurnoModel:
     @pytest.mark.asyncio
     async def test_turno_reservado_con_paciente(self, db_session):
         """Scenario: Turno reservado con paciente."""
-        profesional = Profesional(
-            nombre="Dr. Paciente",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Lunes"],
-        )
+        profesional = make_profesional(nombre="Dr. Paciente", dias_atencion=["Lunes"])
         db_session.add(profesional)
         await db_session.flush()
 
@@ -175,14 +140,7 @@ class TestTurnoModel:
     @pytest.mark.asyncio
     async def test_turno_recordatorio_enviado_default_false(self, db_session):
         """Scenario: Turno tiene recordatorio_enviado default False."""
-        profesional = Profesional(
-            nombre="Dr. Recordatorio",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Lunes"],
-        )
+        profesional = make_profesional(nombre="Dr. Recordatorio", dias_atencion=["Lunes"])
         db_session.add(profesional)
         await db_session.flush()
 
@@ -201,14 +159,7 @@ class TestTurnoModel:
     @pytest.mark.asyncio
     async def test_turno_recordatorio_enviado_puede_ser_true(self, db_session):
         """Scenario: Turno puede tener recordatorio_enviado True."""
-        profesional = Profesional(
-            nombre="Dr. Recordatorio",
-            especialidad="Test",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Lunes"],
-        )
+        profesional = make_profesional(nombre="Dr. Recordatorio", dias_atencion=["Lunes"])
         db_session.add(profesional)
         await db_session.flush()
 

@@ -6,7 +6,7 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.models.base import Base
 from app.models.paciente import Paciente
-from app.models.profesional import Profesional
+from tests.conftest import make_profesional
 
 
 class TestPacienteModel:
@@ -15,16 +15,9 @@ class TestPacienteModel:
     @pytest_asyncio.fixture
     async def profesional(self, db_session):
         """Fixture local para tests de Paciente."""
-        p = Profesional(
-            nombre="Dr. Test",
-            especialidad="Odontología general",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
-            dias_atencion=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+        p = make_profesional(
             email="test@local.dev",
             password_hash="$2b$12$dummy",
-            is_active=True,
         )
         db_session.add(p)
         await db_session.commit()
@@ -82,16 +75,11 @@ class TestPacienteModel:
         db_session.add(p1)
         await db_session.commit()
 
-        otro_profesional = Profesional(
+        otro_profesional = make_profesional(
             nombre="Dr. Otro",
-            especialidad="X",
-            duracion_turno=30,
-            horario_inicio="08:00",
-            horario_fin="18:00",
             dias_atencion=["Lunes"],
             email="otro@local.dev",
             password_hash="$2b$12$dummy",
-            is_active=True,
         )
         db_session.add(otro_profesional)
         await db_session.commit()
