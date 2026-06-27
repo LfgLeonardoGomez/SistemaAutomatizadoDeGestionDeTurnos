@@ -22,7 +22,7 @@ def upgrade() -> None:
     """Upgrade schema."""
     op.add_column('lista_de_espera', sa.Column('turno_ofrecido_id', sa.Integer(), nullable=True))
     op.create_foreign_key('fk_lista_de_espera_turno_ofrecido', 'lista_de_espera', 'turno', ['turno_ofrecido_id'], ['id'], ondelete='SET NULL')
-    op.add_column('lista_de_espera', sa.Column('notificado_en', sa.DateTime(), nullable=True))
+    op.add_column('lista_de_espera', sa.Column('notificado_en', sa.DateTime(timezone=True), nullable=True))
     op.add_column('lista_de_espera', sa.Column('telegram_chat_id', sa.String(length=50), nullable=True))
 
 

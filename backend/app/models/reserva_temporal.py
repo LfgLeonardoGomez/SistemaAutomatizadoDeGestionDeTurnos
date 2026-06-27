@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Index, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, UniqueConstraint, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -15,7 +15,7 @@ class ReservaTemporal(Base):
         nullable=False,
         unique=True,
     )
-    expiracion: Mapped[datetime] = mapped_column(nullable=False)
+    expiracion: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     turno: Mapped["Turno"] = relationship(
         "Turno", back_populates="reserva_temporal", lazy="selectin"

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from sqlalchemy import String, JSON, Text
+from sqlalchemy import String, JSON, Text, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -18,7 +18,7 @@ class Profesional(Base):
     horario_fin: Mapped[str] = mapped_column(String(5), nullable=False)
     dias_atencion: Mapped[list[str]] = mapped_column(JSON, nullable=False)
     creado_en: Mapped[datetime] = mapped_column(
-        default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
     # Auth columns (C-14)

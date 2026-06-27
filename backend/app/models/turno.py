@@ -8,6 +8,7 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     Time,
+    DateTime,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -37,7 +38,7 @@ class Turno(Base):
         default=False, nullable=False
     )
     creado_en: Mapped[datetime] = mapped_column(
-        default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
     paciente: Mapped[Optional["Paciente"]] = relationship(

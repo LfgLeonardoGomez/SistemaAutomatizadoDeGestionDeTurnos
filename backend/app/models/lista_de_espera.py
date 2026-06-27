@@ -1,7 +1,7 @@
 from datetime import datetime, timezone, date
 from typing import Optional
 
-from sqlalchemy import ForeignKey, Date, Index
+from sqlalchemy import ForeignKey, Date, Index, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -17,14 +17,16 @@ class ListaDeEspera(Base):
     )
     fecha_solicitada: Mapped[date] = mapped_column(Date, nullable=False)
     creado_en: Mapped[datetime] = mapped_column(
-        default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
     notificado: Mapped[bool] = mapped_column(default=False, nullable=False)
     turno_ofrecido_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("turno.id", ondelete="SET NULL"),
         nullable=True,
     )
-    notificado_en: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    notificado_en: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     telegram_chat_id: Mapped[Optional[str]] = mapped_column(nullable=True)
 
     profesional_id: Mapped[int] = mapped_column(

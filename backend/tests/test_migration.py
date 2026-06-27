@@ -39,8 +39,9 @@ class TestAlembicMigration:
         alembic_cfg = Config(str(alembic_ini))
         script = ScriptDirectory.from_config(alembic_cfg)
         heads = script.get_heads()
-        # Our migration should be the single head
-        assert "f3c8a2b91c4e" in heads, f"Expected f3c8a2b91c4e in heads, got {heads}"
+        # The migration tree must converge to a single head (no branches left
+        # over from removed/downgraded revisions).
+        assert len(heads) == 1, f"Expected exactly 1 head, got {heads}"
 
     def test_migration_contains_expected_operations(self, migration_file):
         """Scenario: La migración contiene las operaciones esperadas."""

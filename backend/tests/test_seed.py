@@ -20,8 +20,7 @@ class TestSeedProfesional:
         assert count_before == 0
 
         settings = Settings(
-            database_url="sqlite+aiosqlite:///:memory:",
-            telegram_bot_token="dummy",
+            database_url="postgresql+asyncpg://test:test@localhost/test",
             secret_key="dummy",
             seed_default_password="changeme",
         )
@@ -51,8 +50,7 @@ class TestSeedProfesional:
     async def test_seed_is_idempotent(self, db_session):
         """Scenario: Seed no duplica registros — 3.3."""
         settings = Settings(
-            database_url="sqlite+aiosqlite:///:memory:",
-            telegram_bot_token="dummy",
+            database_url="postgresql+asyncpg://test:test@localhost/test",
             secret_key="dummy",
             seed_default_password="changeme",
         )
@@ -72,7 +70,7 @@ class TestSeedSuperAdmin:
 
     def _settings(self, email: str = "admin@local.dev", password: str = "secret123") -> Settings:
         return Settings(
-            database_url="sqlite+aiosqlite:///:memory:",
+            database_url="postgresql+asyncpg://test:test@localhost/test",
             secret_key="testsecret",
             super_admin_email=email,
             super_admin_password=password,
