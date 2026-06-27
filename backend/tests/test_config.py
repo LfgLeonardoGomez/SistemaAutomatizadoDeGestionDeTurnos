@@ -175,3 +175,94 @@ class TestSettings:
         from app.config import Settings
         settings = Settings()
         assert settings.super_admin_password == ""
+
+
+class TestEnvExampleCompleteness:
+    """Spec: Single canonical .env.example at repository root.
+
+    Validates the .env.example files in the repo are coherent with
+    `backend/app/config.py`. This is the automated check for task 2.3.
+    """
+
+    @staticmethod
+    def _repo_root() -> str:
+        """Absolute path to the repository root (parent of backend/)."""
+        from pathlib import Path
+        return str(Path(__file__).resolve().parent.parent.parent)
+
+    @classmethod
+    def _root_env_example(cls) -> str:
+        from pathlib import Path
+        return str(Path(cls._repo_root()) / ".env.example")
+
+    @classmethod
+    def _backend_env_example(cls) -> str:
+        from pathlib import Path
+        return str(Path(cls._repo_root()) / "backend" / ".env.example")
+
+    @staticmethod
+    def _parse_env_example(path: str) -> set[str]:
+        """Return uppercase env var names declared in an .env.example file.
+
+        Lines starting with '#' and blank lines are ignored. Inline comments
+        after a value are not stripped (we only care about the var name, which
+        is the substring before the first '=').
+        """
+        import os
+        names: set[str] = set()
+        if not os.path.isfile(path):
+            return names
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                if "=" not in stripped:
+                    continue
+                name = stripped.split("=", 1)[0].strip()
+                if name:
+                    names.add(name.upper())
+        return names
+
+    def test_no_env_example_inside_backend(self):
+        """Spec: .env.example lives at the repository root only.
+
+        Scenario: there is no .env.example inside backend/ (broken source of
+        truth pre-cleanup).
+        """
+        import os
+        assert not os.path.isfile(self._backend_env_example()), (
+            "backend/.env.example must not exist; "
+            "the canonical .env.example lives at the repo root only"
+        )
+
+    def test_root_env_example_exists(self):
+        """Spec: .env.example exists at the repo root."""
+        import os
+        assert os.path.isfile(self._root_env_example()), (
+            ".env.example must exist at the repo root"
+        )
+
+    def test_root_env_example_matches_settings_fields(self):
+        """Spec: .env.example contains every variable declared in config.py.
+
+        We compare the set of variable names in .env.example against the
+        declared fields on `Settings`. Names are uppercased to match the
+        env-var convention. Fields with uppercase-only chars are taken as-is.
+        """
+        from app.config import Settings
+        declared = set()
+        for name, field in Settings.model_fields.items():
+            env_name = (field.alias or name).upper()
+            declared.add(env_name)
+
+        declared_in_example = self._parse_env_example(self._root_env_example())
+        missing = declared - declared_in_example
+        extra = declared_in_example - declared
+
+        assert not missing, (
+            f"Variables declared in config.py but missing from .env.example: {sorted(missing)}"
+        )
+        assert not extra, (
+            f"Variables in .env.example but not declared in config.py: {sorted(extra)}"
+        )
