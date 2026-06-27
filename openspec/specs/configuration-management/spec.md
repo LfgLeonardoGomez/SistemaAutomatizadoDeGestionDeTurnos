@@ -1,28 +1,8 @@
-## REMOVED Requirements
+# Spec: configuration-management
 
-### Requirement: Telegram bot token via global environment
-
-The system SHALL NOT declare `TELEGRAM_BOT_TOKEN` in Pydantic Settings.
-
-(Reason: The token is stored per-professional after C-14/C-20; a global value is dead configuration.)
-(Migration: Use `PUT /profesional/integraciones` to persist the token on each professional.)
-
-### Requirement: Google service-account credentials via global environment
-
-The system SHALL NOT declare `GOOGLE_CALENDAR_CREDENTIALS` in Pydantic Settings.
-
-(Reason: Google Calendar authentication moved to per-professional `google_refresh_token` after C-14/C-20.)
-(Migration: Use `PUT /profesional/integraciones` to persist the refresh token on each professional.)
-
-### Requirement: Global Google Calendar ID fallback
-
-The system SHALL NOT declare `GOOGLE_CALENDAR_ID` in Pydantic Settings.
-
-(Reason: Calendar target is per-professional via `profesional.google_calendar_id` introduced in this change.)
-(Migration: Set `google_calendar_id` via `PUT /profesional/integraciones` or accept the default `"primary"`.)
-
-## ADDED Requirements
-
+## Purpose
+Define how the application manages its runtime configuration: which environment variables are required, which are optional, and the validation contract for startup.
+## Requirements
 ### Requirement: Required environment variables are validated at startup
 The system SHALL validate all required environment variables at application startup using Pydantic Settings. If a required variable is missing or invalid, the application SHALL fail to start with a clear error message indicating which variable is missing.
 
@@ -46,3 +26,46 @@ The system SHALL validate all required environment variables at application star
 - **WHEN** the backend starts
 - **THEN** the application SHALL start successfully
 - **AND** `Settings` SHALL NOT expose those attributes
+
+### Requirement: N8N_WEBHOOK_URL is not declared in Pydantic Settings
+The system SHALL NOT declare `N8N_WEBHOOK_URL` in Pydantic Settings.
+
+#### Scenario: Startup without N8N_WEBHOOK_URL
+- **GIVEN** `N8N_WEBHOOK_URL` is absent from the environment
+- **WHEN** the backend starts
+- **THEN** the application SHALL start successfully
+- **AND** `Settings` SHALL NOT expose an `n8n_webhook_url` attribute
+
+### Requirement: TELEGRAM_WEBHOOK_SECRET is not declared in Pydantic Settings
+The system SHALL NOT declare `TELEGRAM_WEBHOOK_SECRET` in Pydantic Settings.
+
+#### Scenario: Startup without TELEGRAM_WEBHOOK_SECRET
+- **GIVEN** `TELEGRAM_WEBHOOK_SECRET` is absent from the environment
+- **WHEN** the backend starts
+- **THEN** the application SHALL start successfully
+- **AND** `Settings` SHALL NOT expose a `telegram_webhook_secret` attribute
+
+### Requirement: Single canonical .env.example at repository root
+The system SHALL maintain exactly one `.env.example` file at the repository root. The file SHALL contain every environment variable declared in `backend/app/config.py`, with descriptive comments and sensible defaults.
+
+#### Scenario: .env.example completeness
+- **WHEN** an operator inspects `.env.example` at the repository root
+- **THEN** it SHALL contain all variables names declared in `config.py`
+- **AND** it SHALL NOT contain variables absent from `config.py`
+- **AND** there SHALL be no `.env.example` inside `backend/`
+
+### Requirement: docker-compose.yml injects all critical backend variables
+The `docker-compose.yml` service `backend` SHALL declare every environment variable required by `backend/app/config.py` in its `environment` block, either with a direct value or with a `${VAR:-default}` fallback where applicable.
+
+#### Scenario: docker-compose backend environment completeness
+- **WHEN** inspecting the `backend` service definition in `docker-compose.yml`
+- **THEN** it SHALL declare `DATABASE_URL`, `SECRET_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALENDAR_MAX_RETRIES`, `GOOGLE_CALENDAR_BASE_DELAY`, `GOOGLE_CALENDAR_MAX_DELAY`, `RESERVA_TEMPORAL_MINUTOS`, `LISTA_ESPERA_MINUTOS`, `RECORDATORIO_HORAS_ANTES`, `RECORDATORIO_JOB_INTERVAL_MINUTOS`, `COMPLETADO_JOB_INTERVAL_MINUTOS`, `ENV`, `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `SEED_DEFAULT_PASSWORD`, `SUPER_ADMIN_EMAIL`, and `SUPER_ADMIN_PASSWORD`
+
+### Requirement: SQLite artifacts are excluded from version control
+The repository SHALL NOT contain `*.db` files. The `.gitignore` SHALL exclude them.
+
+#### Scenario: No SQLite database in repository
+- **WHEN** listing tracked files matching `*.db`
+- **THEN** the result SHALL be empty
+- **AND** `.gitignore` SHALL contain `*.db`
+
