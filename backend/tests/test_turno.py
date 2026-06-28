@@ -39,7 +39,9 @@ class TestTurnoModel:
 
     @pytest.mark.asyncio
     async def test_turno_estado_invalido(self, db_session):
-        """Scenario: Estado inválido — 4.4."""
+        """Scenario: Estado inválido — el ENUM de PostgreSQL rechaza el valor."""
+        from sqlalchemy.exc import DBAPIError
+
         profesional = make_profesional(nombre="Dr. Estado", dias_atencion=["Lunes"])
         db_session.add(profesional)
         await db_session.flush()
@@ -52,12 +54,10 @@ class TestTurnoModel:
             estado="INVALIDO",
         )
         db_session.add(turno)
-        # SQLite doesn't enforce ENUM natively; we validate at app level
-        # For PostgreSQL, this would raise IntegrityError. With SQLite String,
-        # it will pass. The test documents the expected behavior.
-        await db_session.commit()
-        # If we had a CHECK constraint on ENUM, this would fail.
-        # For now, we accept the SQLite behavior and document the gap.
+        # PostgreSQL ENUM (turno_estado_enum) rechaza "INVALIDO" — el commit
+        # lanza InvalidTextRepresentationError (subclase de DBAPIError).
+        with pytest.raises(DBAPIError):
+            await db_session.commit()
 
     @pytest.mark.asyncio
     async def test_turno_sin_profesional(self, db_session):

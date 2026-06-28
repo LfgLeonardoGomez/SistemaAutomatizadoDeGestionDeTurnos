@@ -211,12 +211,18 @@ class TestMessageFormatting:
                 assert ok is False
 
     @pytest.mark.asyncio
-    async def test_enviar_mensaje_con_log_loggea_contexto_al_fallar(self, caplog):
+    async def test_enviar_mensaje_con_log_loggea_contexto_al_fallar(self):
+        # Mockear ``logger.error`` directamente es más confiable que ``caplog``
+        # en pytest-asyncio con propagación al root (los handlers de caplog
+        # no siempre capturan records de loggers específicos).
         with patch("app.services.telegram_service.enviar_mensaje", new=AsyncMock(return_value=False)):
-            with caplog.at_level("ERROR"):
+            with patch("app.services.telegram_service.logger") as mock_logger:
                 ok = await enviar_mensaje_con_log(123, "hola", "token", "test_contexto")
                 assert ok is False
-                assert "Fallo envío de mensaje a chat_id 123 (contexto: test_contexto)" in caplog.text
+                assert mock_logger.error.called
+                # Verificar el contenido del mensaje
+                call_args = mock_logger.error.call_args
+                assert "Fallo envío de mensaje a chat_id 123 (contexto: test_contexto)" in call_args[0][0]
 
     @pytest.mark.asyncio
     async def test_responder_callback_query_calls_run_in_threadpool(self):

@@ -113,20 +113,27 @@ class TestProfesionalModel:
 
     @pytest.mark.asyncio
     async def test_profesional_new_columns_nullable(self, db_session):
-        """Scenario: Nuevas columnas aceptan nulos salvo is_active."""
+        """Scenario: Columnas opcionales aceptan nulo; ``email`` y ``password_hash`` son NOT NULL (post C-22)."""
+        # C-22: email y password_hash son NOT NULL con default. No podemos
+        # crear un Profesional con email=None. Usamos make_profesional() que
+        # genera valores válidos automáticamente, y luego editamos solo las
+        # columnas que queremos validar como nullable.
         profesional = make_profesional(
             nombre="Dr. Minimal",
             especialidad="X",
             dias_atencion=["Lunes"],
-            email=None,
-            password_hash=None,
         )
+        # Forzar NULL en columnas opcionales (excluyendo email y password_hash)
+        profesional.api_key = None
+        profesional.google_refresh_token = None
+        profesional.telegram_bot_token = None
+        profesional.telegram_secret_token = None
         db_session.add(profesional)
         await db_session.commit()
         await db_session.refresh(profesional)
 
-        assert profesional.email is None
-        assert profesional.password_hash is None
+        assert profesional.email is not None  # NOT NULL post-C-22
+        assert profesional.password_hash is not None  # NOT NULL post-C-22
         assert profesional.api_key is None
         assert profesional.google_refresh_token is None
         assert profesional.telegram_bot_token is None

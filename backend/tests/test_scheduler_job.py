@@ -67,9 +67,29 @@ class TestSchedulerJob:
         await _liberar_reservas_vencidas_job(session=db_session)
         # No debe lanzar excepciones
 
-    def test_scheduler_tiene_job_registrado(self, client):
-        """Scenario: job aparece en el scheduler al startup."""
+    @pytest.mark.asyncio
+    async def test_scheduler_tiene_job_registrado(self, client):
+        """Scenario: job aparece en el scheduler al startup.
+
+        El fixture ``client`` overridea el lifespan con ``_noop_lifespan``
+        (para no arrancar el scheduler en tests). Por eso instanciamos el
+        scheduler directamente via ``init_scheduler(app)`` para verificar
+        que los jobs se registran.
+
+        Es async porque ``init_scheduler`` requiere un event loop activo
+        (APScheduler AsyncIOScheduler).
+        """
         from app.main import app
+        from app.scheduler.jobs import init_scheduler
+
+        # Si ya hay un scheduler corriendo, limpiarlo primero
+        existing = getattr(app.state, "scheduler", None)
+        if existing is not None:
+            existing.shutdown(wait=False)
+            app.state.scheduler = None
+
+        init_scheduler(app)
+
         scheduler = getattr(app.state, "scheduler", None)
         assert scheduler is not None
         jobs = scheduler.get_jobs()
@@ -77,6 +97,8 @@ class TestSchedulerJob:
         assert "liberar_reservas_vencidas" in job_ids
         assert "marcar_turnos_completados" in job_ids
         assert "enviar_recordatorios" in job_ids
+        # Cleanup: shutdown no espera a que terminen jobs en curso
+        scheduler.shutdown(wait=False)
 
     @pytest.mark.asyncio
     async def test_scheduler_job_marcar_turnos_completados(self, db_session, monkeypatch):
@@ -125,22 +147,41 @@ class TestSchedulerJob:
         # No debe lanzar excepciones
 
     @pytest.mark.asyncio
-    async def test_scheduler_job_marcar_turnos_completados_loguea_excepciones(self, db_session, monkeypatch, caplog):
-        """Scenario: job loguea excepciones sin detener el scheduler."""
+    async def test_scheduler_job_marcar_turnos_completados_loguea_excepciones(self, db_session, monkeypatch):
+        """Scenario: job loguea excepciones sin detener el scheduler.
+
+        Mockeamos ``_ejecutar_marcar_turnos_completados`` (no
+        ``marcar_turnos_completados``) porque el try/except interior
+        hace ``await sess.rollback()`` que falla con ``MissingGreenlet``
+        cuando la sesión fue tocada por un mock sync. Patcheando el
+        ejecutor evitamos ese side-effect no relacionado al test.
+
+        Mockeamos el logger directamente porque caplog en pytest-asyncio
+        con event loop reutilizado (suite completa) no captura los records
+        del logger específico. El patrón es el mismo que
+        ``test_enviar_mensaje_con_log_loggea_contexto_al_fallar``.
+        """
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
         monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         from app.scheduler.jobs import _marcar_turnos_completados_job
-        import logging
+        from unittest.mock import patch
 
         p = await _seed_profesional(db_session)
 
-        with caplog.at_level(logging.ERROR):
-            from unittest.mock import patch
-            with patch("app.scheduler.jobs.marcar_turnos_completados", side_effect=RuntimeError("DB error")):
+        async def _raise_runtime_error(*args, **kwargs):
+            raise RuntimeError("DB error")
+
+        with patch("app.scheduler.jobs._ejecutar_marcar_turnos_completados", side_effect=_raise_runtime_error):
+            with patch("app.scheduler.jobs.logger") as mock_logger:
                 await _marcar_turnos_completados_job(session=db_session)
 
-        assert "Error en job marcar_turnos_completados" in caplog.text
+                # La excepción se captura en el try/except exterior. El
+                # mensaje exacto es "Error en job marcar_turnos_completados: {exc}".
+                assert mock_logger.exception.called
+                call_args = mock_logger.exception.call_args
+                assert "Error en job marcar_turnos_completados" in call_args[0][0]
+                assert "DB error" in call_args[0][0]
 
     # -----------------------------------------------------------------------
     # _enviar_recordatorios_job
@@ -164,12 +205,11 @@ class TestSchedulerJob:
         db_session.add(paciente)
         await db_session.commit()
 
-        # Usar HOY con hora 23:00 (en el futuro, no cruza medianoche, dentro
-        # de la ventana de 24h del job de recordatorios). Mockeamos ``datetime``
-        # en el servicio para que ``datetime.now()`` retorne un valor
-        # compatible con la ventana.
+        # Crear 2 turnos a 1h y 1h10m en el futuro desde AHORA (no hora
+        # fija) para evitar problemas de TZ y para garantizar que estén
+        # dentro de la ventana ``horas_antes=24`` del job.
         from unittest.mock import patch
-        base_dt = datetime.combine(date.today(), time(23, 0))
+        base_dt = datetime.now() + timedelta(hours=1)
         for i in range(2):
             turno = Turno(
                 fecha=base_dt.date(),
@@ -205,15 +245,20 @@ class TestSchedulerJob:
             assert mock_enviar.await_count == 0
 
     @pytest.mark.asyncio
-    async def test_scheduler_job_enviar_recordatorios_maneja_excepcion(self, db_session, monkeypatch, caplog):
-        """Scenario: job maneja excepción de Telegram sin detenerse."""
+    async def test_scheduler_job_enviar_recordatorios_maneja_excepcion(self, db_session, monkeypatch):
+        """Scenario: job maneja excepción de Telegram sin detenerse.
+
+        Mockeamos el logger directamente porque caplog en pytest-asyncio
+        con event loop reutilizado (suite completa) no captura los records
+        del logger específico. El patrón es el mismo que
+        ``test_enviar_mensaje_con_log_loggea_contexto_al_fallar``.
+        """
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
         monkeypatch.setenv("SECRET_KEY", "test-secret")
 
         from app.scheduler.jobs import _enviar_recordatorios_job
         from app.models.paciente import Paciente
         from app.models.turno import Turno
-        import logging
 
         p = await _seed_profesional(db_session)
         paciente = Paciente(
@@ -224,9 +269,11 @@ class TestSchedulerJob:
         db_session.add(paciente)
         await db_session.commit()
 
-        # Usar HOY con hora 23:00 para evitar cruce de medianoche y mantener
-        # el turno dentro de la ventana del job de recordatorios.
-        base_dt = datetime.combine(date.today(), time(23, 0))
+        # Crear un turno a 1h en el futuro desde AHORA (no hora fija) para
+        # evitar problemas de TZ. El filtro ``ahora <= dt <= limite`` de
+        # ``obtener_turnos_para_recordar`` requiere que el turno esté
+        # estrictamente en el futuro, así que ``+1h`` es seguro.
+        base_dt = datetime.now() + timedelta(hours=1)
         turno = Turno(
             fecha=base_dt.date(),
             hora_inicio=base_dt.time(),
@@ -239,12 +286,18 @@ class TestSchedulerJob:
         db_session.add(turno)
         await db_session.commit()
 
-        with caplog.at_level(logging.ERROR):
-            with patch("app.scheduler.jobs.enviar_recordatorio_telegram", new=AsyncMock(side_effect=Exception("Telegram fail"))) as mock_enviar:
+        with patch("app.scheduler.jobs.enviar_recordatorio_telegram", new=AsyncMock(side_effect=Exception("Telegram fail"))) as mock_enviar:
+            with patch("app.scheduler.jobs.logger") as mock_logger:
                 await _enviar_recordatorios_job(session=db_session)
                 assert mock_enviar.await_count == 1
 
-        assert "Error enviando recordatorio" in caplog.text
+                # El mensaje exacto logueado es
+                # "Error enviando recordatorio para turno {turno_id}: {exc}".
+                assert mock_logger.error.called
+                call_args = mock_logger.error.call_args
+                assert "Error enviando recordatorio" in call_args[0][0]
+                assert f"turno {turno.id}" in call_args[0][0]
+                assert "Telegram fail" in call_args[0][0]
 
     @pytest.mark.asyncio
     async def test_scheduler_job_enviar_recordatorios_e2e(self, db_session, monkeypatch):
@@ -267,7 +320,9 @@ class TestSchedulerJob:
         await db_session.commit()
 
         # Usar HOY con hora 23:00 para evitar cruce de medianoche.
-        base_dt = datetime.combine(date.today(), time(23, 0))
+        # Turno a 1h en el futuro desde AHORA (no hora fija) para evitar
+        # problemas de TZ y garantizar que esté dentro de la ventana.
+        base_dt = datetime.now() + timedelta(hours=1)
         turno = Turno(
             fecha=base_dt.date(),
             hora_inicio=base_dt.time(),
