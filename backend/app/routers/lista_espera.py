@@ -18,7 +18,7 @@ async def create_lista_espera(
     data: ListaEsperaCreate,
     response: Response,
 ) -> ListaEsperaResponse:
-    """Register a patient in the waiting list for a specific date."""
+    """Register a patient in the waiting list for a specific date. Patrón A."""
     try:
         registro = await registrar_en_lista_espera(
             db,
@@ -27,7 +27,9 @@ async def create_lista_espera(
             fecha_solicitada=data.fecha_solicitada,
             telegram_chat_id=data.telegram_chat_id,
         )
+        await db.commit()
     except TurnoNoEncontradoError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=exc.message)
     return ListaEsperaResponse.model_validate(registro)
 
@@ -38,8 +40,10 @@ async def delete_lista_espera(
     profesional: CurrentProfesionalDep,
     lista_espera_id: int,
 ) -> None:
-    """Remove a patient from the waiting list."""
+    """Remove a patient from the waiting list. Patrón A."""
     try:
         await eliminar_de_lista_espera(db, profesional_id=profesional.id, lista_espera_id=lista_espera_id)
+        await db.commit()
     except TurnoNoEncontradoError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=exc.message)

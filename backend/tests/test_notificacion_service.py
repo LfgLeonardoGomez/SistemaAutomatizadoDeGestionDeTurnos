@@ -268,6 +268,7 @@ class TestMarcarRecordatorioEnviado:
         await db_session.refresh(turno)
 
         await marcar_recordatorio_enviado(db_session, turno.id, profesional_id=profesional.id)
+        await db_session.commit()  # Patrón A: el caller hace commit
         await db_session.refresh(turno)
         assert turno.recordatorio_enviado is True
 

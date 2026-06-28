@@ -1,5 +1,5 @@
 import pytest
-from datetime import date, time, datetime, timedelta
+from datetime import date, time, datetime, timedelta, timezone
 from unittest.mock import patch, MagicMock, AsyncMock
 from typing import Optional
 
@@ -11,6 +11,15 @@ from app.models.turno import Turno
 from app.models.lista_de_espera import ListaDeEspera
 from app.config import Settings
 from tests.conftest import make_profesional
+
+
+def _utcnow_naive() -> datetime:
+    """Igual que ``turno_service._utcnow_naive`` y ``lista_espera_service._utcnow_naive``.
+
+    Usado en los tests para alinear con la convención de los servicios:
+    todas las comparaciones de expiración son naive-UTC.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 @pytest.fixture(autouse=True)
@@ -107,6 +116,7 @@ class TestRegistrarEnListaEspera:
         registro = await registrar_en_lista_espera(
             db_session, profesional_id=p.id, paciente_id=paciente.id, fecha_solicitada=fecha, telegram_chat_id="12345"
         )
+        await db_session.commit()  # Patrón A: el caller hace commit
 
         assert registro.id is not None
         assert registro.paciente_id == paciente.id
@@ -143,6 +153,7 @@ class TestEliminarDeListaEspera:
         registro = await _seed_lista_espera(db_session, p.id, paciente_id=paciente.id)
 
         await eliminar_de_lista_espera(db_session, profesional_id=p.id, lista_espera_id=registro.id)
+        await db_session.commit()  # Patrón A: el caller hace commit
 
         result = await db_session.execute(
             select(ListaDeEspera).where(ListaDeEspera.id == registro.id)
@@ -229,6 +240,7 @@ class TestNotificarYMarcar:
             await notificar_y_marcar(
                 db_session, profesional_id=p.id, lista_espera_id=registro.id, turno_id=turno.id, chat_id="12345"
             )
+        await db_session.commit()  # Patrón A: el caller hace commit
 
         result = await db_session.execute(
             select(ListaDeEspera).where(ListaDeEspera.id == registro.id)
@@ -252,6 +264,7 @@ class TestNotificarYMarcar:
             await notificar_y_marcar(
                 db_session, profesional_id=p.id, lista_espera_id=registro.id, turno_id=turno.id, chat_id="12345"
             )
+        await db_session.commit()  # Patrón A: el caller hace commit
 
         result = await db_session.execute(
             select(ListaDeEspera).where(ListaDeEspera.id == registro.id)
@@ -288,6 +301,7 @@ class TestAceptarTurnoListaEspera:
             confirmado = await aceptar_turno_lista_espera(
                 db_session, profesional_id=p.id, lista_espera_id=registro.id
             )
+        await db_session.commit()  # Patrón A: el caller hace commit
 
         assert confirmado.estado == "CONFIRMADO"
         assert confirmado.paciente_id == paciente.id
@@ -325,13 +339,14 @@ class TestRechazarTurnoListaEspera:
         registro = await _seed_lista_espera(db_session, p.id, paciente_id=paciente.id)
         registro.turno_ofrecido_id = turno.id
         registro.notificado = True
-        registro.notificado_en = datetime.now()
+        registro.notificado_en = _utcnow_naive()
         await db_session.commit()
 
         with patch("app.services.lista_espera_service.evaluar_lista_espera", new=AsyncMock()) as mock_evaluar:
             await rechazar_turno_lista_espera(
                 db_session, profesional_id=p.id, lista_espera_id=registro.id, turno_id=turno.id
             )
+        await db_session.commit()  # Patrón A: el caller hace commit
 
         result = await db_session.execute(
             select(ListaDeEspera).where(ListaDeEspera.id == registro.id)
@@ -367,13 +382,14 @@ class TestProcesarTimeouts:
         registro = await _seed_lista_espera(db_session, p.id, paciente_id=paciente.id)
         registro.turno_ofrecido_id = turno.id
         registro.notificado = True
-        registro.notificado_en = datetime.now() - timedelta(minutes=10)
+        registro.notificado_en = _utcnow_naive() - timedelta(minutes=10)
         await db_session.commit()
 
         with patch("app.services.lista_espera_service.evaluar_lista_espera", new=AsyncMock()) as mock_evaluar:
             procesados = await procesar_timeouts_lista_espera(
                 db_session, profesional_id=p.id, minutos_timeout=test_settings.lista_espera_minutos
             )
+        await db_session.commit()  # Patrón A: el caller hace commit
 
         assert procesados == 1
         result = await db_session.execute(
@@ -395,13 +411,14 @@ class TestProcesarTimeouts:
         registro = await _seed_lista_espera(db_session, p.id, paciente_id=paciente.id)
         registro.turno_ofrecido_id = turno.id
         registro.notificado = True
-        registro.notificado_en = datetime.now() - timedelta(minutes=1)
+        registro.notificado_en = _utcnow_naive() - timedelta(minutes=1)
         await db_session.commit()
 
         with patch("app.services.lista_espera_service.evaluar_lista_espera", new=AsyncMock()) as mock_evaluar:
             procesados = await procesar_timeouts_lista_espera(
                 db_session, profesional_id=p.id, minutos_timeout=test_settings.lista_espera_minutos
             )
+        await db_session.commit()  # Patrón A: el caller hace commit
 
         assert procesados == 0
         mock_evaluar.assert_not_awaited()

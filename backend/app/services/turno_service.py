@@ -1,5 +1,5 @@
 import logging
-from datetime import date, time, datetime, timedelta
+from datetime import date, time, datetime, timedelta, timezone
 from typing import Optional, Any
 
 from sqlalchemy import select, and_, delete
@@ -25,6 +25,22 @@ from app.exceptions import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Patrón A: los servicios NO hacen commit ni rollback. El caller (router o
+# scheduler) es responsable de invocar ``commit()`` en el happy path y
+# ``rollback()`` ante excepciones. Ver ``specs/service-transaction-contract``.
+
+# Helper para obtener el "ahora" naive-UTC. Todas las comparaciones de expiración
+# se hacen contra este valor, evitando el antipatrón de ``datetime.now()`` naive
+# que depende del timezone del servidor.
+def _utcnow_naive() -> datetime:
+    """Retorna el momento actual como ``datetime`` naive en UTC.
+
+    Persistimos los ``expiracion`` como naive en UTC para mantener compatibilidad
+    con la columna ``TIMESTAMP WITHOUT TIME ZONE`` de PostgreSQL, pero todas las
+    comparaciones se hacen contra naive-UTC explícito.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 async def _paciente_tiene_turno_activo(
@@ -107,11 +123,10 @@ async def reservar_turno(
     await db.flush()
 
     cfg = settings or Settings()
-    expiracion = datetime.now() + timedelta(minutes=cfg.reserva_temporal_minutos)
+    expiracion = _utcnow_naive() + timedelta(minutes=cfg.reserva_temporal_minutos)
     reserva = ReservaTemporal(turno_id=turno.id, expiracion=expiracion)
     db.add(reserva)
-    await db.commit()
-    await db.refresh(turno)
+    # Patrón A: el caller (router) hace commit. No hacer commit aquí.
     return turno
 
 
@@ -144,14 +159,18 @@ async def confirmar_turno(
     if turno.estado != "RESERVADO_TEMPORAL":
         raise TurnoExpiradoError("El turno no está en estado RESERVADO_TEMPORAL")
 
-    # Verificar que la ReservaTemporal sigue existiendo
+    # Verificar que la ReservaTemporal sigue existiendo. SELECT FOR UPDATE para
+    # serializar lecturas concurrentes y cerrar la race window entre SELECT y
+    # la verificación de expiración.
     result = await db.execute(
-        select(ReservaTemporal).where(ReservaTemporal.turno_id == turno_id)
+        select(ReservaTemporal)
+        .where(ReservaTemporal.turno_id == turno_id)
+        .with_for_update()
     )
     reserva = result.scalar_one_or_none()
     if reserva is None:
         raise TurnoExpiradoError("La reserva temporal ya no existe")
-    if reserva.expiracion < datetime.now():
+    if reserva.expiracion < _utcnow_naive():
         raise TurnoExpiradoError("La reserva temporal ha expirado")
 
     # Identificar/crear paciente
@@ -197,20 +216,28 @@ async def liberar_reservas_vencidas(db: AsyncSession, profesional_id: int) -> in
     """
     Libera reservas temporales cuya expiración haya pasado para un profesional.
 
+    **Patrón A**: no hace commit. Toda la liberación + evaluación de lista de
+    espera se ejecuta dentro de la transacción del caller; el caller hace un
+    solo ``commit()`` al final. Si la evaluación de lista de espera falla, la
+    transacción externa hace rollback y el slot original sigue bloqueado —
+    preferimos consistencia a liberación parcial.
+
     Retorna la cantidad de reservas liberadas.
     """
+    from app.services.lista_espera_service import evaluar_lista_espera
+
     result = await db.execute(
         select(ReservaTemporal)
         .join(Turno)
         .where(
-            ReservaTemporal.expiracion < datetime.now(),
+            ReservaTemporal.expiracion < _utcnow_naive(),
             Turno.profesional_id == profesional_id,
         )
     )
     vencidas = result.scalars().all()
 
     count = 0
-    turnos_liberados: list[int] = []
+    turnos_liberados: list[Turno] = []
     for reserva in vencidas:
         result = await db.execute(
             select(Turno)
@@ -221,26 +248,29 @@ async def liberar_reservas_vencidas(db: AsyncSession, profesional_id: int) -> in
         if turno is not None and turno.estado == "RESERVADO_TEMPORAL":
             turno.estado = "DISPONIBLE"
             turno.paciente_id = None
-            turnos_liberados.append(turno.id)
+            turnos_liberados.append(turno)
         await db.delete(reserva)
         count += 1
 
     if count:
         logger.info(f"Liberadas {count} reservas temporales vencidas")
-        await db.commit()
-
-        # Evaluar lista de espera para cada turno liberado
-        from app.services.lista_espera_service import evaluar_lista_espera
-        for turno_id in turnos_liberados:
-            result = await db.execute(
-                select(Turno).where(Turno.id == turno_id, Turno.profesional_id == profesional_id)
-            )
-            turno = result.scalar_one_or_none()
-            if turno is not None:
-                try:
-                    await evaluar_lista_espera(db, profesional_id=profesional_id, fecha=turno.fecha, turno_id=turno.id)
-                except Exception as exc:
-                    logger.error(f"Fallo al evaluar lista de espera tras liberación: {exc}")
+        # Evaluar lista de espera DENTRO de la misma transacción. Si falla, el
+        # caller hace rollback y la liberación se revierte (atomicidad).
+        for turno in turnos_liberados:
+            try:
+                await evaluar_lista_espera(
+                    db,
+                    profesional_id=profesional_id,
+                    fecha=turno.fecha,
+                    turno_id=turno.id,
+                )
+            except Exception as exc:
+                logger.error(
+                    f"Fallo al evaluar lista de espera tras liberación: {exc}"
+                )
+                # Re-lanzar para que el caller haga rollback. Es el comportamiento
+                # deseado: preferimos no liberar a liberar parcialmente.
+                raise
     else:
         logger.debug("No hay reservas temporales vencidas para liberar")
 
@@ -263,7 +293,7 @@ async def marcar_turnos_completados(db: AsyncSession, profesional_id: int) -> in
     )
     turnos = result.scalars().all()
 
-    ahora = datetime.now()
+    ahora = _utcnow_naive()
     count = 0
     for turno in turnos:
         fin_turno = datetime.combine(turno.fecha, turno.hora_fin)
@@ -273,7 +303,7 @@ async def marcar_turnos_completados(db: AsyncSession, profesional_id: int) -> in
 
     if count:
         logger.info(f"Marcados {count} turnos como COMPLETADO")
-        await db.commit()
+        # Patrón A: el caller (scheduler job) hace commit.
     else:
         logger.debug("No hay turnos para marcar como COMPLETADO")
 
@@ -306,17 +336,17 @@ async def cancelar_turno(db: AsyncSession, profesional_id: int, turno_id: int) -
 
     turno.estado = "CANCELADO"
     fecha_cancelada = turno.fecha
-    await db.commit()
-    await db.refresh(turno)
+    # Patrón A: el caller (router) hace commit. No hacer commit aquí.
 
     # Eliminar evento de Google Calendar (best-effort, no bloquea)
     google_event_id = turno.google_event_id
     if google_event_id:
         try:
             result = await db.execute(select(Profesional).where(Profesional.id == profesional_id))
-            profesional = result.scalar_one()
-            calendar = CalendarService(profesional)
-            await run_in_threadpool(calendar.delete_event, google_event_id)
+            profesional = result.scalar_one_or_none()
+            if profesional is not None:
+                calendar = CalendarService(profesional)
+                await run_in_threadpool(calendar.delete_event, google_event_id)
         except Exception as exc:
             logger.error(f"Fallo al eliminar evento de Calendar para turno {turno.id}: {exc}")
             # No revertimos la cancelación; DB es fuente de verdad
@@ -407,7 +437,9 @@ async def reprogramar_turno(
         paciente_data=paciente_data,
     )
 
-    await db.commit()
+    # Patrón A: el caller (router) hace commit. No hacer commit aquí. Esto
+    # garantiza atomicidad: si ``confirmar_turno`` lanza una excepción, la
+    # transacción externa hace rollback y la cancelación del viejo se revierte.
     return confirmado
 
 
@@ -421,6 +453,7 @@ async def confirmar_asistencia_turno(
     - Valida que esté en estado CONFIRMADO.
     - No modifica el estado (permanece CONFIRMADO).
     - Retorna el turno actualizado.
+    - **Patrón A**: no hace commit. El caller (router) es responsable.
     """
     result = await db.execute(
         select(Turno)
@@ -432,8 +465,39 @@ async def confirmar_asistencia_turno(
         raise TurnoNoEncontradoError()
     if turno.estado != "CONFIRMADO":
         raise TurnoYaCanceladoError("El turno no puede confirmar asistencia porque no está confirmado")
-    await db.commit()
-    await db.refresh(turno)
+    return turno
+
+
+async def completar_turno(
+    db: AsyncSession, profesional_id: int, turno_id: int
+) -> Turno:
+    """
+    Marca un turno CONFIRMADO como COMPLETADO.
+
+    - ``SELECT FOR UPDATE`` del turno por ``id`` + ``profesional_id``.
+    - Si no existe → ``TurnoNoEncontradoError``.
+    - Si ya está ``COMPLETADO`` → retorna el turno (idempotente).
+    - Si está ``CANCELADO`` → ``TurnoNoDisponibleError``.
+    - Si está ``CONFIRMADO`` → muta a ``COMPLETADO`` y retorna.
+    - **Patrón A**: no hace commit. El caller (router) hace commit en happy path
+      y rollback ante excepciones.
+    """
+    result = await db.execute(
+        select(Turno)
+        .where(Turno.id == turno_id, Turno.profesional_id == profesional_id)
+        .with_for_update()
+    )
+    turno = result.scalar_one_or_none()
+    if turno is None:
+        raise TurnoNoEncontradoError()
+    if turno.estado == "COMPLETADO":
+        # Idempotente: ya estaba completado, no se modifica.
+        return turno
+    if turno.estado != "CONFIRMADO":
+        raise TurnoNoDisponibleError(
+            "El turno no puede ser completado porque no está confirmado"
+        )
+    turno.estado = "COMPLETADO"
     return turno
 
 

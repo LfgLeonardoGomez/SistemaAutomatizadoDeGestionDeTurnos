@@ -81,14 +81,14 @@ async def enviar_recordatorio_telegram(turno: Turno, bot_token: str) -> bool:
 
 
 async def marcar_recordatorio_enviado(db: AsyncSession, turno_id: int, profesional_id: int) -> None:
-    """Marca el turno como recordatorio_enviado = True."""
+    """Marca el turno como recordatorio_enviado = True. Patrón A: no commitea."""
     result = await db.execute(
         select(Turno).where(Turno.id == turno_id, Turno.profesional_id == profesional_id)
     )
     turno = result.scalar_one_or_none()
     if turno is not None:
         turno.recordatorio_enviado = True
-        await db.commit()
+        # Patrón A: el caller (scheduler) hace commit.
         logger.info(f"Turno {turno_id} marcado como recordatorio_enviado=True")
     else:
         logger.warning(f"No se encontró turno {turno_id} para marcar recordatorio_enviado")

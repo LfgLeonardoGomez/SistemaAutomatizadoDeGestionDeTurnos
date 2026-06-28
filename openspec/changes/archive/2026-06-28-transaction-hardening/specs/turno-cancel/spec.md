@@ -1,7 +1,5 @@
-## Purpose
+## MODIFIED Requirements
 
-El sistema permite cancelar un turno confirmado, liberando el slot, eliminando el evento de Google Calendar y ofreciendo el turno al primer paciente en la lista de espera.
-## Requirements
 ### Requirement: Sistema permite cancelar un turno confirmado
 El sistema SHALL permitir cancelar un turno en estado `CONFIRMADO`. Al cancelar, el sistema SHALL actualizar el turno a estado `CANCELADO`, SHALL eliminar el evento correspondiente de Google Calendar (best-effort), SHALL liberar el slot para otros pacientes, y **SHALL evaluar la lista de espera** para la fecha del turno cancelado ofreciendo el slot al primer paciente en cola. **El servicio `cancelar_turno` SHALL NO ejecutar `await db.commit()` internamente; el caller (router) SHALL ser responsable del commit/rollback. El comportamiento observable del endpoint SHALL permanecer inalterado.**
 
@@ -44,3 +42,10 @@ El sistema SHALL permitir cancelar un turno en estado `CONFIRMADO`. Al cancelar,
 - **THEN** SHALL haber modificado la sesión con `turno.estado = "CANCELADO"` pero SHALL NO haber hecho commit
 - **AND** el router `cancelar_turno_endpoint` SHALL ser el responsable de invocar `await db.commit()` antes de retornar HTTP 200
 
+## ADDED Requirements
+
+(ninguno)
+
+## REMOVED Requirements
+
+(ninguno)

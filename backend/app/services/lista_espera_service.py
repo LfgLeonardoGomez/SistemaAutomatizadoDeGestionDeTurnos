@@ -1,5 +1,5 @@
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import select, delete
@@ -10,12 +10,25 @@ from app.models.lista_de_espera import ListaDeEspera
 from app.models.paciente import Paciente
 from app.models.turno import Turno
 from app.models.reserva_temporal import ReservaTemporal
-from app.exceptions import TurnoNoEncontradoError, TurnoNoDisponibleError
+from app.exceptions import (
+    TurnoNoEncontradoError,
+    TurnoNoDisponibleError,
+    TurnoExpiradoError,
+)
 from app.services.telegram_service import enviar_notificacion_lista_espera
 from app.services.availability_service import calcular_disponibilidad
 from app.config import Settings
 
 logger = logging.getLogger(__name__)
+
+
+def _utcnow_naive() -> datetime:
+    """Retorna el momento actual como ``datetime`` naive en UTC.
+
+    Patrón consistente con ``turno_service._utcnow_naive`` para todas las
+    comparaciones de expiración y timestamps persistidos.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 async def registrar_en_lista_espera(
@@ -42,15 +55,15 @@ async def registrar_en_lista_espera(
         profesional_id=profesional_id,
     )
     db.add(registro)
-    await db.commit()
-    await db.refresh(registro)
+    # Patrón A: el caller (router) hace commit. No hacer commit aquí.
+    await db.flush()
     return registro
 
 
 async def eliminar_de_lista_espera(
     db: AsyncSession, profesional_id: int, lista_espera_id: int
 ) -> None:
-    """Remove a patient from the waiting list."""
+    """Remove a patient from the waiting list. Patrón A: no hace commit."""
     result = await db.execute(
         select(ListaDeEspera).where(
             ListaDeEspera.id == lista_espera_id,
@@ -62,7 +75,7 @@ async def eliminar_de_lista_espera(
         raise TurnoNoEncontradoError("Registro de lista de espera no encontrado")
 
     await db.delete(registro)
-    await db.commit()
+    # Patrón A: el caller hace commit.
 
 
 async def obtener_siguiente_paciente_fifo(
@@ -147,8 +160,8 @@ async def notificar_y_marcar(
 
     registro.notificado = True
     registro.turno_ofrecido_id = turno_id
-    registro.notificado_en = datetime.now()
-    await db.commit()
+    registro.notificado_en = _utcnow_naive()
+    # Patrón A: el caller (evaluar_lista_espera o router) hace commit.
 
 
 async def aceptar_turno_lista_espera(
@@ -190,41 +203,100 @@ async def aceptar_turno_lista_espera(
     # Lazy import to avoid circular dependency
     from app.services.turno_service import reservar_turno, confirmar_turno
 
-    if turno_ofrecido.estado == "RESERVADO_TEMPORAL":
-        # Directly confirm the existing temporary reservation
-        paciente_data = {
-            "nombre": paciente.nombre,
-            "apellido": paciente.apellido,
-            "dni": paciente.dni,
-            "telefono": paciente.telefono,
-        }
-        confirmado = await confirmar_turno(
-            db, profesional_id=profesional_id, turno_id=turno_ofrecido.id, paciente_data=paciente_data
+    paciente_data = {
+        "nombre": paciente.nombre,
+        "apellido": paciente.apellido,
+        "dni": paciente.dni,
+        "telefono": paciente.telefono,
+    }
+
+    try:
+        if turno_ofrecido.estado == "RESERVADO_TEMPORAL":
+            # Directly confirm the existing temporary reservation
+            confirmado = await confirmar_turno(
+                db, profesional_id=profesional_id, turno_id=turno_ofrecido.id, paciente_data=paciente_data
+            )
+        else:
+            # For cancelled (or any other non-reservable) turnos, create a new one
+            nuevo_turno = await reservar_turno(
+                db,
+                profesional_id=profesional_id,
+                fecha=turno_ofrecido.fecha,
+                hora_inicio=turno_ofrecido.hora_inicio,
+                paciente_id=paciente.id,
+            )
+            confirmado = await confirmar_turno(
+                db, profesional_id=profesional_id, turno_id=nuevo_turno.id, paciente_data=paciente_data
+            )
+    except TurnoExpiradoError:
+        # La reserva temporal ofrecida expiró entre la notificación y la
+        # aceptación. Resetear el registro y re-ofrecer al siguiente paciente.
+        logger.info(
+            "Reserva temporal expirada al aceptar oferta de lista de espera %s; "
+            "re-evaluando cola",
+            lista_espera_id,
         )
-    else:
-        # For cancelled (or any other non-reservable) turnos, create a new one
-        nuevo_turno = await reservar_turno(
+        await _reset_y_reofertar_lista_espera(
             db,
             profesional_id=profesional_id,
-            fecha=turno_ofrecido.fecha,
-            hora_inicio=turno_ofrecido.hora_inicio,
-            paciente_id=paciente.id,
+            registro=registro,
+            turno_id=turno_ofrecido.id,
         )
-        paciente_data = {
-            "nombre": paciente.nombre,
-            "apellido": paciente.apellido,
-            "dni": paciente.dni,
-            "telefono": paciente.telefono,
-        }
-        confirmado = await confirmar_turno(
-            db, profesional_id=profesional_id, turno_id=nuevo_turno.id, paciente_data=paciente_data
+        # Propagar la excepción al router (que la traduce a 409 Conflict).
+        raise
+
+    # Remove from waiting list. Patrón A: caller hace commit.
+    await db.delete(registro)
+    return confirmado
+
+
+async def _reset_y_reofertar_lista_espera(
+    db: AsyncSession,
+    profesional_id: int,
+    registro: ListaDeEspera,
+    turno_id: int,
+) -> None:
+    """Resetea un registro de lista de espera y re-llama a ``evaluar_lista_espera``.
+
+    Se usa cuando la reserva temporal ofrecida a un paciente de lista de espera
+    expiró entre la notificación y la aceptación. El flujo es:
+    1. Liberar el slot (turno → ``DISPONIBLE``, ``paciente_id = None``).
+    2. Eliminar la ``ReservaTemporal`` asociada.
+    3. Resetear el registro (notificado=False, turno_ofrecido_id=None,
+       notificado_en=None, creado_en=now-UTC).
+    4. Re-llamar a ``evaluar_lista_espera`` para ofrecer al siguiente paciente.
+
+    No hace commit (Patrón A).
+    """
+    from app.services.lista_espera_service import evaluar_lista_espera
+
+    # Liberar el slot si sigue siendo RESERVADO_TEMPORAL
+    result_turno = await db.execute(
+        select(Turno)
+        .where(Turno.id == turno_id, Turno.profesional_id == profesional_id)
+        .with_for_update()
+    )
+    turno = result_turno.scalar_one_or_none()
+    if turno is not None and turno.estado == "RESERVADO_TEMPORAL":
+        turno.estado = "DISPONIBLE"
+        turno.paciente_id = None
+        await db.execute(
+            delete(ReservaTemporal).where(ReservaTemporal.turno_id == turno_id)
         )
 
-    # Remove from waiting list
-    await db.delete(registro)
-    await db.commit()
-    await db.refresh(confirmado)
-    return confirmado
+    # Resetear el registro
+    registro.notificado = False
+    registro.turno_ofrecido_id = None
+    registro.notificado_en = None
+    registro.creado_en = _utcnow_naive()
+
+    # Re-llamar para ofrecer al siguiente paciente (Patrón A: caller hace commit)
+    await evaluar_lista_espera(
+        db,
+        profesional_id=profesional_id,
+        fecha=registro.fecha_solicitada,
+        turno_id=turno_id,
+    )
 
 
 async def rechazar_turno_lista_espera(
@@ -261,8 +333,8 @@ async def rechazar_turno_lista_espera(
     registro.notificado = False
     registro.turno_ofrecido_id = None
     registro.notificado_en = None
-    registro.creado_en = datetime.now()
-    await db.commit()
+    registro.creado_en = _utcnow_naive()
+    # Patrón A: el caller (router) hace commit. No hacer commit aquí.
 
     await evaluar_lista_espera(db, profesional_id=profesional_id, fecha=fecha, turno_id=turno_id)
 
@@ -341,7 +413,7 @@ async def procesar_timeouts_lista_espera(
 
     Returns the number of expired records processed.
     """
-    umbral = datetime.now() - timedelta(minutes=minutos_timeout)
+    umbral = _utcnow_naive() - timedelta(minutes=minutos_timeout)
     result = await db.execute(
         select(ListaDeEspera).where(
             ListaDeEspera.profesional_id == profesional_id,
@@ -390,8 +462,8 @@ async def procesar_timeouts_lista_espera(
         locked.notificado = False
         locked.turno_ofrecido_id = None
         locked.notificado_en = None
-        locked.creado_en = datetime.now()
-        await db.commit()
+        locked.creado_en = _utcnow_naive()
+        # Patrón A: el caller (scheduler) hace commit. No hacer commit aquí.
         count += 1
 
         # Re-evaluate queue for the same date

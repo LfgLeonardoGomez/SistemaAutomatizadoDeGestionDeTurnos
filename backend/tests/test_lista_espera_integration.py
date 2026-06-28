@@ -73,6 +73,7 @@ class TestListaEsperaE2E:
             mock_calendar_cls.return_value = mock_service
             with patch("app.services.lista_espera_service.enviar_notificacion_lista_espera", new=AsyncMock(return_value=True)) as mock_enviar:
                 cancelado = await cancelar_turno(db_session, profesional_id=p.id, turno_id=turno.id)
+        await db_session.commit()  # Patrón A: el caller hace commit
 
         assert cancelado.estado == "CANCELADO"
         mock_enviar.assert_awaited_once()
@@ -91,6 +92,7 @@ class TestListaEsperaE2E:
             mock_service.create_event.return_value = "event_123"
             mock_calendar_cls.return_value = mock_service
             confirmado = await aceptar_turno_lista_espera(db_session, profesional_id=p.id, lista_espera_id=registro_actualizado.id)
+        await db_session.commit()  # Patrón A: el caller hace commit
 
         assert confirmado.estado == "CONFIRMADO"
         assert confirmado.paciente_id == paciente.id
@@ -141,7 +143,9 @@ class TestListaEsperaE2E:
             mock_calendar_cls.return_value = mock_service
             with patch("app.services.lista_espera_service.enviar_notificacion_lista_espera", new=AsyncMock(return_value=True)) as mock_enviar:
                 await cancelar_turno(db_session, profesional_id=p.id, turno_id=turno1.id)
+                await db_session.commit()  # Patrón A: el caller hace commit
                 await cancelar_turno(db_session, profesional_id=p.id, turno_id=turno2.id)
+                await db_session.commit()  # Patrón A: el caller hace commit
 
         # Solo una notificación porque hay un solo paciente en lista
         assert mock_enviar.await_count == 1
@@ -187,6 +191,7 @@ class TestListaEsperaE2E:
         # Notificar al primero
         with patch("app.services.lista_espera_service.enviar_notificacion_lista_espera", new=AsyncMock(return_value=True)) as mock_enviar:
             await evaluar_lista_espera(db_session, profesional_id=p.id, fecha=fecha, turno_id=turno.id)
+        await db_session.commit()  # Patrón A: el caller hace commit
 
         assert mock_enviar.await_count == 1
         result = await db_session.execute(
@@ -202,6 +207,7 @@ class TestListaEsperaE2E:
         # Ejecutar job de timeout
         with patch("app.services.lista_espera_service.enviar_notificacion_lista_espera", new=AsyncMock(return_value=True)) as mock_enviar2:
             procesados = await procesar_timeouts_lista_espera(db_session, profesional_id=p.id, minutos_timeout=5)
+        await db_session.commit()  # Patrón A: el caller hace commit
 
         assert procesados == 1
         # El primero fue reseteado, el segundo notificado

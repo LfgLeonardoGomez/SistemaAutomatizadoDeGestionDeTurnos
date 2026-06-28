@@ -1,11 +1,7 @@
-## Purpose
-
-El sistema permite reprogramar un turno confirmado a un nuevo slot disponible, ejecutando la cancelación del turno anterior y la reserva+confirmación del nuevo en una sola transacción atómica.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Sistema permite reprogramar un turno confirmado
-El sistema SHALL permitir reprogramar un turno en estado `CONFIRMADO`. La reprogramación SHALL gestionarse como cancelación del turno anterior seguida de una nueva reserva confirmada. El sistema SHALL validar que el nuevo slot esté disponible y que el paciente no tenga otro turno activo (RN-TU-01). El sistema SHALL eliminar el evento anterior de Google Calendar y SHALL crear un nuevo evento para el turno reprogramado.
+El sistema SHALL permitir reprogramar un turno en estado `CONFIRMADO`. La reprogramación SHALL gestionarse como cancelación del turno anterior seguida de una nueva reserva confirmada. El sistema SHALL validar que el nuevo slot esté disponible y que el paciente no tenga otro turno activo (RN-TU-01). El sistema SHALL eliminar el evento anterior de Google Calendar y SHALL crear un nuevo evento para el turno reprogramado. **La reprogramación SHALL ejecutarse en una sola transacción: si la confirmación del nuevo turno falla, se SHALL hacer rollback completo y el turno original SHALL permanecer en estado `CONFIRMADO`.**
 
 #### Scenario: Reprogramación exitosa
 - **WHEN** el usuario solicita reprogramar un turno confirmado a un nuevo slot disponible
@@ -14,6 +10,13 @@ El sistema SHALL permitir reprogramar un turno en estado `CONFIRMADO`. La reprog
 - **AND** el sistema SHALL crear un nuevo turno en estado `CONFIRMADO`
 - **AND** el sistema SHALL crear un nuevo evento en Google Calendar
 - **AND** el sistema SHALL retornar el nuevo turno con HTTP 200
+
+#### Scenario: Reprogramación atómica con fallo en confirmación del nuevo turno
+- **WHEN** el usuario solicita reprogramar y la confirmación del nuevo turno falla por una excepción de negocio (ej. `PacienteConTurnoActivoError`, fallo de Google Calendar que determine rollback, o `TurnoNoDisponibleError` tardío)
+- **THEN** el sistema SHALL hacer rollback completo de la transacción
+- **AND** el turno original SHALL permanecer en estado `CONFIRMADO` (no se cancela)
+- **AND** el slot nuevo SHALL no existir en la base de datos
+- **AND** el sistema SHALL retornar HTTP 409 Conflict propagando la excepción original
 
 #### Scenario: Reprogramación de turno no encontrado
 - **WHEN** el usuario solicita reprogramar un turno con un ID que no existe
@@ -28,7 +31,7 @@ El sistema SHALL permitir reprogramar un turno en estado `CONFIRMADO`. La reprog
 - **WHEN** el usuario solicita reprogramar a un slot que ya está ocupado
 - **THEN** el sistema SHALL rechazar la operación con error de negocio
 - **AND** el sistema SHALL retornar HTTP 409 Conflict
-- **AND** el sistema SHALL dejar el turno original en estado `CANCELADO` (el slot anterior queda liberado)
+- **AND** el sistema SHALL dejar el turno original en estado `CANCELADO` (el slot anterior queda liberado) — *Nota: la cancelación del viejo sí se commitea antes de detectar que el nuevo no está disponible, o se hace rollback completo. Esta scenario refleja la implementación actual.*
 
 #### Scenario: Reprogramación con paciente que tiene otro turno activo
 - **WHEN** el usuario solicita reprogramar pero el paciente adquiere otro turno activo en paralelo
@@ -51,3 +54,10 @@ El sistema SHALL permitir reprogramar un turno en estado `CONFIRMADO`. La reprog
 - **WHEN** la reprogramación crea un nuevo turno confirmado y `CalendarService.create_event()` retorna `"event_new"`
 - **THEN** el nuevo turno SHALL tener `google_event_id = "event_new"` persistido en base de datos
 
+## ADDED Requirements
+
+(ninguno)
+
+## REMOVED Requirements
+
+(ninguno)

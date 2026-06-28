@@ -1,28 +1,4 @@
-## Purpose
-
-TBD
-## Requirements
-### Requirement: Scheduler transiciona turnos confirmados a completados automáticamente
-El sistema SHALL ejecutar un job periódico `marcar_turnos_completados` que identifique los turnos en estado `CONFIRMADO` cuya fecha y hora de fin ya hayan pasado (`fecha + hora_fin < NOW()`), y los actualice a estado `COMPLETADO`. El job SHALL usar `SELECT FOR UPDATE` para evitar race conditions.
-
-#### Scenario: Turno confirmado pasado se marca como completado
-- **WHEN** el job `marcar_turnos_completados` ejecuta y encuentra un turno `CONFIRMADO` con `fecha=2026-06-15` y `hora_fin=10:00` cuando la hora actual es `10:05`
-- **THEN** el sistema SHALL actualizar el turno a estado `COMPLETADO`
-- **AND** el sistema SHALL registrar la cantidad de turnos actualizados en logs
-
-#### Scenario: Turno confirmado futuro no se marca como completado
-- **WHEN** el job ejecuta y encuentra un turno `CONFIRMADO` con `fecha=2026-06-15` y `hora_fin=12:00` cuando la hora actual es `10:00`
-- **THEN** el sistema SHALL no modificar el estado del turno
-
-#### Scenario: No hay turnos confirmados pasados
-- **WHEN** el job ejecuta y no encuentra turnos candidatos
-- **THEN** el sistema SHALL no modificar ningún registro
-- **AND** el sistema SHALL registrar que no hubo acciones
-
-#### Scenario: Job no falla ante excepción
-- **WHEN** el job ejecuta y ocurre una excepción inesperada
-- **THEN** el sistema SHALL capturar y loguear la excepción
-- **AND** el scheduler SHALL continuar operando normalmente
+## MODIFIED Requirements
 
 ### Requirement: Endpoint manual para marcar turno como completado
 El sistema SHALL exponer un endpoint `PUT /turnos/{id}/completar` que permita marcar un turno `CONFIRMADO` como `COMPLETADO`. El endpoint SHALL validar que el turno exista y esté en estado `CONFIRMADO`. **La lógica de validación y actualización SHALL residir en `turno_service.completar_turno()` y SHALL seguir el contrato de Patrón A (servicio sin commit, router con commit/rollback).** El router SHALL ser un wrapper delgado que llama al servicio, maneja `HTTPException` y ejecuta `await db.commit()`/`await db.rollback()`.
@@ -52,3 +28,10 @@ El sistema SHALL exponer un endpoint `PUT /turnos/{id}/completar` que permita ma
 - **AND** el router SHALL contener solo la llamada al servicio, manejo de excepciones y commit/rollback
 - **AND** el servicio `completar_turno` SHALL NO ejecutar `await db.commit()`
 
+## ADDED Requirements
+
+(ninguno)
+
+## REMOVED Requirements
+
+(ninguno)

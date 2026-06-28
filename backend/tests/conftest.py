@@ -25,6 +25,7 @@ import os
 import uuid
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 import pytest
@@ -48,6 +49,26 @@ from app.models import (
 )
 from app.models.profesional import Profesional
 from app.services.auth_service import hash_password
+
+
+def utcnow_naive() -> datetime:
+    """Misma convención que ``turno_service._utcnow_naive``: naive-UTC.
+
+    Los tests deben usar este helper para crear/ comparar timestamps que
+    persisten en columnas ``TIMESTAMP WITHOUT TIME ZONE`` y se contrastan
+    contra código que también usa naive-UTC (post transaction-hardening).
+    Sin esto, en zonas horarias distintas a UTC los tests spuriously pasan
+    o fallan por mismatch de zona (naive-local vs naive-UTC).
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+# Registrar markers personalizados para que pytest no emita warnings.
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "slow: marca tests que son lentos o flaky (concurrencia, I/O intensivo)",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +227,19 @@ async def db_session(engine) -> AsyncGenerator[AsyncSession, None]:
     )
     async with async_session_factory() as session:
         yield session
+    await _truncate_all_tables(engine)
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _truncate_after_each_test(engine):
+    """Cleanup autouse: trunca TODAS las tablas después de cada test.
+
+    Necesario porque tests que usan ``make_session_factory`` (concurrency,
+    transaction_hardening) crean sesiones independientes que no se truncan
+    automáticamente en su teardown. Sin este fixture, los datos persistidos
+    por esas sesiones contaminan los tests siguientes.
+    """
+    yield
     await _truncate_all_tables(engine)
 
 

@@ -1,20 +1,4 @@
-## Purpose
-
-El sistema permite a los pacientes consultar disponibilidad, reservar turnos temporalmente, confirmarlos y liberarlos automáticamente al expirar.
-
-## Requirements
-
-### Requirement: Sistema permite consultar disponibilidad de turnos
-El sistema SHALL exponer un endpoint que devuelva los slots disponibles para una fecha dada, calculados como horarios posibles según configuración del profesional MINUS turnos en estado `CONFIRMADO` o `RESERVADO_TEMPORAL`.
-
-#### Scenario: Consulta con slots disponibles
-- **WHEN** el usuario solicita disponibilidad para una fecha con horarios libres
-- **THEN** el sistema SHALL retornar la lista de slots disponibles con hora de inicio y fin
-
-#### Scenario: Consulta sin slots disponibles
-- **WHEN** el usuario solicita disponibilidad para una fecha donde todos los slots están ocupados
-- **THEN** el sistema SHALL retornar una lista vacía
-- **AND** el sistema SHALL responder con HTTP 200
+## MODIFIED Requirements
 
 ### Requirement: Sistema permite reservar un turno temporalmente
 El sistema SHALL permitir la creación de un turno en estado `RESERVADO_TEMPORAL` con una `ReservaTemporal` asociada que incluya fecha de expiración. La expiración SHALL ser calculada como `NOW_UTC() + RESERVA_TEMPORAL_MINUTOS` (default 10 minutos). El timestamp de expiración SHALL ser timezone-aware en UTC al momento de calcularse y SHALL persistirse como naive UTC (`datetime.now(timezone.utc).replace(tzinfo=None)`) para mantener compatibilidad con la columna `TIMESTAMP WITHOUT TIME ZONE` de PostgreSQL.
@@ -49,7 +33,7 @@ El sistema SHALL permitir confirmar un turno en estado `RESERVADO_TEMPORAL`. Al 
 
 #### Scenario: Confirmación de turno ya expirado
 - **WHEN** el paciente intenta confirmar un turno cuya `ReservaTemporal` ya expiró
-- **THEN** el sistema SHALL rechazar la operación de negocio (`TurnoExpiradoError`)
+- **THEN** el sistema SHALL rechazar la operación con error de negocio (`TurnoExpiradoError`)
 - **AND** el sistema SHALL retornar HTTP 409 Conflict
 
 #### Scenario: Confirmación de turno con comparación timezone-aware
@@ -103,21 +87,10 @@ El sistema SHALL ejecutar un job periódico que identifique las `ReservaTemporal
 - **AND** SHALL commitear todo el bloque (liberación + nueva reserva) en una sola operación atómica
 - **AND** si la notificación a Telegram falla, SHALL hacer rollback completo (la reserva original queda en su estado, sin liberar)
 
-### Requirement: APScheduler initializes with FastAPI lifespan
-The system SHALL initialize an `AsyncIOScheduler` instance during FastAPI application startup (lifespan context) and shut it down gracefully on application shutdown. The scheduler SHALL register a periodic job `liberar_reservas_vencidas` that ejecuta cada minuto para limpiar reservas temporales expiradas.
+## ADDED Requirements
 
-#### Scenario: Scheduler starts with application
-- **WHEN** the FastAPI application starts
-- **THEN** an `AsyncIOScheduler` instance SHALL be created and started without errors
-- **AND** the scheduler SHALL be accessible via the application state or dependency injection mechanism
-- **AND** the job `liberar_reservas_vencidas` SHALL be registered with trigger `interval` de 1 minuto
+(ninguno)
 
-#### Scenario: Scheduler shuts down gracefully
-- **WHEN** the FastAPI application receives a shutdown signal
-- **THEN** the scheduler SHALL be shut down gracefully without raising unhandled exceptions
-- **AND** any pending jobs SHALL be allowed to complete or timeout according to APScheduler default behavior
+## REMOVED Requirements
 
-#### Scenario: Job de limpieza ejecuta correctamente
-- **WHEN** el job `liberar_reservas_vencidas` ejecuta
-- **THEN** el sistema SHALL llamar a `turno_service.liberar_reservas_vencidas()`
-- **AND** el sistema SHALL capturar y loguear cualquier excepción sin detener el scheduler
+(ninguno)

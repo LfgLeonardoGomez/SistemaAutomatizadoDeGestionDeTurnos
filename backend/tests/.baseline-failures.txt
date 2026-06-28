@@ -1,0 +1,16 @@
+# Baseline de failures pre-existentes
+# Capturado: 2026-06-27 antes de transaction-hardening
+# Total: 383 passed, 7 failed, 1 skipped
+# Tests fallando (NO son responsabilidad de transaction-hardening):
+
+tests/test_models.py::TestBaseModel::test_base_tables_populated
+tests/test_profesional.py::TestProfesionalModel::test_profesional_new_columns_nullable
+tests/test_scheduler_job.py::TestSchedulerJob::test_scheduler_tiene_job_registrado
+tests/test_scheduler_job.py::TestSchedulerJob::test_scheduler_job_marcar_turnos_completados_loguea_excepciones
+tests/test_scheduler_job.py::TestSchedulerJob::test_scheduler_job_enviar_recordatorios_maneja_excepcion
+tests/test_telegram_service.py::TestMessageFormatting::test_enviar_mensaje_con_log_loggea_contexto_al_fallar
+tests/test_turno.py::TestTurnoModel::test_turno_estado_invalido
+
+# Verificación final de este change (task 13.1) DEBE matchear esta lista.
+# Si se agregan nuevas failures: REGRESIÓN.
+# Si se arreglan algunas de estas: NO es problema de este change, se acepta.

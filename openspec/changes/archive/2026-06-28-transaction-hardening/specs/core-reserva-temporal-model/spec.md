@@ -1,17 +1,4 @@
-## Purpose
-
-La entidad `ReservaTemporal` representa una reserva temporal de un turno en estado `RESERVADO_TEMPORAL`. Tiene un tiempo de expiración que, al vencerse, dispara la liberación automática del slot.
-## Requirements
-### Requirement: ReservaTemporal bloquea un turno único
-El sistema SHALL permitir que una `ReservaTemporal` esté asociada a exactamente un `Turno` mediante `turno_id` con constraint `UNIQUE`.
-
-#### Scenario: Reserva exitosa
-- **WHEN** se crea una `ReservaTemporal` con `turno_id` válido y `expiracion` futura
-- **THEN** la reserva se persiste correctamente
-
-#### Scenario: Reserva duplicada bloqueada
-- **WHEN** se intenta crear una segunda `ReservaTemporal` con el mismo `turno_id`
-- **THEN** la base de datos rechaza la inserción por violación de `UNIQUE`
+## MODIFIED Requirements
 
 ### Requirement: ReservaTemporal tiene tiempo de expiración
 El sistema SHALL almacenar `expiracion` como TIMESTAMP en `ReservaTemporal`. **El valor SHALL ser naive-UTC (sin `tzinfo`) para mantener compatibilidad con la columna `TIMESTAMP WITHOUT TIME ZONE` de PostgreSQL, pero SHALL estar siempre expresado en tiempo universal coordinado (UTC).** El sistema SHALL garantizar que todas las comparaciones de expiración en código de aplicación (`expiracion < NOW()`) se realicen contra `datetime.now(timezone.utc).replace(tzinfo=None)`, evitando `datetime.now()` naive que depende del timezone del servidor.
@@ -33,17 +20,10 @@ El sistema SHALL almacenar `expiracion` como TIMESTAMP en `ReservaTemporal`. **E
 - **AND** la hora actual local es `2026-06-27 12:01:00` (que es `2026-06-27 15:01:00` UTC)
 - **THEN** el sistema SHALL detectar la expiración correctamente
 
-### Requirement: ReservaTemporal tiene índice para liberación automática
-El sistema SHALL crear un índice en `ReservaTemporal` para la columna `expiracion`.
+## ADDED Requirements
 
-#### Scenario: Índice existe
-- **WHEN** se inspecciona el esquema de la tabla `reserva_temporal` en PostgreSQL
-- **THEN** el índice `ix_reserva_temporal_expiracion` existe
+(ninguno)
 
-### Requirement: ReservaTemporal se elimina al confirmar o cancelar turno
-El sistema SHALL garantizar que al confirmar o cancelar un `Turno`, la `ReservaTemporal` asociada se elimine (cascade ORM).
+## REMOVED Requirements
 
-#### Scenario: Confirmación elimina reserva
-- **WHEN** un `Turno` en estado `RESERVADO_TEMPORAL` pasa a `CONFIRMADO`
-- **THEN** la `ReservaTemporal` asociada ya no existe en la base de datos
-
+(ninguno)

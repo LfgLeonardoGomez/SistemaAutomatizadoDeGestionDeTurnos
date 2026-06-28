@@ -40,11 +40,13 @@ async def _ejecutar_liberar_reservas_vencidas(sess: AsyncSession) -> None:
     for profesional in profesionales:
         try:
             liberados = await liberar_reservas_vencidas(sess, profesional_id=profesional.id)
+            await sess.commit()  # Patrón A: el scheduler hace commit por profesional
             total_liberados += liberados
             logger.info(
                 f"Job liberar_reservas_vencidas profesional {profesional.id}: {liberados} liberados"
             )
         except Exception as exc:
+            await sess.rollback()
             logger.exception(
                 f"Error en job liberar_reservas_vencidas para profesional {profesional.id}: {exc}"
             )
@@ -71,11 +73,13 @@ async def _ejecutar_marcar_turnos_completados(sess: AsyncSession) -> None:
     for profesional in profesionales:
         try:
             actualizados = await marcar_turnos_completados(sess, profesional_id=profesional.id)
+            await sess.commit()  # Patrón A: el scheduler hace commit por profesional
             total_actualizados += actualizados
             logger.info(
                 f"Job marcar_turnos_completados profesional {profesional.id}: {actualizados} actualizados"
             )
         except Exception as exc:
+            await sess.rollback()
             logger.exception(
                 f"Error en job marcar_turnos_completados para profesional {profesional.id}: {exc}"
             )
@@ -106,11 +110,13 @@ async def _ejecutar_procesar_timeouts_lista_espera(sess: AsyncSession, minutos: 
             procesados = await procesar_timeouts_lista_espera(
                 sess, profesional_id=profesional.id, minutos_timeout=minutos
             )
+            await sess.commit()  # Patrón A: el scheduler hace commit por profesional
             total_procesados += procesados
             logger.info(
                 f"Job procesar_timeouts_lista_espera profesional {profesional.id}: {procesados} procesados"
             )
         except Exception as exc:
+            await sess.rollback()
             logger.exception(
                 f"Error en job procesar_timeouts_lista_espera para profesional {profesional.id}: {exc}"
             )
@@ -152,11 +158,14 @@ async def _ejecutar_enviar_recordatorios(sess: AsyncSession, horas_antes: int) -
                         await marcar_recordatorio_enviado(sess, turno.id, profesional.id)
                 except Exception as exc:
                     logger.error(f"Error enviando recordatorio para turno {turno.id}: {exc}")
+            # Patrón A: ``marcar_recordatorio_enviado`` no commitea; lo hace el job.
+            await sess.commit()
             total_recordatorios += len(turnos)
             logger.info(
                 f"Job enviar_recordatorios profesional {profesional.id}: {len(turnos)} recordatorios procesados"
             )
         except Exception as exc:
+            await sess.rollback()
             logger.exception(
                 f"Error en job enviar_recordatorios para profesional {profesional.id}: {exc}"
             )
