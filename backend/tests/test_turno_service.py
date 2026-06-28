@@ -1336,3 +1336,144 @@ class TestGoogleEventId:
                     found = True
                     break
         assert found, "No migration found that adds google_event_id"
+
+
+# ---------------------------------------------------------------------------
+# concurrency-hardening: capturar IntegrityError en reservar_turno (R3/OQ-5)
+# ---------------------------------------------------------------------------
+
+
+class TestReservarTurnoIntegrityError:
+    """Validan que ``reservar_turno`` traduce correctamente ``IntegrityError``
+    (pgcode 23505 — violation de uq_turno_active_slot) a ``TurnoNoDisponibleError``.
+
+    Estos tests cierran el gap R3/OQ-5 del change ``transaction-hardening``.
+    """
+
+    @pytest.mark.asyncio
+    async def test_integrity_error_en_flush_se_traduce_a_turno_no_disponible(
+        self, db_session, profesional, test_settings, monkeypatch
+    ):
+        """Test 2.1: si ``db.flush()`` lanza IntegrityError, ``reservar_turno``
+        debe capturar y lanzar ``TurnoNoDisponibleError``.
+        """
+        from app.services.turno_service import reservar_turno
+        from sqlalchemy.exc import IntegrityError
+
+        fecha = date(2026, 6, 15)  # Monday
+
+        # Mockear db.flush para que lance IntegrityError en el flush del Turno
+        # (no en el de ReservaTemporal)
+        original_flush = db_session.flush
+        call_count = {"n": 0}
+
+        async def mock_flush(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                # Primer flush: el del Turno nuevo
+                raise IntegrityError(
+                    "duplicate key value violates unique constraint \"uq_turno_active_slot\"",
+                    params=None,
+                    orig=Exception("duplicate key"),
+                )
+            await original_flush(*args, **kwargs)
+
+        monkeypatch.setattr(db_session, "flush", mock_flush)
+
+        with pytest.raises(TurnoNoDisponibleError):
+            await reservar_turno(
+                db_session, profesional_id=profesional.id, fecha=fecha,
+                hora_inicio=time(9, 0), paciente_id=None, settings=test_settings,
+            )
+
+    @pytest.mark.asyncio
+    async def test_doble_activo_mismo_slot_falla_con_turno_no_disponible(
+        self, db_session, profesional, test_settings
+    ):
+        """Test 3.3: si ya existe un Turno activo (CONFIRMADO) para el slot,
+        una nueva reserva con ``reservar_turno`` debe lanzar
+        ``TurnoNoDisponibleError`` por la constraint ``uq_turno_active_slot``.
+
+        **Test de DB real** (no mock): valida que la constraint parcial se
+        aplica correctamente para estados activos.
+        """
+        from app.services.turno_service import reservar_turno
+
+        fecha = date(2026, 6, 15)
+
+        # Crear primer turno CONFIRMADO en el slot 9:00
+        turno_existente = Turno(
+            fecha=fecha, hora_inicio=time(9, 0), hora_fin=time(9, 30),
+            estado="CONFIRMADO", profesional_id=profesional.id, paciente_id=None,
+        )
+        db_session.add(turno_existente)
+        await db_session.commit()
+
+        # Intentar reservar el mismo slot — la constraint lo rechaza
+        with pytest.raises(TurnoNoDisponibleError):
+            await reservar_turno(
+                db_session, profesional_id=profesional.id, fecha=fecha,
+                hora_inicio=time(9, 0), paciente_id=None, settings=test_settings,
+            )
+
+    @pytest.mark.asyncio
+    async def test_constraint_parcial_permite_turno_cancelado_y_nuevo(
+        self, db_session, profesional, test_settings
+    ):
+        """Test 3.2: la constraint parcial permite múltiples Turnos CANCELADOS
+        en el mismo slot. Un Turno CANCELADO no bloquea una nueva reserva.
+        """
+        from app.services.turno_service import reservar_turno
+
+        fecha = date(2026, 6, 15)
+
+        # Crear Turno CANCELADO en slot 9:00 (histórico)
+        turno_cancelado = Turno(
+            fecha=fecha, hora_inicio=time(9, 0), hora_fin=time(9, 30),
+            estado="CANCELADO", profesional_id=profesional.id, paciente_id=None,
+        )
+        db_session.add(turno_cancelado)
+        await db_session.commit()
+
+        # Intentar reservar el mismo slot — la constraint parcial lo permite
+        turno_nuevo = await reservar_turno(
+            db_session, profesional_id=profesional.id, fecha=fecha,
+            hora_inicio=time(9, 0), paciente_id=None, settings=test_settings,
+        )
+        await db_session.commit()
+
+        assert turno_nuevo.id != turno_cancelado.id
+        assert turno_nuevo.estado == "RESERVADO_TEMPORAL"
+        assert turno_nuevo.fecha == fecha
+        assert turno_nuevo.hora_inicio == time(9, 0)
+
+
+# ---------------------------------------------------------------------------
+# Test de migración Alembic
+# ---------------------------------------------------------------------------
+
+
+class TestConcurrencyHardeningMigration:
+    """Verifica que la migración ``ch23a7b9c8d2`` crea el índice único parcial."""
+
+    def test_migration_creates_uq_turno_active_slot(self):
+        import os
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+
+        alembic_ini = "alembic.ini" if os.path.exists("alembic.ini") else "backend/alembic.ini"
+        alembic_cfg = Config(alembic_ini)
+        script = ScriptDirectory.from_config(alembic_cfg)
+        head = script.get_current_head()
+        assert head is not None
+
+        # Walk the history to find the migration that adds uq_turno_active_slot
+        found = False
+        for rev in script.walk_revisions():
+            if rev.path is not None:
+                with open(rev.path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                if "uq_turno_active_slot" in content and "create_index" in content:
+                    found = True
+                    break
+        assert found, "No migration found that creates uq_turno_active_slot"

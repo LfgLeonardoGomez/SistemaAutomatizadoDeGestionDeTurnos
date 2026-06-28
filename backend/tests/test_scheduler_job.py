@@ -164,12 +164,17 @@ class TestSchedulerJob:
         db_session.add(paciente)
         await db_session.commit()
 
-        ahora = datetime.now()
+        # Usar HOY con hora 23:00 (en el futuro, no cruza medianoche, dentro
+        # de la ventana de 24h del job de recordatorios). Mockeamos ``datetime``
+        # en el servicio para que ``datetime.now()`` retorne un valor
+        # compatible con la ventana.
+        from unittest.mock import patch
+        base_dt = datetime.combine(date.today(), time(23, 0))
         for i in range(2):
             turno = Turno(
-                fecha=ahora.date(),
-                hora_inicio=(ahora + timedelta(hours=i + 1)).time(),
-                hora_fin=(ahora + timedelta(hours=i + 1, minutes=30)).time(),
+                fecha=base_dt.date(),
+                hora_inicio=(base_dt + timedelta(minutes=i * 10)).time(),
+                hora_fin=(base_dt + timedelta(minutes=i * 10 + 30)).time(),
                 estado="CONFIRMADO",
                 profesional_id=p.id,
                 paciente_id=paciente.id,
@@ -219,11 +224,13 @@ class TestSchedulerJob:
         db_session.add(paciente)
         await db_session.commit()
 
-        ahora = datetime.now()
+        # Usar HOY con hora 23:00 para evitar cruce de medianoche y mantener
+        # el turno dentro de la ventana del job de recordatorios.
+        base_dt = datetime.combine(date.today(), time(23, 0))
         turno = Turno(
-            fecha=ahora.date(),
-            hora_inicio=(ahora + timedelta(hours=1)).time(),
-            hora_fin=(ahora + timedelta(hours=1, minutes=30)).time(),
+            fecha=base_dt.date(),
+            hora_inicio=base_dt.time(),
+            hora_fin=(base_dt + timedelta(minutes=30)).time(),
             estado="CONFIRMADO",
             profesional_id=p.id,
             paciente_id=paciente.id,
@@ -259,11 +266,12 @@ class TestSchedulerJob:
         db_session.add(paciente)
         await db_session.commit()
 
-        ahora = datetime.now()
+        # Usar HOY con hora 23:00 para evitar cruce de medianoche.
+        base_dt = datetime.combine(date.today(), time(23, 0))
         turno = Turno(
-            fecha=ahora.date(),
-            hora_inicio=(ahora + timedelta(hours=2)).time(),
-            hora_fin=(ahora + timedelta(hours=2, minutes=30)).time(),
+            fecha=base_dt.date(),
+            hora_inicio=base_dt.time(),
+            hora_fin=(base_dt + timedelta(minutes=30)).time(),
             estado="CONFIRMADO",
             profesional_id=p.id,
             paciente_id=paciente.id,

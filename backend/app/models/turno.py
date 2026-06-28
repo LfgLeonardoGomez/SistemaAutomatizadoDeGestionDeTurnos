@@ -10,6 +10,7 @@ from sqlalchemy import (
     Time,
     DateTime,
     Enum as SAEnum,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -73,4 +74,16 @@ class Turno(Base):
         Index("ix_turno_estado", "estado"),
         Index("ix_turno_paciente_id_estado", "paciente_id", "estado"),
         Index("ix_turno_google_event_id", "google_event_id"),
+        # UNIQUE constraint parcial: solo un Turno activo (DISPONIBLE/RESERVADO_TEMPORAL/
+        # CONFIRMADO) por (profesional_id, fecha, hora_inicio). Permite múltiples Turnos
+        # CANCELADOS/COMPLETADOS en el mismo slot (preserva historial). Cierra R3/OQ-5
+        # del change transaction-hardening: race condition en reservar_turno.
+        Index(
+            "uq_turno_active_slot",
+            "profesional_id", "fecha", "hora_inicio",
+            unique=True,
+            postgresql_where=text(
+                "estado IN ('DISPONIBLE', 'RESERVADO_TEMPORAL', 'CONFIRMADO')"
+            ),
+        ),
     )

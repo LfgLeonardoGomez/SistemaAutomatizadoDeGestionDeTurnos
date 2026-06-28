@@ -146,24 +146,15 @@ class TestConcurrency:
             assert t_post.estado == "CONFIRMADO"
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        reason=(
-            "Race condition en reservar_turno: SELECT FOR UPDATE no bloquea "
-            "si no hay turnos pre-existentes en la fecha. Documentado en R3/OQ-5 "
-            "del design.md; la fix requiere UNIQUE constraint o serializable "
-            "isolation, fuera del scope de transaction-hardening."
-        ),
-        strict=False,
-    )
     async def test_doble_reservar_mismo_slot_solo_uno_exitoso(
         self, db_session, make_session_factory
     ):
         """12.3: Dos ``asyncio.gather`` ejecutando ``reservar_turno`` sobre el mismo
         slot. Solo uno obtiene el slot; el otro recibe ``TurnoNoDisponibleError``.
 
-        **xfail conocido**: la serialización de ``reservar_turno`` requiere más
-        trabajo (UNIQUE constraint o isolation SERIALIZABLE) que está fuera del
-        scope de este change. Ver ``design.md`` → Risks → R3.
+        Garantizado por la constraint ``uq_turno_active_slot`` (índice único
+        parcial) agregada en el change ``concurrency-hardening``. Ver
+        ``openspec/changes/concurrency-hardening/`` para más detalles.
         """
         from app.services.turno_service import reservar_turno
 

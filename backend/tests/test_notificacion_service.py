@@ -96,7 +96,9 @@ class TestObtenerTurnosParaRecordar:
         profesional = await _seed_profesional(db_session)
         paciente = await _seed_paciente(db_session, profesional.id)
 
-        ahora = datetime.now()
+        # Usar un offset para evitar que la hora cruce medianoche y viole
+        # ``ck_turno_horario_valido`` en zonas horarias no-UTC.
+        ahora = datetime.now() - timedelta(hours=4)
         turno = Turno(
             fecha=ahora.date(),
             hora_inicio=(ahora + timedelta(hours=2)).time(),
@@ -118,7 +120,9 @@ class TestObtenerTurnosParaRecordar:
         profesional = await _seed_profesional(db_session)
         paciente = await _seed_paciente(db_session, profesional.id)
 
-        ahora = datetime.now()
+        # Usar un offset para evitar que la hora cruce medianoche y viole
+        # ``ck_turno_horario_valido`` en zonas horarias no-UTC.
+        ahora = datetime.now() - timedelta(hours=4)
         turno = Turno(
             fecha=ahora.date(),
             hora_inicio=(ahora + timedelta(hours=2)).time(),
@@ -149,7 +153,9 @@ class TestObtenerTurnosParaRecordar:
 
         paciente = await _seed_paciente(db_session, profesional_a.id)
 
-        ahora = datetime.now()
+        # Usar un offset para evitar que la hora cruce medianoche y viole
+        # ``ck_turno_horario_valido`` en zonas horarias no-UTC.
+        ahora = datetime.now() - timedelta(hours=4)
         turno = Turno(
             fecha=ahora.date(),
             hora_inicio=(ahora + timedelta(hours=2)).time(),

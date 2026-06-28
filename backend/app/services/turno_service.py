@@ -120,7 +120,19 @@ async def reservar_turno(
         paciente_id=paciente_id,
     )
     db.add(turno)
-    await db.flush()
+    # Patrón A: el flush (no commit) persiste el INSERT y valida la constraint
+    # `uq_turno_active_slot`. Si dos requests concurrentes intentan crear el
+    # mismo slot activo, el segundo recibe IntegrityError (pgcode 23505).
+    # Lo capturamos y traducimos a TurnoNoDisponibleError (mismo error que ya
+    # se lanza cuando el slot no está disponible teóricamente).
+    from sqlalchemy.exc import IntegrityError
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise TurnoNoDisponibleError(
+            "El slot ya fue reservado por otro paciente"
+        )
 
     cfg = settings or Settings()
     expiracion = _utcnow_naive() + timedelta(minutes=cfg.reserva_temporal_minutos)
