@@ -69,11 +69,43 @@ services:
     ports:
       - "5678:5678"
     environment:
-      N8N_BASIC_AUTH_ACTIVE: "true"
-      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER:-admin}
-      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD:-admin}
+      # --- Integracion con el backend ---
+      # OJO: se llama por NOMBRE de servicio (backend) y puerto INTERNO (8000),
+      # NO por localhost:18000. Dentro de la red de Compose cada contenedor
+      # tiene su propio localhost; los servicios se hablan por su nombre.
+      FASTAPI_BASE_URL: http://backend:8000
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+
+      # --- URL publica (ngrok) que n8n usa para registrar los webhooks ---
+      # Unica fuente de verdad: NGROK_DOMAIN (ej. tu-nombre.ngrok-free.app).
+      # n8n construye las URLs de webhook con esto, ngrok expone el mismo dominio.
+      WEBHOOK_URL: https://${NGROK_DOMAIN}
+
+      # --- Zona horaria para los nodos Schedule (recordatorios C-10) ---
+      GENERIC_TIMEZONE: America/Argentina/Buenos_Aires
+      TZ: America/Argentina/Buenos_Aires
+
+      # NOTA: n8n 1.0+ ignora N8N_BASIC_AUTH_*. La primera vez que entres a
+      # la UI te va a pedir crear una cuenta "owner". Es el flujo nuevo.
     volumes:
       - n8n_data:/home/node/.n8n
+    depends_on:
+      - backend
+    profiles:
+      - n8n
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    restart: unless-stopped
+    # Expone el n8n interno (n8n:5678) en tu dominio estatico de ngrok.
+    # El dominio debe coincidir con NGROK_DOMAIN usado por WEBHOOK_URL arriba.
+    command: http n8n:5678 --domain=${NGROK_DOMAIN}
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:?NGROK_AUTHTOKEN es requerido (lo sacas de dashboard.ngrok.com)}
+    ports:
+      - "4040:4040"  # UI de inspeccion de trafico: http://localhost:4040
+    depends_on:
+      - n8n
     profiles:
       - n8n
 

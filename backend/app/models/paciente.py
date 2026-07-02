@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List
 
 from sqlalchemy import String, ForeignKey, UniqueConstraint, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -15,9 +15,6 @@ class Paciente(Base):
     apellido: Mapped[str] = mapped_column(String(255), nullable=False)
     dni: Mapped[str] = mapped_column(String(50), nullable=False)
     telefono: Mapped[str] = mapped_column(String(50), nullable=False)
-    telegram_chat_id: Mapped[Optional[str]] = mapped_column(
-        String(50), nullable=True
-    )
     creado_en: Mapped[datetime] = mapped_column(
         DateTime(), default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
     )

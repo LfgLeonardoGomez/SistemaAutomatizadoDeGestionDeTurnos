@@ -195,11 +195,11 @@ class TestSchedulerJob:
         from app.scheduler.jobs import _enviar_recordatorios_job
         from app.models.paciente import Paciente
         from app.models.turno import Turno
+        from app.models.turno_destinatario import TurnoDestinatario
 
         p = await _seed_profesional(db_session)
         paciente = Paciente(
             nombre="Juan", apellido="Perez", dni="11111111", telefono="555-1234",
-            telegram_chat_id="12345",
             profesional_id=p.id,
         )
         db_session.add(paciente)
@@ -221,6 +221,17 @@ class TestSchedulerJob:
                 recordatorio_enviado=False,
             )
             db_session.add(turno)
+        await db_session.commit()
+
+        # C-23: el destinatario TELEGRAM vive en TurnoDestinatario (no en
+        # paciente.telegram_chat_id, columna eliminada).
+        result = await db_session.execute(
+            select(Turno).where(Turno.paciente_id == paciente.id).order_by(Turno.id)
+        )
+        for t in result.scalars().all():
+            db_session.add(TurnoDestinatario(
+                turno_id=t.id, canal="TELEGRAM", destinatario="12345",
+            ))
         await db_session.commit()
 
         with patch("app.scheduler.jobs.enviar_recordatorio_telegram", new=AsyncMock(return_value=True)) as mock_enviar:
@@ -259,11 +270,11 @@ class TestSchedulerJob:
         from app.scheduler.jobs import _enviar_recordatorios_job
         from app.models.paciente import Paciente
         from app.models.turno import Turno
+        from app.models.turno_destinatario import TurnoDestinatario
 
         p = await _seed_profesional(db_session)
         paciente = Paciente(
             nombre="Juan", apellido="Perez", dni="22222222", telefono="555-1234",
-            telegram_chat_id="12345",
             profesional_id=p.id,
         )
         db_session.add(paciente)
@@ -284,6 +295,12 @@ class TestSchedulerJob:
             recordatorio_enviado=False,
         )
         db_session.add(turno)
+        await db_session.commit()
+
+        # C-23: destinatario TELEGRAM en TurnoDestinatario
+        db_session.add(TurnoDestinatario(
+            turno_id=turno.id, canal="TELEGRAM", destinatario="12345",
+        ))
         await db_session.commit()
 
         with patch("app.scheduler.jobs.enviar_recordatorio_telegram", new=AsyncMock(side_effect=Exception("Telegram fail"))) as mock_enviar:
@@ -308,12 +325,12 @@ class TestSchedulerJob:
         from app.scheduler.jobs import _enviar_recordatorios_job
         from app.models.paciente import Paciente
         from app.models.turno import Turno
+        from app.models.turno_destinatario import TurnoDestinatario
         from sqlalchemy import select
 
         p = await _seed_profesional(db_session)
         paciente = Paciente(
             nombre="Juan", apellido="Perez", dni="33333333", telefono="555-1234",
-            telegram_chat_id="12345",
             profesional_id=p.id,
         )
         db_session.add(paciente)
@@ -333,6 +350,12 @@ class TestSchedulerJob:
             recordatorio_enviado=False,
         )
         db_session.add(turno)
+        await db_session.commit()
+
+        # C-23: destinatario TELEGRAM en TurnoDestinatario
+        db_session.add(TurnoDestinatario(
+            turno_id=turno.id, canal="TELEGRAM", destinatario="12345",
+        ))
         await db_session.commit()
 
         with patch("app.scheduler.jobs.enviar_recordatorio_telegram", new=AsyncMock(return_value=True)) as mock_enviar:

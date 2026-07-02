@@ -17,7 +17,7 @@ class TestBaseModel:
         assert Base.metadata is not None
 
     def test_base_tables_populated(self):
-        """Scenario: Base has all 6 model tables registered (incluye super_admin)."""
+        """Scenario: Base has all 7 model tables registered (incluye super_admin y turno_destinatario de C-23)."""
         tables = set(Base.metadata.tables.keys())
         expected = {
             "paciente",
@@ -26,5 +26,6 @@ class TestBaseModel:
             "reserva_temporal",
             "lista_de_espera",
             "super_admin",
+            "turno_destinatario",  # C-23: tabla hija turno→canal→destinatario
         }
         assert tables == expected

@@ -67,6 +67,12 @@ class Turno(Base):
         cascade="all, delete-orphan",
         uselist=False,
     )
+    destinatarios: Mapped[list["TurnoDestinatario"]] = relationship(
+        "TurnoDestinatario",
+        back_populates="turno",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         CheckConstraint("hora_fin > hora_inicio", name="ck_turno_horario_valido"),

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.turno import Turno
 from app.models.paciente import Paciente
+from app.models.turno_destinatario import TurnoDestinatario
 from app.services.telegram_service import enviar_mensaje, format_recordatorio_mensaje, format_recordatorio_keyboard
 
 logger = logging.getLogger(__name__)
@@ -45,23 +46,39 @@ async def obtener_turnos_para_recordar(db: AsyncSession, profesional_id: int, ho
 
 
 async def enviar_recordatorio_telegram(turno: Turno, bot_token: str) -> bool:
-    """Envía un recordatorio por Telegram al paciente del turno.
+    """Envía un recordatorio por Telegram al destinatario del turno (C-23).
 
-    Retorna True si el envío fue exitoso o si no hay chat_id (para marcar flag).
-    Retorna False si el envío falló (permitir reintento).
+    Cambio de comportamiento (C-23): el destinatario se lee del turno
+    (``turno.destinatarios`` filtrado por canal='TELEGRAM'), no de
+    ``paciente.telegram_chat_id`` (columna eliminada por ser código muerto:
+    nunca se escribía, por lo que el job anterior siempre leía ``None`` y
+    marcaba ``recordatorio_enviado=True`` sin enviar nada).
+
+    Retorna True si el envío fue exitoso o si no hay destinatario TELEGRAM
+    configurado (caso esperado: turno legacy o turno administrativo — se
+    marca como enviado y se loguea warning, sin reintento).
+    Retorna False si el envío falló (permite reintento).
     """
-    paciente = turno.paciente
-    if paciente is None:
-        logger.warning(f"Turno {turno.id} no tiene paciente asociado")
-        return True
+    # C-23: destinatario por turno, no por paciente. Esto cubre el caso
+    # multi-chat (un DNI con varios chats) y arregla el bug del recordatorio
+    # silenciosamente roto.
+    chat_id: str | None = None
+    for dest in turno.destinatarios:
+        if dest.canal == "TELEGRAM":
+            chat_id = dest.destinatario
+            break
 
-    chat_id = paciente.telegram_chat_id
     if chat_id is None:
+        paciente_id = turno.paciente_id if turno.paciente_id is not None else "?"
         logger.warning(
-            f"Paciente {paciente.id} no tiene chat_id de Telegram; "
-            f"marcando recordatorio_enviado=True para turno {turno.id}"
+            f"Turno {turno.id} (paciente={paciente_id}) no tiene destinatario "
+            f"TELEGRAM configurado; marcando recordatorio_enviado=True sin enviar."
         )
         return True
+
+    paciente = turno.paciente
+    paciente_nombre = paciente.nombre if paciente is not None else ""
+    paciente_apellido = paciente.apellido if paciente is not None else ""
 
     mensaje = format_recordatorio_mensaje(
         turno={
@@ -69,8 +86,8 @@ async def enviar_recordatorio_telegram(turno: Turno, bot_token: str) -> bool:
             "hora_inicio": turno.hora_inicio,
         },
         paciente={
-            "nombre": paciente.nombre,
-            "apellido": paciente.apellido,
+            "nombre": paciente_nombre,
+            "apellido": paciente_apellido,
         },
     )
     keyboard = format_recordatorio_keyboard(turno.id)

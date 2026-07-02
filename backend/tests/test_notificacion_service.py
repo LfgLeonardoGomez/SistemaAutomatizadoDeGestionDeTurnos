@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.models.paciente import Paciente
 from app.models.turno import Turno
+from app.models.turno_destinatario import TurnoDestinatario
 from app.services.notificacion_service import (
     obtener_turnos_para_recordar,
     enviar_recordatorio_telegram,
@@ -22,19 +23,32 @@ async def _seed_profesional(db_session):
     return p
 
 
-async def _seed_paciente(db_session, profesional_id: int, telegram_chat_id: str | None = "12345"):
+async def _seed_paciente(db_session, profesional_id: int):
+    """Crea un Paciente sin telegram_chat_id (columna eliminada en C-23)."""
     paciente = Paciente(
         nombre="Juan",
         apellido="Perez",
         dni=f"{datetime.now().timestamp()}",
         telefono="555-1234",
-        telegram_chat_id=telegram_chat_id,
         profesional_id=profesional_id,
     )
     db_session.add(paciente)
     await db_session.commit()
     await db_session.refresh(paciente)
     return paciente
+
+
+async def _add_destinatario_telegram(db_session, turno_id: int, chat_id: str) -> TurnoDestinatario:
+    """Helper: agrega un destinatario TELEGRAM al turno."""
+    dest = TurnoDestinatario(
+        turno_id=turno_id,
+        canal="TELEGRAM",
+        destinatario=chat_id,
+    )
+    db_session.add(dest)
+    await db_session.commit()
+    await db_session.refresh(dest)
+    return dest
 
 
 class TestObtenerTurnosParaRecordar:
@@ -173,7 +187,12 @@ class TestObtenerTurnosParaRecordar:
 
 
 class TestEnviarRecordatorioTelegram:
-    """Tests for enviar_recordatorio_telegram."""
+    """Tests for enviar_recordatorio_telegram.
+
+    C-23: el recordatorio se envía al destinatario TELEGRAM del turno
+    (``turno.destinatarios`` filtrado por canal), no a ``paciente.telegram_chat_id``
+    (columna eliminada por ser código muerto).
+    """
 
     def setup_method(self):
         from app.services.telegram_service import _reset_state
@@ -181,7 +200,7 @@ class TestEnviarRecordatorioTelegram:
 
     @pytest.mark.asyncio
     async def test_envio_exitoso_retorna_true(self, db_session):
-        """Scenario: Envío exitoso de recordatorio."""
+        """Scenario: Turno con destinatario TELEGRAM → envío exitoso retorna True."""
         profesional = await _seed_profesional(db_session)
         paciente = await _seed_paciente(db_session, profesional.id)
 
@@ -196,6 +215,11 @@ class TestEnviarRecordatorioTelegram:
         db_session.add(turno)
         await db_session.commit()
         await db_session.refresh(turno)
+        # C-23: el chat_id vive en TurnoDestinatario, no en paciente
+        await _add_destinatario_telegram(db_session, turno.id, "555001")
+        # Refrescar la relación ``destinatarios`` con selectin (lazy="selectin"
+        # no carga automáticamente en ``refresh()`` sin attribute_names).
+        await db_session.refresh(turno, attribute_names=["destinatarios"])
 
         with patch("app.services.telegram_service.run_in_threadpool", new=AsyncMock()) as mock_pool:
             with patch("app.services.telegram_service._get_bot") as mock_bot:
@@ -207,7 +231,7 @@ class TestEnviarRecordatorioTelegram:
 
     @pytest.mark.asyncio
     async def test_envio_falla_retorna_false(self, db_session):
-        """Scenario: Falla de Telegram retorna False."""
+        """Scenario: Turno con destinatario TELEGRAM + envío que falla → retorna False."""
         profesional = await _seed_profesional(db_session)
         paciente = await _seed_paciente(db_session, profesional.id)
 
@@ -222,16 +246,26 @@ class TestEnviarRecordatorioTelegram:
         db_session.add(turno)
         await db_session.commit()
         await db_session.refresh(turno)
+        # C-23: el chat_id vive en TurnoDestinatario
+        await _add_destinatario_telegram(db_session, turno.id, "555002")
+        await db_session.refresh(turno, attribute_names=["destinatarios"])
 
         with patch("app.services.notificacion_service.enviar_mensaje", new=AsyncMock(return_value=False)):
             ok = await enviar_recordatorio_telegram(turno, bot_token="test_token")
             assert ok is False
 
     @pytest.mark.asyncio
-    async def test_paciente_sin_chat_id_retorna_true_y_no_envia(self, db_session):
-        """Scenario: Paciente sin chat_id retorna True (marca flag) pero no envía."""
+    async def test_turno_sin_destinatario_telegram_retorna_true_y_no_envia(self, db_session):
+        """Scenario: Turno sin destinatario TELEGRAM → retorna True (marca flag) sin enviar.
+
+        C-23 (TAREA 8.4): cubre el caso "turno legacy sin destinatario" o
+        "confirmación administrativa sin chat". El comportamiento esperado es
+        el mismo que antes (True + no envío + warning) para no romper flujos
+        manuales. NO debe leer paciente.telegram_chat_id (esa columna no
+        existe más).
+        """
         profesional = await _seed_profesional(db_session)
-        paciente = await _seed_paciente(db_session, profesional.id, telegram_chat_id=None)
+        paciente = await _seed_paciente(db_session, profesional.id)
 
         turno = Turno(
             fecha=date(2026, 6, 15),
@@ -244,11 +278,73 @@ class TestEnviarRecordatorioTelegram:
         db_session.add(turno)
         await db_session.commit()
         await db_session.refresh(turno)
+        await db_session.refresh(turno, attribute_names=["destinatarios"])
+        # NO se agrega destinatario TELEGRAM al turno
 
         with patch("app.services.telegram_service.run_in_threadpool", new=AsyncMock()) as mock_pool:
-            ok = await enviar_recordatorio_telegram(turno, bot_token="test_token")
-            assert ok is True
-            mock_pool.assert_not_awaited()
+            with patch("app.services.notificacion_service.enviar_mensaje", new=AsyncMock()) as mock_enviar:
+                ok = await enviar_recordatorio_telegram(turno, bot_token="test_token")
+                assert ok is True
+                mock_pool.assert_not_awaited()
+                mock_enviar.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_envio_dirigido_al_chat_del_turno_no_del_paciente(self, db_session):
+        """Scenario (C-23 TAREA 8.5): dos turnos del mismo DNI con chats distintos
+        reciben recordatorios en su chat respectivo (multi-chat por turno)."""
+        from app.services.telegram_service import _reset_state
+        _reset_state()
+
+        profesional = await _seed_profesional(db_session)
+        # Mismo DNI, mismo paciente (un DNI = una persona)
+        paciente = await _seed_paciente(db_session, profesional.id)
+
+        turno_a = Turno(
+            fecha=date(2026, 6, 15),
+            hora_inicio=time(9, 0),
+            hora_fin=time(9, 30),
+            estado="CONFIRMADO",
+            profesional_id=profesional.id,
+            paciente_id=paciente.id,
+        )
+        turno_b = Turno(
+            fecha=date(2026, 6, 15),
+            hora_inicio=time(10, 0),
+            hora_fin=time(10, 30),
+            estado="CONFIRMADO",
+            profesional_id=profesional.id,
+            paciente_id=paciente.id,
+        )
+        db_session.add_all([turno_a, turno_b])
+        await db_session.commit()
+        await db_session.refresh(turno_a)
+        await db_session.refresh(turno_b)
+        # Dos chats distintos para el mismo paciente (Telegram chat_id son
+        # siempre numéricos en producción; usamos valores distintos para
+        # verificar el direccionamiento por turno).
+        await _add_destinatario_telegram(db_session, turno_a.id, "111111")
+        await _add_destinatario_telegram(db_session, turno_b.id, "222222")
+        # Refrescar la relación destinatarios de cada turno
+        await db_session.refresh(turno_a, attribute_names=["destinatarios"])
+        await db_session.refresh(turno_b, attribute_names=["destinatarios"])
+
+        # Capturamos los chat_id que recibe ``enviar_mensaje`` en cada llamada
+        chats_enviados: list[int] = []
+
+        async def _fake_enviar_mensaje(chat_id, mensaje, bot_token, keyboard=None):
+            chats_enviados.append(chat_id)
+            return True
+
+        with patch("app.services.notificacion_service.enviar_mensaje", side_effect=_fake_enviar_mensaje):
+            ok_a = await enviar_recordatorio_telegram(turno_a, bot_token="test_token")
+            ok_b = await enviar_recordatorio_telegram(turno_b, bot_token="test_token")
+
+        assert ok_a is True
+        assert ok_b is True
+        assert chats_enviados == [111111, 222222], (
+            f"C-23 multi-chat: cada turno debe enviarse a SU chat, no al del otro. "
+            f"Recibido: {chats_enviados}"
+        )
 
 
 class TestMarcarRecordatorioEnviado:

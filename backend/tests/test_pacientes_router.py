@@ -152,6 +152,97 @@ class TestPacientesRouter:
         assert data == []
 
     @pytest.mark.asyncio
+    async def test_get_pacientes_lista_ordenada(self, authenticated_client, db_session, profesional):
+        """Scenario: GET /pacientes retorna todos los pacientes del profesional, ordenados por apellido/nombre."""
+        for nombre, apellido, dni in [
+            ("Ana", "Zapata", "10000001"),
+            ("Beto", "Alvarez", "10000002"),
+            ("Carla", "Alvarez", "10000003"),
+        ]:
+            db_session.add(Paciente(
+                nombre=nombre, apellido=apellido, dni=dni, telefono="1",
+                profesional_id=profesional.id,
+            ))
+        await db_session.commit()
+
+        response = authenticated_client.get("/pacientes")
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        assert len(data) == 3
+        # Ordenado por apellido, luego nombre: Alvarez/Beto, Alvarez/Carla, Zapata/Ana
+        assert [p["apellido"] for p in data] == ["Alvarez", "Alvarez", "Zapata"]
+        assert [p["nombre"] for p in data[:2]] == ["Beto", "Carla"]
+        assert "profesional_id" not in data[0]  # schema no expone tenant
+
+    @pytest.mark.asyncio
+    async def test_get_pacientes_solo_los_del_profesional(self, authenticated_client, db_session, profesional):
+        """Scenario: GET /pacientes NO incluye pacientes de otro profesional (aislamiento multi-tenant)."""
+        otro = make_profesional(
+            nombre="Dr. B", dias_atencion=["Lunes"],
+            email="drb2@local.dev", password_hash="fakehash",
+        )
+        db_session.add(otro)
+        await db_session.commit()
+        await db_session.refresh(otro)
+
+        db_session.add(Paciente(
+            nombre="Mio", apellido="Propio", dni="20000001", telefono="1",
+            profesional_id=profesional.id,
+        ))
+        db_session.add(Paciente(
+            nombre="Ajeno", apellido="Otro", dni="20000002", telefono="2",
+            profesional_id=otro.id,
+        ))
+        await db_session.commit()
+
+        response = authenticated_client.get("/pacientes")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["nombre"] == "Mio"
+
+    @pytest.mark.asyncio
+    async def test_get_pacientes_limit_offset(self, authenticated_client, db_session, profesional):
+        """Scenario: GET /pacientes respeta limit y offset."""
+        for i in range(5):
+            db_session.add(Paciente(
+                nombre=f"P{i}", apellido=f"Ap{i:02d}", dni=f"3000000{i}", telefono="1",
+                profesional_id=profesional.id,
+            ))
+        await db_session.commit()
+
+        r_limit = authenticated_client.get("/pacientes?limit=2")
+        assert r_limit.status_code == 200
+        assert len(r_limit.json()) == 2
+
+        r_offset = authenticated_client.get("/pacientes?limit=2&offset=2")
+        assert r_offset.status_code == 200
+        data_offset = r_offset.json()
+        assert len(data_offset) == 2
+        # offset avanza en el orden por apellido: Ap02, Ap03
+        assert data_offset[0]["apellido"] == "Ap02"
+
+    @pytest.mark.asyncio
+    async def test_get_pacientes_vacio(self, authenticated_client, db_session, profesional):
+        """Scenario: GET /pacientes sin pacientes → 200 lista vacía."""
+        response = authenticated_client.get("/pacientes")
+        assert response.status_code == 200
+        assert response.json() == []
+
+    @pytest.mark.asyncio
+    async def test_get_pacientes_sin_token_401(self, client, db_session, profesional):
+        """Scenario: GET /pacientes sin token → 401/403."""
+        response = client.get("/pacientes")
+        assert response.status_code in (401, 403)
+
+    @pytest.mark.asyncio
+    async def test_get_pacientes_limit_invalido_422(self, authenticated_client, db_session, profesional):
+        """Scenario: GET /pacientes con limit fuera de rango → 422."""
+        assert authenticated_client.get("/pacientes?limit=0").status_code == 422
+        assert authenticated_client.get("/pacientes?limit=101").status_code == 422
+
+    @pytest.mark.asyncio
     async def test_get_paciente_otro_profesional_devuelve_404(self, authenticated_client, db_session, profesional):
         """Scenario: GET /pacientes/{id} de otro profesional → 404."""
         otro_profesional = make_profesional(

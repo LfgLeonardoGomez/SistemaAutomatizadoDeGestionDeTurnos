@@ -56,6 +56,26 @@ async def crear_o_obtener_paciente(
     return PacienteRead.model_validate(paciente)
 
 
+async def listar_pacientes(
+    db_session, profesional_id: int, limit: int = 50, offset: int = 0
+) -> list[PacienteRead]:
+    """Lista los pacientes de un profesional, ordenados por apellido y nombre.
+
+    Tenant-scoped: solo devuelve pacientes del ``profesional_id`` dado.
+    Paginado con ``limit``/``offset`` para acotar datasets grandes.
+    """
+    stmt = (
+        select(Paciente)
+        .where(Paciente.profesional_id == profesional_id)
+        .order_by(Paciente.apellido, Paciente.nombre)
+        .limit(limit)
+        .offset(offset)
+    )
+    result = await db_session.execute(stmt)
+    pacientes = result.scalars().all()
+    return [PacienteRead.model_validate(p) for p in pacientes]
+
+
 async def obtener_paciente_con_historial(
     db_session, profesional_id: int, paciente_id: int
 ) -> Optional[PacienteConHistorial]:

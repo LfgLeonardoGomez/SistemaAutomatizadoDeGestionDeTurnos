@@ -2,7 +2,7 @@ from collections.abc import AsyncGenerator
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -16,8 +16,11 @@ from app.models.super_admin import SuperAdmin
 _engine = None
 _async_session = None
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=True)
-admin_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/admin/auth/login", auto_error=True)
+# Token is obtained out-of-band via the JSON login endpoints (/auth/login,
+# /admin/auth/login) and sent on each request as `Authorization: Bearer <token>`.
+# HTTPBearer extracts that token and makes Swagger render a single paste-token
+# "Authorize" field instead of the (incorrect) OAuth2 password-flow form.
+bearer_scheme = HTTPBearer(auto_error=True)
 
 
 def _get_engine():
@@ -57,9 +60,10 @@ def get_settings() -> Settings:
 
 
 async def get_current_profesional(
-    token: Annotated[str, Depends(oauth2_scheme)],
+    credentials: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Profesional:
+    token = credentials.credentials
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Credenciales inválidas",
@@ -141,9 +145,10 @@ CurrentProfesionalDep = Annotated[Profesional, Depends(get_current_profesional)]
 
 
 async def require_super_admin(
-    token: Annotated[str, Depends(admin_oauth2_scheme)],
+    credentials: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> SuperAdmin:
+    token = credentials.credentials
     settings = Settings()
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

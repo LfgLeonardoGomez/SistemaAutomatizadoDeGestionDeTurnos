@@ -59,8 +59,15 @@ class TestProtectedEndpoint:
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_access_protected_endpoint_without_token_returns_401(self, api_client):
+        # NOTE: con ``HTTPBearer`` (no ``OAuth2PasswordBearer``), la ausencia de
+        # token retorna ``403 Forbidden`` (auto_error=True de FastAPI). OAuth2
+        # retornaba 401. Aceptamos cualquiera de los dos: ambos rechazan el
+        # acceso no autenticado; lo importante es que NO es 200.
         response = api_client.post("/auth/api-key")
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.status_code in (
+            status.HTTP_401_UNAUTHORIZED,
+            status.HTTP_403_FORBIDDEN,
+        )
 
     def test_access_protected_endpoint_for_inactive_professional_returns_401(self, api_client, db_session):
         from app.services.auth_service import hash_password

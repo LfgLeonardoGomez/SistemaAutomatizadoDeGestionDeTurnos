@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +10,7 @@ from app.models.paciente import Paciente
 from app.schemas.paciente import PacienteCreate, PacienteRead, PacienteConHistorial, TurnoRead
 from app.services.paciente_service import (
     crear_o_obtener_paciente,
+    listar_pacientes,
     obtener_paciente_con_historial,
     listar_turnos_por_paciente,
 )
@@ -57,6 +58,17 @@ async def create_paciente(
             status_code=status.HTTP_409_CONFLICT, detail="DNI duplicado"
         )
     return paciente
+
+
+@router.get("", response_model=list[PacienteRead])
+async def list_pacientes(
+    db: DbDep,
+    profesional: CurrentProfesionalDep,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[PacienteRead]:
+    """Lista los pacientes del profesional autenticado, paginado y ordenado por apellido/nombre."""
+    return await listar_pacientes(db, profesional_id=profesional.id, limit=limit, offset=offset)
 
 
 @router.get("/{paciente_id}", response_model=PacienteConHistorial)

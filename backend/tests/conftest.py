@@ -46,6 +46,7 @@ from app.models import (
     reserva_temporal,
     lista_de_espera,
     super_admin,
+    turno_destinatario,
 )
 from app.models.profesional import Profesional
 from app.services.auth_service import hash_password
