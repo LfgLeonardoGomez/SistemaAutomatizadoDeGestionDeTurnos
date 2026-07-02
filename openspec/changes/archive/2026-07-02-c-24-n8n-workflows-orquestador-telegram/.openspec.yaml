@@ -1,0 +1,3 @@
+schema: spec-driven
+created: 2026-07-02
+goal: E2E Telegram→n8n→backend funcionando con multi-tenancy
