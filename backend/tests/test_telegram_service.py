@@ -121,6 +121,47 @@ class TestTelegramServiceIntegration:
             texto = await accion_confirmar_turno(db_session, 123, {"nombre": "Juan", "apellido": "P", "dni": "1", "telefono": "2"}, profesional_id=1)
         assert "Error" in texto
 
+    @pytest.mark.asyncio
+    async def test_accion_confirmar_turno_pasa_telegram_chat_id_a_confirmar_turno(
+        self, db_session
+    ):
+        """C-23 TAREA 7.5: ``accion_confirmar_turno`` propaga el ``chat_id``
+        del update como ``telegram_chat_id`` en el ``paciente_data`` que se
+        pasa a ``confirmar_turno``. Esto es lo que permite que el turno
+        registre el destinatario TELEGRAM (TAREA 7.1-7.2).
+
+        Verificación: mockeamos ``confirmar_turno`` y assert sobre el kwarg
+        ``paciente_data`` que recibe.
+        """
+        chat_id = 555002
+        _get_state(chat_id)["turno_temporal_id"] = 99
+        captured: dict = {}
+
+        async def fake_confirmar_turno(db, profesional_id, turno_id, paciente_data):
+            captured["paciente_data"] = paciente_data
+            captured["turno_id"] = turno_id
+            # Devolver un turno mock con los atributos mínimos
+            from types import SimpleNamespace
+            return SimpleNamespace(fecha="2026-08-15", hora_inicio="09:00:00")
+
+        with patch(
+            "app.services.telegram_service.confirmar_turno",
+            side_effect=fake_confirmar_turno,
+        ):
+            await accion_confirmar_turno(
+                db_session,
+                chat_id=chat_id,
+                datos={"nombre": "Juan", "apellido": "P", "dni": "1", "telefono": "2"},
+                profesional_id=1,
+            )
+
+        assert captured["turno_id"] == 99
+        assert captured["paciente_data"].get("telegram_chat_id") == "555002", (
+            "C-23 TAREA 7.5: accion_confirmar_turno debe propagar el chat_id "
+            "como telegram_chat_id en paciente_data para que confirmar_turno "
+            "pueda registrar el destinatario TELEGRAM del turno."
+        )
+
 
 class TestMessageFormatting:
     """Tests for message formatting helpers."""

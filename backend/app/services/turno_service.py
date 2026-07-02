@@ -14,6 +14,7 @@ from app.models.reserva_temporal import ReservaTemporal
 from app.services.availability_service import calcular_disponibilidad
 from app.services.paciente_service import crear_o_obtener_paciente
 from app.services.calendar_service import CalendarService
+from app.services.destinatario_service import upsert_destinatario
 from app.schemas.paciente import PacienteCreate
 from app.exceptions import (
     TurnoError,
@@ -74,6 +75,7 @@ async def reservar_turno(
     hora_inicio: time,
     paciente_id: Optional[int] = None,
     settings: Optional[Settings] = None,
+    telegram_chat_id: Optional[str] = None,
 ) -> Turno:
     """
     Reserva un turno temporalmente.
@@ -81,6 +83,10 @@ async def reservar_turno(
     - Valida RN-TU-01: paciente sin turno activo para este profesional.
     - Bloquea turnos de la fecha para evitar carreras.
     - Crea Turno en RESERVADO_TEMPORAL + ReservaTemporal.
+    - C-23 TAREA 6: si se provee ``telegram_chat_id``, registra un
+      ``TurnoDestinatario`` canal=TELEGRAM para que el recordatorio sepa a
+      dónde notificar. Patrón A: no commit; el caller (router o scheduler)
+      controla la transacción.
     """
     result = await db.execute(
         select(Profesional).where(Profesional.id == profesional_id)
@@ -138,6 +144,14 @@ async def reservar_turno(
     expiracion = _utcnow_naive() + timedelta(minutes=cfg.reserva_temporal_minutos)
     reserva = ReservaTemporal(turno_id=turno.id, expiracion=expiracion)
     db.add(reserva)
+
+    # C-23 TAREA 6: registrar destinatario TELEGRAM si el caller lo proveyó.
+    # El helper respeta Patrón A (no commit) y la UNIQUE(turno_id, canal).
+    if telegram_chat_id:
+        await upsert_destinatario(
+            db, turno_id=turno.id, canal="TELEGRAM", destinatario=telegram_chat_id
+        )
+
     # Patrón A: el caller (router) hace commit. No hacer commit aquí.
     return turno
 
@@ -155,9 +169,18 @@ async def confirmar_turno(
     - Valida RN-TU-01 atómicamente (SELECT FOR UPDATE sobre turnos del paciente).
     - Registra/identifica al paciente.
     - Actualiza turno a CONFIRMADO, elimina ReservaTemporal.
+    - C-23 TAREA 7: registra/actualiza destinatarios de notificación
+      (TELEGRAM y/o EMAIL) a partir de ``paciente_data``. El alcance es
+      POR-TURNO: cada turno registra SU destinatario, evitando la cross-
+      contamination que existía cuando el chat_id vivía en
+      ``paciente.telegram_chat_id`` (ver bug C-23 — dos turnos del mismo
+      paciente desde chats distintos recibían recordatorios solo en el
+      último chat).
     - Crea evento en Google Calendar y persiste el `google_event_id` retornado.
       Si Calendar falla, el turno sigue CONFIRMADO y `google_event_id` queda NULL;
       no se revierte la confirmación porque la DB es la fuente de verdad.
+
+    Patrón A: no hace commit. El caller (router o scheduler) controla el commit.
     """
     # Bloquear el turno a confirmar y validar ownership
     result = await db.execute(
@@ -208,6 +231,12 @@ async def confirmar_turno(
         delete(ReservaTemporal).where(ReservaTemporal.turno_id == turno_id)
     )
 
+    # C-23 TAREA 7: registrar/actualizar destinatarios de notificación
+    # (TELEGRAM y/o EMAIL) provistos en ``paciente_data``. Patrón A: no
+    # commit. La UNIQUE(turno_id, canal) garantiza a lo sumo un destinatario
+    # por canal por turno.
+    await _upsert_destinatarios_confirmacion(db, turno.id, paciente_data)
+
     # Crear evento en Google Calendar (no bloquea el event loop)
     try:
         # Forzar refresh de relaciones para que CalendarService tenga datos completos
@@ -222,6 +251,49 @@ async def confirmar_turno(
         # No revertimos la confirmación; el turno es la fuente de verdad
 
     return turno
+
+
+async def _upsert_destinatarios_confirmacion(
+    db: AsyncSession,
+    turno_id: int,
+    paciente_data: dict[str, Any],
+) -> None:
+    """C-23 TAREA 7: upsert de destinatarios (TELEGRAM y/o EMAIL) en la
+    confirmación de un turno, según lo provisto en ``paciente_data``.
+
+    Reglas:
+    - ``paciente_data.get("telegram_chat_id")`` truthy → upsert canal TELEGRAM.
+    - ``paciente_data.get("email")`` truthy → upsert canal EMAIL.
+    - Si no se provee ningún canal (OQ-3): log warning y proceder. La
+      confirmación sigue siendo válida; el turno queda sin destinatarios y
+      el recordatorio no se enviará (el recordatorio loggea warning + retorna
+      True, ver ``enviar_recordatorio_telegram``).
+
+    Decisión OQ-3 confirmada: confirmación sin canal = permitir + log +
+    warning (no rechazar). Un paciente que confirma por la web sin Telegram
+    ni email sigue siendo válido.
+
+    Patrón A: no hace commit. El caller (router) controla el commit.
+    """
+    chat_id = paciente_data.get("telegram_chat_id")
+    email = paciente_data.get("email")
+
+    if not chat_id and not email:
+        logger.warning(
+            f"C-23: turno {turno_id} confirmado sin canal de notificación "
+            f"(sin telegram_chat_id ni email). El recordatorio no se enviará."
+        )
+        return
+
+    if chat_id:
+        await upsert_destinatario(
+            db, turno_id=turno_id, canal="TELEGRAM", destinatario=str(chat_id)
+        )
+
+    if email:
+        await upsert_destinatario(
+            db, turno_id=turno_id, canal="EMAIL", destinatario=str(email)
+        )
 
 
 async def liberar_reservas_vencidas(db: AsyncSession, profesional_id: int) -> int:

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.paciente import Paciente
 from app.models.turno import Turno
 from app.models.reserva_temporal import ReservaTemporal
+from app.models.turno_destinatario import TurnoDestinatario
 from app.config import Settings
 from app.exceptions import (
     TurnoNoDisponibleError,
@@ -142,6 +143,99 @@ class TestReservarTurno:
 
         assert turno.estado == "RESERVADO_TEMPORAL"
         assert turno.paciente_id is None
+
+
+# ---------------------------------------------------------------------------
+# C-23 TAREA 6: reserva fija destinatario TELEGRAM
+# ---------------------------------------------------------------------------
+
+class TestReservarTurnoC23:
+    """C-23 TAREA 6: ``reservar_turno`` propaga ``telegram_chat_id`` y registra
+    un ``TurnoDestinatario`` canal=TELEGRAM (Patrón A: no commit)."""
+
+    @pytest.mark.asyncio
+    async def test_reservar_turno_con_telegram_chat_id_registra_destinatario(
+        self, db_session, profesional, test_settings
+    ):
+        """TAREA 6.1 RED→GREEN: ``reservar_turno(..., telegram_chat_id="555001")``
+        deja el turno con un destinatario TELEGRAM="555001".
+        """
+        from app.services.turno_service import reservar_turno
+
+        fecha = date(2026, 6, 15)
+        turno = await reservar_turno(
+            db_session,
+            profesional_id=profesional.id,
+            fecha=fecha,
+            hora_inicio=time(9, 0),
+            paciente_id=None,
+            settings=test_settings,
+            telegram_chat_id="555001",
+        )
+        await db_session.commit()
+
+        assert turno.id is not None
+
+        # El destinatario TELEGRAM debe estar persistido
+        result = await db_session.execute(
+            select(TurnoDestinatario).where(
+                TurnoDestinatario.turno_id == turno.id,
+                TurnoDestinatario.canal == "TELEGRAM",
+            )
+        )
+        dest = result.scalar_one_or_none()
+        assert dest is not None, "Se esperaba un TurnoDestinatario TELEGRAM"
+        assert dest.destinatario == "555001"
+
+    @pytest.mark.asyncio
+    async def test_reservar_turno_sin_telegram_chat_id_no_crea_destinatario(
+        self, db_session, profesional, test_settings
+    ):
+        """TAREA 6.3 TRIANGULATE: ``reservar_turno()`` sin ``telegram_chat_id``
+        (omitido) crea el turno sin destinatarios."""
+        from app.services.turno_service import reservar_turno
+
+        fecha = date(2026, 6, 15)
+        turno = await reservar_turno(
+            db_session,
+            profesional_id=profesional.id,
+            fecha=fecha,
+            hora_inicio=time(9, 0),
+            paciente_id=None,
+            settings=test_settings,
+        )
+        await db_session.commit()
+
+        result = await db_session.execute(
+            select(TurnoDestinatario).where(TurnoDestinatario.turno_id == turno.id)
+        )
+        destinatarios = result.scalars().all()
+        assert destinatarios == [], (
+            "Sin telegram_chat_id no debe haber destinatarios; "
+            f"encontrados: {[d.canal for d in destinatarios]}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_reservar_turno_telegram_chat_id_none_explicito_no_crea_destinatario(
+        self, db_session, profesional, test_settings
+    ):
+        """TAREA 6.3 TRIANGULATE: ``telegram_chat_id=None`` explícito tampoco crea destinatario."""
+        from app.services.turno_service import reservar_turno
+
+        fecha = date(2026, 6, 15)
+        turno = await reservar_turno(
+            db_session,
+            profesional_id=profesional.id,
+            fecha=fecha,
+            hora_inicio=time(9, 0),
+            paciente_id=None,
+            settings=test_settings,
+            telegram_chat_id=None,
+        )
+        await db_session.commit()
+
+        await db_session.refresh(turno, attribute_names=["destinatarios"])
+        assert turno.destinatarios == []
 
 
 # ---------------------------------------------------------------------------
@@ -415,6 +509,357 @@ class TestConfirmarTurno:
         db_turno = result.scalar_one()
         assert db_turno.estado == "CONFIRMADO"
         assert db_turno.google_event_id is None
+
+
+# ---------------------------------------------------------------------------
+# C-23 TAREA 7: confirmación registra/actualiza destinatarios
+# ---------------------------------------------------------------------------
+
+class TestConfirmarTurnoDestinatariosC23:
+    """C-23 TAREA 7: ``confirmar_turno`` registra destinatarios de notificación
+    (TELEGRAM y/o EMAIL) en función de lo provisto en ``paciente_data``.
+
+    Patrón A: ``confirmar_turno`` no hace commit. El caller (router o scheduler)
+    controla el commit.
+
+    Decisiones:
+    - 7.1: ``telegram_chat_id`` en paciente_data → upsert destinatario TELEGRAM.
+    - 7.2: ``email`` en paciente_data → upsert destinatario EMAIL.
+    - 7.3: confirmación sin canal = permitir + log + warning (OQ-3).
+    - 7.4: dos turnos del mismo DNI con chats distintos NO se sobrescriben.
+    """
+
+    @pytest.mark.asyncio
+    async def test_confirmar_turno_con_telegram_chat_id_registra_destinatario(
+        self, db_session, profesional, test_settings
+    ):
+        """TAREA 7.1 RED→GREEN: confirmar con ``telegram_chat_id="555002"`` deja
+        el turno con un destinatario TELEGRAM="555002". El beneficiario se
+        resuelve por DNI vía ``crear_o_obtener_paciente``.
+        """
+        from app.services.turno_service import reservar_turno, confirmar_turno
+
+        fecha = date(2026, 6, 15)
+        turno = await reservar_turno(
+            db_session,
+            profesional_id=profesional.id,
+            fecha=fecha,
+            hora_inicio=time(9, 0),
+            paciente_id=None,
+            settings=test_settings,
+        )
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_123"
+            mock_calendar_cls.return_value = mock_service
+
+            await confirmar_turno(
+                db_session,
+                profesional_id=profesional.id,
+                turno_id=turno.id,
+                paciente_data={
+                    "nombre": "Juan",
+                    "apellido": "Perez",
+                    "dni": "12345678",
+                    "telefono": "555-1234",
+                    "telegram_chat_id": "555002",
+                },
+            )
+
+        await db_session.commit()
+        await db_session.refresh(turno, attribute_names=["destinatarios"])
+
+        telegram_dests = [d for d in turno.destinatarios if d.canal == "TELEGRAM"]
+        assert len(telegram_dests) == 1, (
+            f"Se esperaba exactamente 1 destinatario TELEGRAM, "
+            f"encontrados: {[(d.canal, d.destinatario) for d in turno.destinatarios]}"
+        )
+        assert telegram_dests[0].destinatario == "555002"
+
+    @pytest.mark.asyncio
+    async def test_confirmar_turno_con_email_registra_destinatario(
+        self, db_session, profesional, test_settings
+    ):
+        """TAREA 7.3 TRIANGULATE: confirmar con ``email="user@example.com"``
+        (sin telegram_chat_id) registra destinatario EMAIL.
+        """
+        from app.services.turno_service import reservar_turno, confirmar_turno
+
+        fecha = date(2026, 6, 15)
+        turno = await reservar_turno(
+            db_session,
+            profesional_id=profesional.id,
+            fecha=fecha,
+            hora_inicio=time(9, 0),
+            paciente_id=None,
+            settings=test_settings,
+        )
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_123"
+            mock_calendar_cls.return_value = mock_service
+
+            await confirmar_turno(
+                db_session,
+                profesional_id=profesional.id,
+                turno_id=turno.id,
+                paciente_data={
+                    "nombre": "Juan",
+                    "apellido": "Perez",
+                    "dni": "12345678",
+                    "telefono": "555-1234",
+                    "email": "user@example.com",
+                },
+            )
+
+        await db_session.commit()
+        await db_session.refresh(turno, attribute_names=["destinatarios"])
+
+        email_dests = [d for d in turno.destinatarios if d.canal == "EMAIL"]
+        assert len(email_dests) == 1
+        assert email_dests[0].destinatario == "user@example.com"
+        # Sin telegram_chat_id no debe haber destinatario TELEGRAM
+        assert not any(d.canal == "TELEGRAM" for d in turno.destinatarios)
+
+    @pytest.mark.asyncio
+    async def test_confirmar_turno_con_ambos_canales_registra_ambos(
+        self, db_session, profesional, test_settings
+    ):
+        """TAREA 7.3 TRIANGULATE: confirmar con ambos canales (telegram + email)
+        registra ambos destinatarios en el mismo turno.
+        """
+        from app.services.turno_service import reservar_turno, confirmar_turno
+
+        fecha = date(2026, 6, 15)
+        turno = await reservar_turno(
+            db_session,
+            profesional_id=profesional.id,
+            fecha=fecha,
+            hora_inicio=time(9, 0),
+            paciente_id=None,
+            settings=test_settings,
+        )
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_123"
+            mock_calendar_cls.return_value = mock_service
+
+            await confirmar_turno(
+                db_session,
+                profesional_id=profesional.id,
+                turno_id=turno.id,
+                paciente_data={
+                    "nombre": "Juan",
+                    "apellido": "Perez",
+                    "dni": "12345678",
+                    "telefono": "555-1234",
+                    "telegram_chat_id": "555002",
+                    "email": "user@example.com",
+                },
+            )
+
+        await db_session.commit()
+        await db_session.refresh(turno, attribute_names=["destinatarios"])
+
+        canales = {d.canal for d in turno.destinatarios}
+        assert canales == {"TELEGRAM", "EMAIL"}
+        tg = next(d for d in turno.destinatarios if d.canal == "TELEGRAM")
+        em = next(d for d in turno.destinatarios if d.canal == "EMAIL")
+        assert tg.destinatario == "555002"
+        assert em.destinatario == "user@example.com"
+
+    @pytest.mark.asyncio
+    async def test_confirmar_turno_sin_canales_no_crea_destinatarios(
+        self, db_session, profesional, test_settings
+    ):
+        """TAREA 7.3 (OQ-3): confirmar sin telegram_chat_id ni email → turno
+        CONFIRMADO sin destinatarios y warning loggeado (no rechaza).
+        """
+        from app.services.turno_service import reservar_turno, confirmar_turno
+
+        fecha = date(2026, 6, 15)
+        turno = await reservar_turno(
+            db_session,
+            profesional_id=profesional.id,
+            fecha=fecha,
+            hora_inicio=time(9, 0),
+            paciente_id=None,
+            settings=test_settings,
+        )
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_123"
+            mock_calendar_cls.return_value = mock_service
+
+            with patch("app.services.turno_service.logger") as mock_logger:
+                confirmado = await confirmar_turno(
+                    db_session,
+                    profesional_id=profesional.id,
+                    turno_id=turno.id,
+                    paciente_data={
+                        "nombre": "Juan",
+                        "apellido": "Perez",
+                        "dni": "12345678",
+                        "telefono": "555-1234",
+                    },
+                )
+
+        assert confirmado.estado == "CONFIRMADO"
+        await db_session.commit()
+        await db_session.refresh(turno, attribute_names=["destinatarios"])
+        assert turno.destinatarios == [], (
+            f"Sin canales no debe haber destinatarios; "
+            f"encontrados: {[(d.canal, d.destinatario) for d in turno.destinatarios]}"
+        )
+        # El logger.warning debe haber sido invocado con un mensaje
+        # que mencione "canal" o "destinatario" (OQ-3: log + warning).
+        warning_calls = [
+            c for c in mock_logger.warning.call_args_list
+            if "canal" in str(c).lower() or "destinatario" in str(c).lower()
+        ]
+        assert warning_calls, (
+            "Se esperaba un logger.warning por la confirmación sin canal. "
+            f"Calls: {mock_logger.warning.call_args_list}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_confirmar_turno_no_sobrescribe_destinatario_entre_turnos_mismo_dni(
+        self, db_session, profesional, test_settings
+    ):
+        """TAREA 7.4 CRÍTICO — RED/GREEN: dos turnos del mismo paciente (mismo
+        DNI) reservados desde chats distintos deben recibir recordatorios en
+        SU chat respectivo. No cross-contamination.
+
+        Escenario:
+        - Paciente DNI X reserva turno 1 (slot 09:00) desde chat A → CONFIRMADO.
+        - Cancelamos turno 1 (libera el slot activo y permite nuevo booking).
+        - Mismo paciente DNI X reserva turno 2 (slot 10:00) desde chat B → CONFIRMADO.
+        - Verificamos: turno 1 conserva destinatario TELEGRAM=A;
+          turno 2 tiene destinatario TELEGRAM=B. Ninguno sobrescribió al otro.
+        """
+        from app.services.turno_service import (
+            reservar_turno,
+            confirmar_turno,
+            cancelar_turno,
+        )
+
+        fecha = date(2026, 6, 15)
+        dni = "12345678"
+
+        # Turno 1: reservar y confirmar desde chat A
+        turno_1 = await reservar_turno(
+            db_session,
+            profesional_id=profesional.id,
+            fecha=fecha,
+            hora_inicio=time(9, 0),
+            paciente_id=None,
+            settings=test_settings,
+        )
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_1"
+            mock_calendar_cls.return_value = mock_service
+
+            await confirmar_turno(
+                db_session,
+                profesional_id=profesional.id,
+                turno_id=turno_1.id,
+                paciente_data={
+                    "nombre": "Juan",
+                    "apellido": "Perez",
+                    "dni": dni,
+                    "telefono": "555-1234",
+                    "telegram_chat_id": "chat_A",
+                },
+            )
+        await db_session.commit()
+        await db_session.refresh(turno_1, attribute_names=["destinatarios"])
+
+        # Verificación inmediata: turno 1 tiene destinatario TELEGRAM=A
+        tg_1 = [d for d in turno_1.destinatarios if d.canal == "TELEGRAM"]
+        assert len(tg_1) == 1
+        assert tg_1[0].destinatario == "chat_A"
+
+        # Cancelar turno 1 (libera el slot activo para el paciente)
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_calendar_cls.return_value = mock_service
+            await cancelar_turno(
+                db_session, profesional_id=profesional.id, turno_id=turno_1.id
+            )
+        await db_session.commit()
+        await db_session.refresh(turno_1, attribute_names=["destinatarios"])
+
+        # El destinatario de turno 1 debe persistir (CANCELADO no borra destinatarios)
+        tg_1_post = [d for d in turno_1.destinatarios if d.canal == "TELEGRAM"]
+        assert len(tg_1_post) == 1
+        assert tg_1_post[0].destinatario == "chat_A", (
+            "Cancelar no debe eliminar destinatarios del turno cancelado"
+        )
+
+        # Turno 2: mismo paciente (mismo DNI), distinto chat
+        turno_2 = await reservar_turno(
+            db_session,
+            profesional_id=profesional.id,
+            fecha=fecha,
+            hora_inicio=time(10, 0),
+            paciente_id=None,
+            settings=test_settings,
+        )
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_2"
+            mock_calendar_cls.return_value = mock_service
+
+            await confirmar_turno(
+                db_session,
+                profesional_id=profesional.id,
+                turno_id=turno_2.id,
+                paciente_data={
+                    "nombre": "Juan",
+                    "apellido": "Perez",
+                    "dni": dni,
+                    "telefono": "555-1234",
+                    "telegram_chat_id": "chat_B",
+                },
+            )
+        await db_session.commit()
+        await db_session.refresh(turno_1, attribute_names=["destinatarios"])
+        await db_session.refresh(turno_2, attribute_names=["destinatarios"])
+
+        # ASERCIONES CRÍTICAS (C-23 fix):
+        # - turno 1 (CANCELADO) SIGUE con destinatario TELEGRAM=A
+        # - turno 2 (CONFIRMADO) tiene destinatario TELEGRAM=B
+        # - Ninguno sobrescribió al otro
+        tg_1_final = [d for d in turno_1.destinatarios if d.canal == "TELEGRAM"]
+        tg_2_final = [d for d in turno_2.destinatarios if d.canal == "TELEGRAM"]
+
+        assert len(tg_1_final) == 1, (
+            f"turno 1 debe conservar su destinatario TELEGRAM. "
+            f"Encontrados: {[(d.canal, d.destinatario) for d in turno_1.destinatarios]}"
+        )
+        assert tg_1_final[0].destinatario == "chat_A", (
+            f"turno 1.debía conservar chat_A, no fue sobrescrito por turno 2. "
+            f"Encontrado: {tg_1_final[0].destinatario}"
+        )
+
+        assert len(tg_2_final) == 1, (
+            f"turno 2 debe tener su destinatario TELEGRAM=B. "
+            f"Encontrados: {[(d.canal, d.destinatario) for d in turno_2.destinatarios]}"
+        )
+        assert tg_2_final[0].destinatario == "chat_B", (
+            f"turno 2.debía tener chat_B. Encontrado: {tg_2_final[0].destinatario}"
+        )
+
+        # Los destinatarios de ambos turnos son DIFERENTES (no es el mismo row)
+        assert tg_1_final[0].id != tg_2_final[0].id, (
+            "El destinatario de turno 1 no debe ser el mismo objeto que el de "
+            "turno 2 — son destinatarios distintos en rows distintos."
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -473,7 +473,17 @@ async def accion_reservar_temporal(db, chat_id: int, fecha: str, hora: str, prof
     try:
         fecha_dt = date.fromisoformat(fecha)
         hora_dt = time.fromisoformat(hora)
-        turno = await reservar_turno(db, profesional_id=profesional_id, fecha=fecha_dt, hora_inicio=hora_dt)
+        # C-23 TAREA 6: propagar el chat_id del update de Telegram como
+        # destinatario TELEGRAM del turno. El bot conoce el chat_id del
+        # mensaje que disparó la reserva; sin pasarlo, el recordatorio del
+        # turno queda sin destinatario.
+        turno = await reservar_turno(
+            db,
+            profesional_id=profesional_id,
+            fecha=fecha_dt,
+            hora_inicio=hora_dt,
+            telegram_chat_id=str(chat_id),
+        )
         state = _get_state(chat_id)
         state["turno_temporal_id"] = turno.id
         texto = (
@@ -492,6 +502,15 @@ async def accion_confirmar_turno(db, chat_id: int, datos: dict[str, str], profes
     turno_id = state.get("turno_temporal_id")
     if turno_id is None:
         return format_error("No hay una reserva para confirmar")
+
+    # C-23 TAREA 7.5: garantizar que el chat_id del update de Telegram
+    # viaje en paciente_data para que ``confirmar_turno`` registre el
+    # destinatario TELEGRAM del turno. El parser de ``esperando_datos`` ya
+    # lo incluye, pero este fallback cubre el caso de un ``datos`` provisto
+    # por otro path (o por un test que llama a ``accion_confirmar_turno``
+    # directamente).
+    datos = dict(datos)  # copia defensiva: no mutar el state
+    datos.setdefault("telegram_chat_id", str(chat_id))
 
     try:
         turno = await confirmar_turno(db, profesional_id=profesional_id, turno_id=turno_id, paciente_data=datos)
@@ -763,6 +782,13 @@ async def procesar_mensaje(db, update: dict[str, Any], profesional_id: int) -> N
                 state["estado"] = "esperando_confirmacion"
                 # In a real flow, datos_paciente would have been collected earlier
                 datos = state.get("datos_paciente") or {"nombre": "", "apellido": "", "dni": "", "telefono": ""}
+                # C-23 TAREA 7.5: garantizar que el chat_id del update
+                # original viaje en paciente_data para que ``confirmar_turno``
+                # registre el destinatario TELEGRAM del turno. El parser del
+                # paso ``esperando_datos`` ya lo incluye, pero este fallback
+                # cubre el edge case de un ``datos_paciente`` provisto por
+                # otro path.
+                datos.setdefault("telegram_chat_id", str(chat_id))
                 texto = await accion_confirmar_turno(db, chat_id, datos, profesional_id)
                 await enviar_mensaje_con_log(chat_id, texto, bot_token, "confirmacion:datos")
                 return
@@ -896,11 +922,19 @@ async def procesar_mensaje(db, update: dict[str, Any], profesional_id: int) -> N
                 # Simple CSV parsing: nombre, apellido, dni, telefono
                 parts = [p.strip() for p in text.split(",")]
                 if len(parts) >= 4:
+                    # C-23 TAREA 7.5: el chat_id del update de Telegram que
+                    # disparó la reserva/confirmación viaja como
+                    # ``telegram_chat_id`` en el ``paciente_data`` que
+                    # ``confirmar_turno`` recibe. Esto permite que el turno
+                    # registre el destinatario TELEGRAM a nivel de TURNO (no
+                    # de paciente), evitando el bug de cross-contamination
+                    # entre chats del mismo DNI.
                     state["datos_paciente"] = {
                         "nombre": parts[0],
                         "apellido": parts[1],
                         "dni": parts[2],
                         "telefono": parts[3],
+                        "telegram_chat_id": str(chat_id),
                     }
                     state["estado"] = "esperando_confirmacion"
                     datos = state["datos_paciente"]

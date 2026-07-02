@@ -7,6 +7,7 @@ from app.models.profesional import Profesional
 from app.models.paciente import Paciente
 from app.models.turno import Turno
 from app.models.reserva_temporal import ReservaTemporal
+from app.models.turno_destinatario import TurnoDestinatario
 from sqlalchemy import select, delete
 
 
@@ -105,6 +106,51 @@ class TestTurnosRouter:
             json={"fecha": "2026-06-15", "hora_inicio": "09:00"},
         )
         assert r2.status_code == status.HTTP_409_CONFLICT
+
+    # -----------------------------------------------------------------------
+    # POST /turnos — C-23 TAREA 6: propagación de telegram_chat_id
+    # -----------------------------------------------------------------------
+    @pytest.mark.asyncio
+    async def test_post_turnos_con_telegram_chat_id_registra_destinatario(
+        self, authenticated_client, db_session, profesional
+    ):
+        """TAREA 6.4: POST /turnos con telegram_chat_id deja el destinatario
+        TELEGRAM persistido en ``turno_destinatario``."""
+        response = authenticated_client.post(
+            "/turnos",
+            json={"fecha": "2026-06-15", "hora_inicio": "09:00", "telegram_chat_id": "555001"},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        turno_id = data["id"]
+
+        result = await db_session.execute(
+            select(TurnoDestinatario).where(
+                TurnoDestinatario.turno_id == turno_id,
+                TurnoDestinatario.canal == "TELEGRAM",
+            )
+        )
+        dest = result.scalar_one_or_none()
+        assert dest is not None
+        assert dest.destinatario == "555001"
+
+    @pytest.mark.asyncio
+    async def test_post_turnos_sin_telegram_chat_id_no_crea_destinatario(
+        self, authenticated_client, db_session, profesional
+    ):
+        """TAREA 6.4: POST /turnos sin telegram_chat_id NO crea destinatario
+        (reserva válida igual, recordatorio no se envía)."""
+        response = authenticated_client.post(
+            "/turnos",
+            json={"fecha": "2026-06-15", "hora_inicio": "09:00"},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        turno_id = response.json()["id"]
+
+        result = await db_session.execute(
+            select(TurnoDestinatario).where(TurnoDestinatario.turno_id == turno_id)
+        )
+        assert result.scalars().all() == []
 
     # -----------------------------------------------------------------------
     # PUT /turnos/{id}/confirmar
@@ -222,6 +268,182 @@ class TestTurnosRouter:
             },
         )
         assert response.status_code == status.HTTP_409_CONFLICT
+
+    # -----------------------------------------------------------------------
+    # C-23 TAREA 7.5: integración — PUT confirmar registra destinatarios
+    # -----------------------------------------------------------------------
+    @pytest.mark.asyncio
+    async def test_put_turnos_confirmar_con_telegram_chat_id_registra_destinatario(
+        self, authenticated_client, db_session, profesional
+    ):
+        """C-23 TAREA 7.5: PUT /turnos/{id}/confirmar con ``telegram_chat_id``
+        registra un ``TurnoDestinatario`` canal=TELEGRAM. El campo
+        ``telegram_chat_id`` viaja en ``data.model_dump()`` y es propagado
+        a ``confirmar_turno`` que hace el upsert (TAREA 7.1-7.2).
+        """
+        r1 = authenticated_client.post(
+            "/turnos",
+            json={"fecha": "2026-06-15", "hora_inicio": "09:00"},
+        )
+        turno_id = r1.json()["id"]
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_123"
+            mock_calendar_cls.return_value = mock_service
+
+            response = authenticated_client.put(
+                f"/turnos/{turno_id}/confirmar",
+                json={
+                    "nombre": "Juan",
+                    "apellido": "Perez",
+                    "dni": "12345678",
+                    "telefono": "555-1234",
+                    "telegram_chat_id": "555002",
+                },
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["estado"] == "CONFIRMADO"
+
+        # Verificar que el destinatario TELEGRAM quedó persistido
+        result = await db_session.execute(
+            select(TurnoDestinatario).where(
+                TurnoDestinatario.turno_id == turno_id,
+                TurnoDestinatario.canal == "TELEGRAM",
+            )
+        )
+        dest = result.scalar_one_or_none()
+        assert dest is not None, (
+            f"Se esperaba destinatario TELEGRAM para turno {turno_id}"
+        )
+        assert dest.destinatario == "555002"
+
+    @pytest.mark.asyncio
+    async def test_put_turnos_confirmar_con_email_registra_destinatario(
+        self, authenticated_client, db_session, profesional
+    ):
+        """C-23 TAREA 7.5: PUT /turnos/{id}/confirmar con ``email`` registra
+        un ``TurnoDestinatario`` canal=EMAIL. El campo ``email`` ya existía
+        en el schema; ahora se persiste como destinatario.
+        """
+        r1 = authenticated_client.post(
+            "/turnos",
+            json={"fecha": "2026-06-15", "hora_inicio": "09:00"},
+        )
+        turno_id = r1.json()["id"]
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_123"
+            mock_calendar_cls.return_value = mock_service
+
+            response = authenticated_client.put(
+                f"/turnos/{turno_id}/confirmar",
+                json={
+                    "nombre": "Juan",
+                    "apellido": "Perez",
+                    "dni": "12345678",
+                    "telefono": "555-1234",
+                    "email": "user@example.com",
+                },
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+
+        result = await db_session.execute(
+            select(TurnoDestinatario).where(
+                TurnoDestinatario.turno_id == turno_id,
+                TurnoDestinatario.canal == "EMAIL",
+            )
+        )
+        dest = result.scalar_one_or_none()
+        assert dest is not None
+        assert dest.destinatario == "user@example.com"
+
+    @pytest.mark.asyncio
+    async def test_put_turnos_confirmar_con_ambos_canales_registra_ambos(
+        self, authenticated_client, db_session, profesional
+    ):
+        """C-23 TAREA 7.5: PUT /turnos/{id}/confirmar con AMBOS canales
+        (``telegram_chat_id`` + ``email``) registra ambos destinatarios.
+        """
+        r1 = authenticated_client.post(
+            "/turnos",
+            json={"fecha": "2026-06-15", "hora_inicio": "09:00"},
+        )
+        turno_id = r1.json()["id"]
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_123"
+            mock_calendar_cls.return_value = mock_service
+
+            response = authenticated_client.put(
+                f"/turnos/{turno_id}/confirmar",
+                json={
+                    "nombre": "Juan",
+                    "apellido": "Perez",
+                    "dni": "12345678",
+                    "telefono": "555-1234",
+                    "telegram_chat_id": "555002",
+                    "email": "user@example.com",
+                },
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+
+        result = await db_session.execute(
+            select(TurnoDestinatario).where(TurnoDestinatario.turno_id == turno_id)
+        )
+        destinatarios = result.scalars().all()
+        canales = {d.canal for d in destinatarios}
+        assert canales == {"TELEGRAM", "EMAIL"}
+        tg = next(d for d in destinatarios if d.canal == "TELEGRAM")
+        em = next(d for d in destinatarios if d.canal == "EMAIL")
+        assert tg.destinatario == "555002"
+        assert em.destinatario == "user@example.com"
+
+    @pytest.mark.asyncio
+    async def test_put_turnos_confirmar_sin_canales_no_crea_destinatarios(
+        self, authenticated_client, db_session, profesional
+    ):
+        """C-23 TAREA 7.5 + OQ-3: PUT /turnos/{id}/confirmar SIN canales
+        (sin telegram_chat_id, sin email) → 200 OK y el turno queda CONFIRMADO
+        sin destinatarios. OQ-3: no rechazar.
+        """
+        r1 = authenticated_client.post(
+            "/turnos",
+            json={"fecha": "2026-06-15", "hora_inicio": "09:00"},
+        )
+        turno_id = r1.json()["id"]
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_123"
+            mock_calendar_cls.return_value = mock_service
+
+            response = authenticated_client.put(
+                f"/turnos/{turno_id}/confirmar",
+                json={
+                    "nombre": "Juan",
+                    "apellido": "Perez",
+                    "dni": "12345678",
+                    "telefono": "555-1234",
+                },
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["estado"] == "CONFIRMADO"
+
+        result = await db_session.execute(
+            select(TurnoDestinatario).where(TurnoDestinatario.turno_id == turno_id)
+        )
+        destinatarios = result.scalars().all()
+        assert destinatarios == [], (
+            f"Sin canales no debe haber destinatarios; "
+            f"encontrados: {[(d.canal, d.destinatario) for d in destinatarios]}"
+        )
 
     # -----------------------------------------------------------------------
     # PUT /turnos/{id}/cancelar
