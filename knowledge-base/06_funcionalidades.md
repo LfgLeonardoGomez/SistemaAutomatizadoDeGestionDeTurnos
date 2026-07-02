@@ -10,14 +10,17 @@ Organizadas por **épica** y luego por **historia de usuario** (formato US-NNN).
 **Para** agendar una cita de forma rápida y sin necesidad de llamar por teléfono
 
 **Criterios de aceptación**:
-- [x] El bot responde al mensaje "Quiero un turno" con las fechas disponibles.
+- [x] El bot responde al mensaje "Quiero un turno" o `/reservar` con las fechas disponibles.
 - [x] El usuario puede seleccionar una fecha y ver los horarios disponibles.
 - [x] Al seleccionar un horario, el sistema bloquea temporalmente la franja (RESERVADO_TEMPORAL).
 - [x] El sistema solicita nombre, apellido y DNI del paciente.
 - [x] El usuario confirma el turno y el sistema cambia el estado a CONFIRMADO.
 - [x] Se envía confirmación al usuario y se crea el evento en Google Calendar.
+- [x] **(C-24)** El bot es atendido por el **orquestador n8n** (`orquestador.json` + `sub-flujo-crear-turno.json`), que llama al backend con `X-API-Key` por profesional.
+- [x] **(C-23)** El turno queda con su destinatario `TELEGRAM` (y opcionalmente `EMAIL`) en `turno_destinatario`, no en una columna del paciente.
+- [x] **(C-23)** El beneficiario se resuelve por DNI scoped por profesional (`UNIQUE(profesional_id, dni)`); no se hardcodea `paciente_id` en el body de la reserva.
 
-**Reglas relacionadas**: RN-TU-01, RN-TU-03, RN-TU-06, RN-TU-07, RN-PA-01, RN-PA-02
+**Reglas relacionadas**: RN-TU-01, RN-TU-03, RN-TU-06, RN-TU-07, RN-PA-01, RN-PA-02, RN-RE-03
 
 ### US-002 — Expiración automática de reserva temporal
 **Como** sistema
@@ -80,8 +83,11 @@ Organizadas por **épica** y luego por **historia de usuario** (formato US-NNN).
 - [x] El scheduler detecta turnos próximos y dispara el envío de mensajes.
 - [x] El mensaje incluye fecha, hora y opciones para confirmar, cancelar o reprogramar.
 - [x] El paciente puede interactuar directamente desde el mensaje de recordatorio.
+- [x] **(C-24)** El envío puede dispararse por **dos motores**: n8n (`flujo-recordatorio.json` con `Schedule Trigger` cron diario → `POST /api/v1/recordatorios/run?fecha=mañana`) **o** APScheduler del backend (fallback). El flag `turno.recordatorio_enviado` evita doble dispatch entre ambos.
+- [x] **(C-23)** El destinatario del recordatorio se lee del `turno_destinatario` (canal `TELEGRAM`), no de `paciente.telegram_chat_id` (que ya no existe).
+- [x] **(C-23)** Si el turno no tiene destinatario `TELEGRAM`, el envío se omite con warning y `recordatorio_enviado` se marca `True` (sin reintento — RN-RE-05).
 
-**Reglas relacionadas**: RN-RE-01, RN-RE-02
+**Reglas relacionadas**: RN-RE-01, RN-RE-02, RN-RE-03, RN-RE-04, RN-RE-05, RN-RE-06
 
 ## Épica 4: Lista de espera
 

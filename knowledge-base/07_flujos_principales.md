@@ -4,34 +4,33 @@ Cada flujo se documenta extremo a extremo, mostrando interacciones entre compone
 
 ## Flujo 1: Reserva de turno
 
-**Disparador**: El usuario envía "Quiero un turno" al bot de Telegram.
+**Disparador**: El usuario envía "Quiero un turno" (o `/reservar`) al bot de Telegram.
 **Actor**: Paciente.
 
-**Pasos**:
-1. **Telegram** recibe el mensaje y envía el webhook al backend (n8n o FastAPI directamente).
-2. **n8n** (si actúa como proxy/orquestador) reenvía la solicitud al **FastAPI** backend.
-3. **FastAPI** consulta la **Base de Datos (PostgreSQL)** para obtener disponibilidad según configuración del profesional.
-4. **FastAPI** devuelve las fechas disponibles al usuario vía respuesta a n8n → Telegram.
-5. El usuario selecciona fecha → **FastAPI** consulta horarios disponibles (filtrando CONFIRMADOS y RESERVADOS_TEMPORAL).
-6. El usuario selecciona horario → **FastAPI** crea el Turno en estado `RESERVADO_TEMPORAL` y genera una **ReservaTemporal** con tiempo de expiración.
-7. **FastAPI** solicita datos del paciente (nombre, apellido, DNI).
-8. El usuario ingresa datos y confirma → **FastAPI**:
-   - Valida que el paciente no tenga otro turno activo (RN-TU-01).
-   - Registra o identifica al **Paciente** en la base de datos.
-   - Actualiza el Turno a `CONFIRMADO`.
-   - Elimina la **ReservaTemporal**.
-   - Crea el evento en **Google Calendar**.
-   - Envía confirmación al usuario vía **Telegram**.
+**Pasos (C-24 — topología orquestador)**:
+1. **Telegram** entrega el update al `Telegram Trigger` del **orquestador** (`orquestador.json`, configurado en `@BotFather`).
+2. El nodo `Code "Normalizar Comando"` del orquestador extrae `message.text` (o `callback_query.data`) y deriva `comando = "crear"`.
+3. El `Switch Comando` dispatch-ea a `sub-flujo-crear-turno.json` vía `executeWorkflow`.
+4. **sub-flujo-crear-turno** (stateless) ejecuta el wizard con `Send and Wait for Response`:
+   - Lista fechas disponibles llamando a `GET /turnos/disponibles` (Header Auth: `X-API-Key` del profesional del bot).
+   - Lista horarios disponibles para la fecha seleccionada.
+   - Crea reserva llamando a `POST /turnos` con `telegram_chat_id` opcional (C-23: si viene, se registra destinatario `TELEGRAM`; si no, se difiere a confirmación).
+5. El sub-workflow pide los datos del paciente (nombre, apellido, DNI, teléfono, email opcional) como CSV parseado por coma.
+6. El usuario confirma → **sub-flujo** llama a `PUT /turnos/{id}/confirmar` con `paciente_data` (incluye `telegram_chat_id`).
+7. **FastAPI** resuelve beneficiario por DNI vía `crear_o_obtener_paciente` (DNI scoped por profesional — `UNIQUE(profesional_id, dni)`), hace **upsert** de destinatarios `TELEGRAM` (y `EMAIL` si vino) en `turno_destinatario`, valida RN-TU-01, actualiza el Turno a `CONFIRMADO`, elimina la `ReservaTemporal`, crea el evento en **Google Calendar**.
+8. **FastAPI** responde 200 al sub-workflow, que envía confirmación al usuario vía **Telegram**.
 
-**Diagrama de secuencia** (simplificado):
+**Diagrama de secuencia** (C-24 — orquestador):
 ```
-Paciente → Telegram → n8n → FastAPI → PostgreSQL
-                          ← respuesta (fechas)
-Paciente → Telegram → n8n → FastAPI → PostgreSQL
-                          ← respuesta (horarios)
-Paciente → Telegram → n8n → FastAPI → PostgreSQL
-                                    → Google Calendar
-                          ← confirmación
+Paciente → Telegram → @BotFather → orquestador.json
+                                        └→ Code normalizar → Switch "crear"
+                                            └→ executeWorkflow → sub-flujo-crear-turno
+                                                ├→ GET /turnos/disponibles (X-API-Key)
+                                                ├→ POST /turnos {telegram_chat_id}        (Header Auth)
+                                                └→ PUT /turnos/{id}/confirmar             (Header Auth)
+                                                    └→ upsert TurnoDestinatario (TELEGRAM/EMAIL)
+                                                    └→ Google Calendar
+                                                    └→ Telegram send (confirmación)
 ```
 
 **Casos de error**:
@@ -39,6 +38,8 @@ Paciente → Telegram → n8n → FastAPI → PostgreSQL
 - Paciente con turno activo → Bloquear nueva reserva y ofrecer reprogramación.
 - Falla de Google Calendar → Registrar error, reintentar, notificar al profesional si persiste.
 - Expiración de reserva temporal → Scheduler libera el turno, notifica al usuario.
+- `X-API-Key` inválida o faltante → 401; el sub-workflow no avanza (el orquestador recibe el error y puede responder "Servicio no disponible, intentá más tarde").
+- Turno sin destinatario `TELEGRAM` al confirmar → se permite y el recordatorio posterior hace no-op con warning (RN-RE-05).
 
 ---
 
@@ -88,19 +89,53 @@ Paciente → Telegram → n8n → FastAPI → PostgreSQL
 
 ## Flujo 4: Recordatorio automático
 
-**Disparador**: Scheduler (APScheduler) detecta turnos confirmados en las próximas 24 horas.
+**Disparador (C-24)**: **dos motores independientes** comparten la responsabilidad.
+- **n8n primario**: `flujo-recordatorio.json` con `Schedule Trigger` cron `0 10 * * *` (default 10:00 hora local).
+- **APScheduler fallback**: job interno en el backend (`scheduler.jobs._enviar_recordatorios_job`, C-08).
+
+El flag `turno.recordatorio_enviado` en la DB evita doble dispatch entre los dos motores. En v1.0 se recomienda activar **solo uno** por profesional.
+
 **Actor**: Sistema automatizado.
 
-**Pasos**:
-1. **Scheduler** ejecuta tarea programada cada X minutos (o una vez al día).
-2. **Scheduler** consulta **PostgreSQL** por turnos `CONFIRMADO` con fecha/hora dentro de las próximas 24h y sin recordatorio enviado.
-3. **FastAPI** (o el scheduler directamente) envía mensaje de recordatorio al paciente vía **Telegram**.
-4. El mensaje incluye opciones interactivas: **Confirmar**, **Cancelar**, **Reprogramar**.
-5. Según la respuesta del paciente, se dispara Flujo 1 (si reprograma), Flujo 2 (si cancela) o se marca como confirmado.
+**Pasos (camino n8n primario, C-24)**:
+1. **n8n** (`Schedule Trigger` cron) ejecuta `flujo-recordatorio.json`.
+2. El nodo `Code "Calcular Fecha Mañana"` calcula `fecha_maniana` (YYYY-MM-DD).
+3. **HTTP Request** → `POST {BACKEND_URL}/api/v1/recordatorios/run?fecha={fecha_maniana}` con Header Auth `X-API-Key`.
+4. **FastAPI** autentica al caller, calcula la ventana de horas (heurística `(fecha - hoy).days * 24 + 12`).
+5. **FastAPI** itera por `Profesional where is_active=True`. Para cada uno:
+   - Llama a `obtener_turnos_para_recordar(db, profesional_id, horas_antes)` → turnos `CONFIRMADO` con `recordatorio_enviado=False` en la ventana.
+   - Para cada turno: `enviar_recordatorio_telegram(turno, bot_token=profesional.telegram_bot_token)` lee el destinatario `TELEGRAM` de `turno.destinatarios` (C-23) y envía el mensaje.
+   - Si envío OK o no hay destinatario → `marcar_recordatorio_enviado(db, turno.id, profesional.id)`.
+   - `commit` por profesional (Patrón A).
+6. **FastAPI** responde `RecordatorioRunResponse { total_candidatos, total_enviados, total_fallidos, errores }` (200 OK). Errores por turno/profesional no rompen el batch.
+
+**Pasos (camino APScheduler fallback, C-08)**:
+1. **APScheduler** del backend dispara el job a la hora configurada.
+2. El job invoca la misma lógica de `notificacion_service` (`obtener_turnos_para_recordar` + `enviar_recordatorio_telegram` + `marcar_recordatorio_enviado`).
+3. Si n8n ya marcó el flag, el query de `obtener_turnos_para_recordar` no retorna esos turnos.
+
+**Diagrama de secuencia (C-24)**:
+```
+   n8n (cron 0 10 * * *)                    APScheduler (fallback)
+        │                                            │
+        ├─ Code: fecha_maniana                       ├─ job interno
+        │                                            │
+        └─ POST /api/v1/recordatorios/run?fecha=X    └─ llama notificacion_service
+                    │                                       │
+                    ├─ itera Profesionales activos ─────────┤
+                    │                                       │
+                    ├─ obtener_turnos_para_recordar        │
+                    ├─ enviar_recordatorio_telegram (lee TurnoDestinatario.C-23)
+                    └─ marcar_recordatorio_enviado
+                                  │
+                                  └─ Telegram API → paciente
+```
 
 **Casos de error**:
 - Paciente no responde → Sin acción adicional; el turno sigue CONFIRMADO.
-- Falla de envío de Telegram → Reintentar y registrar en logs.
+- Falla de envío de Telegram → El turno queda con `recordatorio_enviado=False` y se reintenta en el próximo run (acumulado en `total_fallidos`/`errores`).
+- Turno sin destinatario `TELEGRAM` configurado → se omite con warning y se marca `recordatorio_enviado=True` (no se reintenta) — RN-RE-05.
+- Ambos motores activos → el segundo motor skipea los turnos ya marcados (sin doble dispatch).
 
 ---
 

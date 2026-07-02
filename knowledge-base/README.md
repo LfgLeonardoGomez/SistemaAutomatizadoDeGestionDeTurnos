@@ -7,15 +7,16 @@ Base de conocimiento generada a partir del documento fuente `docs/Cuarta iteraci
 | Archivo | Contenido |
 |---------|-----------|
 | [01_vision_y_objetivos.md](01_vision_y_objetivos.md) | Proposito, objetivos por actor, alcance v1.0, fuera de alcance, metricas de exito |
-| [02_descripcion_general.md](02_descripcion_general.md) | Stack tecnologico, arquitectura general, integraciones externas, API REST |
-| [03_actores_y_roles.md](03_actores_y_roles.md) | Actores del sistema, matriz RBAC, rutas publicas |
-| [04_modelo_de_datos.md](04_modelo_de_datos.md) | Dominios, ERD, entidades (Paciente, Profesional, Turno, ReservaTemporal, ListaDeEspera), seed data |
-| [05_reglas_de_negocio.md](05_reglas_de_negocio.md) | Reglas codificadas por dominio: Turnos, Pacientes, Recordatorios, Lista de Espera, Excepciones globales |
+| [02_descripcion_general.md](02_descripcion_general.md) | Stack tecnologico, arquitectura general (orquestador n8n C-24), integraciones externas, API REST |
+| [03_actores_y_roles.md](03_actores_y_roles.md) | Actores del sistema (incluye n8n orquestador C-24), matriz RBAC, rutas publicas |
+| [04_modelo_de_datos.md](04_modelo_de_datos.md) | Dominios, ERD, entidades (Paciente, Profesional, Turno, TurnoDestinatario C-23, ReservaTemporal, ListaDeEspera), seed data |
+| [05_reglas_de_negocio.md](05_reglas_de_negocio.md) | Reglas codificadas por dominio: Turnos, Pacientes, Recordatorios (RN-RE-03..06 C-23/C-24), Lista de Espera, Excepciones globales |
 | [06_funcionalidades.md](06_funcionalidades.md) | Historias de usuario organizadas por epica (Reserva, Gestion, Comunicaciones, Lista de espera, Metricas, Pacientes) |
-| [07_flujos_principales.md](07_flujos_principales.md) | Flujos e2e: Reserva, Cancelacion, Reprogramacion, Recordatorio, Lista de espera |
-| [08_arquitectura_propuesta.md](08_arquitectura_propuesta.md) | Patrones aplicados, estructura de directorios, seguridad, variables de entorno |
-| [09_decisiones_y_supuestos.md](09_decisiones_y_supuestos.md) | Decisiones de diseno documentadas (n8n, Google Calendar, Telegram, PostgreSQL, FastAPI) y supuestos inferidos |
-| [10_preguntas_abiertas.md](10_preguntas_abiertas.md) | Inconsistencias detectadas y preguntas abiertas priorizadas |
+| [07_flujos_principales.md](07_flujos_principales.md) | Flujos e2e: Reserva (orquestador n8n), Cancelacion, Reprogramacion, Recordatorio (dos motores), Lista de espera |
+| [08_arquitectura_propuesta.md](08_arquitectura_propuesta.md) | Patrones aplicados, estructura de directorios, topologia n8n C-24, dos motores de recordatorio, seguridad, variables de entorno |
+| [09_decisiones_y_supuestos.md](09_decisiones_y_supuestos.md) | Decisiones de diseno documentadas (n8n, Google Calendar, Telegram, PostgreSQL, FastAPI, TurnoDestinatario C-23, orquestador C-24, dos motores C-24) y supuestos inferidos |
+| [10_preguntas_abiertas.md](10_preguntas_abiertas.md) | Inconsistencias detectadas y preguntas abiertas priorizadas (incluye deudas C-11, sender email, multi-tenant v2.0) |
+| [CHANGELOG.md](CHANGELOG.md) | Registro historico de cambios de la KB (post-archive de C-23, C-24 y futuros) |
 
 ## Quick Start para Desarrolladores
 

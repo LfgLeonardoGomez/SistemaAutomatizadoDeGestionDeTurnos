@@ -61,7 +61,40 @@
 ### DD-08 — Flag `recordatorio_enviado` en Turno para deduplicación de recordatorios
 **Decisión**: Usar una columna booleana `recordatorio_enviado` en `Turno` en lugar de una tabla separada de historial de notificaciones.
 **Contexto**: El alcance v1.0 solo requiere evitar enviar el mismo recordatorio 24h antes múltiples veces.
-**Trade-offs aceptados**: No se guarda historial completo de notificaciones; solo el último estado.
+**Trade-offs aceptados**: No se guarda historial completo de notificaciones; solo el último estado. **C-24 refuerza esta decisión**: el flag es el punto de sincronía entre los dos motores de recordatorio (n8n + APScheduler) y evita doble dispatch.
+
+### DD-09 — Destinatario de notificación por turno (C-23) [user]
+**Decisión**: Modelar el destinatario de confirmación/recordatorio como entidad hija `turno_destinatario(turno_id, canal, destinatario)` con `UNIQUE(turno_id, canal)`. Eliminar la columna `paciente.telegram_chat_id` por ser código muerto.
+**Contexto**: El paciente no se autentica (se identifica por DNI). Una misma persona puede gestionar turnos desde múltiples chats de Telegram; una columna escalar `paciente.telegram_chat_id` no puede modelar la relación M:N chat↔paciente. Además, la verificación en código mostró que `paciente.telegram_chat_id` nunca se escribía, por lo que el job de recordatorios la leía `NULL` y marcaba `recordatorio_enviado=True` sin enviar nada (recordatorio silenciosamente roto).
+**Alternativas consideradas**:
+- **A) Columnas simples en `turno`** (`canal` + `destinatario`): un solo canal por turno. Rechazada porque el requisito es "uno o **ambos** canales" y la extensibilidad real exige tabla hija.
+- **B) JSON/array de destinatarios en `turno`**: rechazada por perder `UNIQUE(turno_id, canal)`, no validar ENUM a nivel DB, complicar el query del sender.
+- **C) Preferencia de notificación a nivel Paciente**: rechazada porque reintroduce el acoplamiento paciente↔chat y no soporta multi-chat por turno.
+**Justificación**: la tabla hija es la forma normalizada mínima que cumple "uno o ambos canales" y multi-chat, sin over-engineering. Sigue el precedente de `ListaDeEspera` (contacto por registro, no por paciente). El scope de tenant se alcanza vía `turno.profesional_id`; no se necesita `profesional_id` propio en `turno_destinatario` [openspec · archive/2026-07-02-c-23-.../design.md §Decisión 1].
+**Trade-offs aceptados**: El email queda modelado pero sin sender (futuro change). La columna `paciente.telegram_chat_id` se elimina — `downgrade` la recrea (sin datos).
+
+### DD-10 — Orquestador n8n como single entry point de Telegram (C-24) [user]
+**Decisión**: Cada profesional con bot importa en n8n **una instancia** del orquestador (`orquestador.json` + 3 sub-workflows + `flujo-recordatorio.json`) con 2 credenciales: `Telegram Bot` (token del bot) y `Header Auth` (`X-API-Key: <profesional.api_key>`). El orquestador es el **entry point principal** del bot (no el webhook del backend).
+**Contexto**: Pre-C-24 los workflows n8n enviaban requests al backend sin `X-API-Key` (recibían 401), tenían 1 webhook por flujo (4 webhooks a configurar en `@BotFather`), y la lógica de routing estaba dispersa. El usuario diseñó un esqueleto de orquestador que se tomó como punto de partida.
+**Alternativas consideradas**:
+- **A) Un único orquestador para N bots**: rechazada porque el `Telegram Trigger` de n8n autentica con UN token por workflow; un orquestador multi-bot exige reemplazar el trigger por un `Webhook Trigger` + validación de `X-Telegram-Bot-Api-Secret-Token` + un `IF` por profesional, rompiendo el modelo "1 trigger = 1 bot" y dificultando el debugging por profesional.
+- **B) Reemplazar el orquestador n8n por más lógica en el backend**: ya está hecho (C-08 / C-17 con `telegram_service.procesar_mensaje`). Rechazada porque el usuario explícitamente pidió el orquestador n8n como **capa de orquestación visible** en la demo de la tesis. El backend procesa Telegram vía su propio webhook, pero el orquestador n8n **demuestra la alternativa** y permite ver los workflows visualmente.
+**Justificación**: un orquestador por bot, con credenciales dedicadas, minimiza acoplamiento, maximiza aislamiento entre profesionales y se alinea con los patrones canónicos de n8n. El `Header Auth` credential garantiza que el `X-API-Key` se inyecta en todos los `HTTP Request` nodes del workflow sin hardcodear.
+**Trade-offs aceptados**: Cada profesional tiene su propia copia del orquestador en n8n (más instancias que mantener). El webhook del backend queda ocioso pero disponible como fallback. La rotación de `api_key` requiere reconfigurar la credencial en n8n (un cambio, todos los nodos actualizados) [openspec · archive/2026-07-02-c-24-.../design.md §Decisión 1, §Decisión 4].
+
+### DD-11 — Dos motores de recordatorio conviviendo (C-24) [user]
+**Decisión**: El sistema de recordatorios opera con dos motores paralelos que llaman a la misma lógica de `notificacion_service`:
+1. **n8n primario** (`flujo-recordatorio.json`): `Schedule Trigger` cron `0 10 * * *` → `POST /api/v1/recordatorios/run?fecha=mañana`.
+2. **APScheduler fallback** (`scheduler.jobs._enviar_recordatorios_job`): job interno en el backend (C-08).
+
+El flag `turno.recordatorio_enviado` evita doble dispatch entre ambos.
+**Contexto**: Si n8n está caído o no se configuró, el APScheduler del backend sigue mandando. Si n8n está activo, hace de primario y el APScheduler queda ocioso. Ambos motores llaman a la **misma** lógica de `notificacion_service` para mantener **una sola fuente de verdad** sobre "qué turnos recordar" y "cómo enviarlos".
+**Alternativas consideradas**:
+- **A) Reemplazar el APScheduler por n8n**: rechazada porque rompe el fallback (si n8n está caído, no hay recordatorios). El APScheduler sigue siendo útil como red de seguridad.
+- **B) Un solo motor con fallback manual**: descartada por operacional (el operador tendría que recordar activar/desactivar el fallback).
+- **C) n8n itera por profesional y llama a un endpoint por profesional**: rechazada porque multiplica requests (1 + N) y duplica la lógica de iteración en n8n.
+**Justificación**: el backend es la fuente de verdad (tiene la lógica de `obtener_turnos_para_recordar` + `enviar_recordatorio_telegram` + `TurnoDestinatario`); n8n es el **trigger** (cron) y el **transport** (HTTP). Cada uno hace lo que sabe hacer mejor. El flag `recordatorio_enviado` es el punto de sincronía [openspec · archive/2026-07-02-c-24-.../design.md §Decisión 5 + R8].
+**Trade-offs aceptados**: en v1.0 se recomienda activar **solo uno** por profesional (si ambos activos, el de n8n gana por horario y el de APScheduler queda ocioso).
 
 ## Supuestos inferidos
 

@@ -14,32 +14,34 @@
 
 ## Arquitectura general
 
-El sistema adopta una arquitectura **cliente-servidor desacoplada** orientada a servicios:
+El sistema adopta una arquitectura **cliente-servidor desacoplada** orientada a servicios. **Actualizado en C-24**: el n8n es ahora el **orquestador de Telegram como single entry point** (no un proxy 1:1); los sub-workflows y el flujo de recordatorios llaman al backend con `X-API-Key`:
 
 ```
 ┌─────────────────┐
 │   Usuario       │
 │  (Telegram)     │
 └────────┬────────┘
-         │ HTTP / Webhook
+         │ Webhook (Telegram Trigger)
          ▼
-┌─────────────────┐
-│   n8n           │
-│ (Orquestador)   │
-│  - Webhooks     │
-│  - Lógica de    │
-│    flujo        │
-└────────┬────────┘
-         │ HTTP REST
+┌─────────────────────────────────────────────┐
+│   n8n — orquestador (C-24)                  │
+│  - orquestador.json (Telegram Trigger +     │
+│    Code + Switch × 3 + executeWorkflow × 3) │
+│  - sub-flujo-crear-turno.json               │
+│  - sub-flujo-cancelar-turno.json            │
+│  - sub-flujo-reprogramar-turno.json         │
+│  - flujo-recordatorio.json (Schedule        │
+│    Trigger diario, independiente)           │
+└────────┬────────────────────────────────────┘
+         │ HTTP REST + X-API-Key
          ▼
-┌─────────────────┐
-│   FastAPI       │
-│   Backend       │
-│  - Lógica de    │
-│    negocio      │
-│  - Validaciones │
-│  - Scheduler    │
-└────────┬────────┘
+┌─────────────────────────────────────────────┐
+│   FastAPI Backend                            │
+│  - Lógica de negocio (turno, paciente)       │
+│  - Validaciones (Pydantic v2)                │
+│  - APScheduler (fallback recordatorios)      │
+│  - 401 sin X-API-Key válida                  │
+└────────┬────────────────────────────────────┘
          │ SQL
          ▼
 ┌─────────────────┐
@@ -54,15 +56,16 @@ El sistema adopta una arquitectura **cliente-servidor desacoplada** orientada a 
 └─────────────────┘
 ```
 
-**Justificación**: n8n actúa como orquestador de procesos visuales, gestionando la comunicación entre Telegram y el backend. FastAPI centraliza la lógica de negocio y la persistencia. Google Calendar se utiliza como agenda espejo para aprovechar una herramienta robusta y consolidada.
+**Justificación**: n8n actúa como **capa de orquestación visible** del bot de Telegram. Cada profesional importa su propia instancia (1 orquestador + 3 sub-workflows + flujo-recordatorio) con 2 credenciales (`Telegram Bot` y `Header Auth X-API-Key`). FastAPI centraliza la lógica de negocio y la persistencia, y expone endpoints REST multi-tenant con `X-API-Key` por profesional. Google Calendar se utiliza como agenda espejo para aprovechar una herramienta robusta y consolidada. El backend también procesa updates de Telegram vía `POST /api/v1/webhooks/telegram` (C-08) como **alternativa documentada** al orquestador n8n (OQ-1 resuelta en C-24).
 
 ## Integraciones externas
 
-| Servicio | Propósicio | Tipo |
+| Servicio | Propósito | Tipo |
 |----------|-----------|------|
-| Telegram Bot API | Interfaz conversacional con pacientes | Webhook + REST |
+| Telegram Bot API | Interfaz conversacional con pacientes. Bot consumido por n8n orquestador (C-24, entry point principal) **o** por el webhook del backend (`POST /api/v1/webhooks/telegram`, C-08, alternativa) | Webhook + REST |
+| n8n (orquestador) | C-24 — single entry point del bot; switch por comando (text o callback); dispatch a sub-workflows; cron de recordatorios | n8n workflows (orquestador.json + 3 sub-flujos + flujo-recordatorio) |
 | Google Calendar API | Creación, actualización y eliminación de eventos de turnos | REST OAuth 2.0 |
-| PostgreSQL | Persistencia de pacientes, turnos, configuraciones y estados | SQL / SQLAlchemy |
+| PostgreSQL | Persistencia de pacientes, turnos, configuraciones, estados, destinatarios de notificación (C-23) | SQL / SQLAlchemy |
 
 ## API REST (FastAPI)
 
@@ -95,4 +98,7 @@ Endpoints principales agrupados por recurso (inferidos del diseño):
   - *(Nota: la notificación a lista de espera es interna, disparada por cancelación/expiración; no hay endpoint REST dedicado)* [code · lista_espera_service.py:222-284].
 
 - **Webhooks (Telegram → FastAPI)**
-  - `POST /webhooks/telegram` — recibir updates del Bot API, validar secret token, encolar en background tasks [code · routers/webhooks.py:13-35].
+  - `POST /webhooks/telegram` — recibir updates del Bot API, validar secret token, encolar en background tasks [code · routers/webhooks.py:13-35]. **Alternativa** al orquestador n8n (C-24); por defecto `@BotFather` apunta al `Telegram Trigger` del orquestador.
+
+- **Recordatorios (C-24)**
+  - `POST /api/v1/recordatorios/run?fecha=YYYY-MM-DD` — itera por profesionales activos y envía recordatorios del día objetivo [code · routers/recordatorios.py:32-44]. Consumido por `flujo-recordatorio.json` (n8n primario). El APScheduler del backend sigue activo como fallback y respeta el flag `turno.recordatorio_enviado` para evitar doble dispatch.
