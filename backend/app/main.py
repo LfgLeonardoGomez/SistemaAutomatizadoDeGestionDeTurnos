@@ -53,6 +53,7 @@ from app.routers.profesional import router as profesional_router
 from app.routers.turnos import router as turnos_router
 from app.routers.webhooks import router as webhooks_router
 from app.routers.lista_espera import router as lista_espera_router
+from app.routers.recordatorios import router as recordatorios_router
 from app.exception_handlers import (
     turno_no_disponible_handler,
     turno_expirado_handler,
@@ -74,6 +75,7 @@ app.include_router(profesional_router)
 app.include_router(turnos_router)
 app.include_router(webhooks_router)
 app.include_router(lista_espera_router)
+app.include_router(recordatorios_router)
 app.include_router(admin_router)
 
 app.add_exception_handler(TurnoNoDisponibleError, turno_no_disponible_handler)

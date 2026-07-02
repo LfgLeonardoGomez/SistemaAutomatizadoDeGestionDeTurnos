@@ -1,0 +1,447 @@
+{
+  "name": "sub-flujo-crear-turno",
+  "nodes": [
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 320],
+      "parameters": {}
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000002",
+      "name": "Code - Generar Fechas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 320],
+      "parameters": {
+        "mode": "runOnceForAll",
+        "language": "javaScript",
+        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\n\nconst fechas = [];\nconst today = new Date();\nfor (let i = 1; i <= 7; i++) {\n  const d = new Date(today);\n  d.setDate(d.getDate() + i);\n  fechas.push(d.toISOString().slice(0, 10));\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    comando: input.comando,\n    payload: input.payload,\n    fechas_disponibles: fechas\n  }\n}];"
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000003",
+      "name": "Telegram - Pedir Fecha",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [680, 320],
+      "parameters": {
+        "operation": "sendAndWait",
+        "chatId": "={{ $json.chat_id }}",
+        "message": "=Seleccion\u00e1 una fecha para tu turno:",
+        "options": {
+          "buttons": {
+            "values": "={{ $json.fechas_disponibles.map(f => ({ label: f, value: 'fecha:' + f })) }}"
+          }
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram Bot Credentials"
+        }
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000004",
+      "name": "Code - Parsear Fecha",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 320],
+      "parameters": {
+        "mode": "runOnceForAll",
+        "language": "javaScript",
+        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst callbackData = (input.data && input.data.callback_query && input.data.callback_query.data) || '';\nconst fecha = String(callbackData).split(':')[1] || '';\n\nreturn [{\n  json: {\n    chat_id: input.chat_id,\n    fecha: fecha,\n    callback_query_id: input.data && input.data.callback_query && input.data.callback_query.id\n  }\n}];"
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000005",
+      "name": "HTTP Request - GET Disponibilidad",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1120, 320],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.BACKEND_URL }}/turnos/disponibles?fecha={{ $json.fecha }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fecha",
+              "value": "={{ $json.fecha }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        },
+        "authentication": {
+          "type": "generic",
+          "properties": {
+            "genericAuthType": "httpHeaderAuth"
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "profesional-api-key",
+          "name": "Profesional API Key"
+        }
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000006",
+      "name": "Code - Formatear Slots",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 320],
+      "parameters": {
+        "mode": "runOnceForAll",
+        "language": "javaScript",
+        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst fecha = input.fecha || ($('Code - Parsear Fecha').item && $('Code - Parsear Fecha').item.json && $('Code - Parsear Fecha').item.json.fecha);\nconst slots = Array.isArray(input) ? input : (input.slots || input || []);\n\nconst slotsList = Array.isArray(slots) ? slots : (Array.isArray(input.slots) ? input.slots : []);\n\nif (slotsList.length === 0) {\n  return [{\n    json: {\n      chat_id: input.chat_id,\n      fecha: fecha,\n      slots: [],\n      empty: true,\n      message: 'No hay horarios disponibles para esa fecha.'\n    }\n  }];\n}\n\nconst buttons = slotsList\n  .filter(function (s) { return s.disponible !== false; })\n  .map(function (s) {\n    const hora = s.hora_inicio || s.hora;\n    return { label: hora + (s.hora_fin ? (' - ' + s.hora_fin) : ''), value: 'hora:' + hora };\n  });\n\nreturn [{\n  json: {\n    chat_id: input.chat_id,\n    fecha: fecha,\n    slots: slotsList,\n    empty: false,\n    buttons: buttons\n  }\n}];"
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000007",
+      "name": "Telegram - Pedir Horario",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1560, 320],
+      "parameters": {
+        "operation": "sendAndWait",
+        "chatId": "={{ $json.chat_id }}",
+        "message": "=Seleccion\u00e1 un horario para el d\u00eda {{ $json.fecha }}:",
+        "options": {
+          "buttons": {
+            "values": "={{ $json.buttons }}"
+          }
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram Bot Credentials"
+        }
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000008",
+      "name": "Code - Parsear Hora",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 320],
+      "parameters": {
+        "mode": "runOnceForAll",
+        "language": "javaScript",
+        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst callbackData = (input.data && input.data.callback_query && input.data.callback_query.data) || '';\nconst hora_inicio = String(callbackData).split(':')[1] || '';\nconst fecha = input.fecha || ($('Code - Parsear Fecha').item && $('Code - Parsear Fecha').item.json && $('Code - Parsear Fecha').item.json.fecha);\nconst chatId = input.chat_id;\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    fecha: fecha,\n    hora_inicio: hora_inicio,\n    callback_query_id: input.data && input.data.callback_query && input.data.callback_query.id\n  }\n}];"
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000009",
+      "name": "HTTP Request - POST Reserva",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2000, 320],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/turnos",
+        "sendBody": true,
+        "contentType": "application/json",
+        "body": {
+          "fecha": "={{ $json.fecha }}",
+          "hora_inicio": "={{ $json.hora_inicio }}",
+          "telegram_chat_id": "={{ $json.chat_id }}"
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        },
+        "authentication": {
+          "type": "generic",
+          "properties": {
+            "genericAuthType": "httpHeaderAuth"
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "profesional-api-key",
+          "name": "Profesional API Key"
+        }
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000010",
+      "name": "Telegram - Pedir Datos Paciente",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2220, 320],
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id }}",
+        "text": "=Reserva temporal creada (turno #{{ $json.id }}). Ten\u00e9s 10 minutos para confirmar.\n\nIngres\u00e1 tus datos en una sola l\u00ednea con este formato CSV (separado por comas):\n\nNombre, Apellido, DNI, Tel\u00e9fono\n\nPor ejemplo: Juan, P\u00e9rez, 12345678, 1144556677",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram Bot Credentials"
+        }
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000011",
+      "name": "Telegram - Esperar CSV",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2440, 320],
+      "parameters": {
+        "operation": "sendAndWait",
+        "chatId": "={{ $json.chat_id }}",
+        "message": "Esperando tus datos (CSV: Nombre, Apellido, DNI, Tel\u00e9fono)...",
+        "options": {}
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram Bot Credentials"
+        }
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000012",
+      "name": "Code - Parsear CSV",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2660, 320],
+      "parameters": {
+        "mode": "runOnceForAll",
+        "language": "javaScript",
+        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst messageText = (input.data && input.data.message && input.data.message.text) || '';\n\nconst csv = String(messageText).trim();\nconst parts = csv.split(',').map(function (p) { return p.trim(); });\nconst nombre = parts[0] || '';\nconst apellido = parts[1] || '';\nconst dni = parts[2] || '';\nconst telefono = parts[3] || '';\n\nconst chatId = input.chat_id;\nconst turnoId = input.id || (input.turno_id) || ($('HTTP Request - POST Reserva').item && $('HTTP Request - POST Reserva').item.json && $('HTTP Request - POST Reserva').item.json.id);\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: turnoId,\n    nombre: nombre,\n    apellido: apellido,\n    dni: dni,\n    telefono: telefono\n  }\n}];"
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000013",
+      "name": "HTTP Request - PUT Confirmar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2880, 320],
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $env.BACKEND_URL }}/turnos/{{ $json.turno_id }}/confirmar",
+        "sendBody": true,
+        "contentType": "application/json",
+        "body": {
+          "nombre": "={{ $json.nombre }}",
+          "apellido": "={{ $json.apellido }}",
+          "dni": "={{ $json.dni }}",
+          "telefono": "={{ $json.telefono }}",
+          "telegram_chat_id": "={{ $json.chat_id }}"
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        },
+        "authentication": {
+          "type": "generic",
+          "properties": {
+            "genericAuthType": "httpHeaderAuth"
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "profesional-api-key",
+          "name": "Profesional API Key"
+        }
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000014",
+      "name": "Telegram - Confirmar Turno",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [3100, 320],
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id }}",
+        "text": "=\u2705 Turno confirmado!\n\nID: {{ $json.id || $json.turno_id }}\nFecha: {{ $json.fecha }}\nHora: {{ $json.hora_inicio }}\nPaciente: {{ $json.nombre }} {{ $json.apellido }}\nDNI: {{ $json.dni }}\n\nTe enviaremos un recordatorio un d\u00eda antes. \ud83d\ude4f",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram Bot Credentials"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code - Generar Fechas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Generar Fechas": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Pedir Fecha",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Pedir Fecha": {
+      "main": [
+        [
+          {
+            "node": "Code - Parsear Fecha",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parsear Fecha": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - GET Disponibilidad",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - GET Disponibilidad": {
+      "main": [
+        [
+          {
+            "node": "Code - Formatear Slots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Formatear Slots": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Pedir Horario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Pedir Horario": {
+      "main": [
+        [
+          {
+            "node": "Code - Parsear Hora",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parsear Hora": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - POST Reserva",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - POST Reserva": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Pedir Datos Paciente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Pedir Datos Paciente": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Esperar CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Esperar CSV": {
+      "main": [
+        [
+          {
+            "node": "Code - Parsear CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parsear CSV": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - PUT Confirmar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - PUT Confirmar": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Confirmar Turno",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "c-24",
+    "sub-flujo",
+    "crear"
+  ],
+  "pinData": {},
+  "active": false
+}

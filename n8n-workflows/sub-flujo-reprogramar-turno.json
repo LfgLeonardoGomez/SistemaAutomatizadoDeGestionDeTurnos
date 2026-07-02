@@ -1,0 +1,291 @@
+{
+  "name": "sub-flujo-reprogramar-turno",
+  "nodes": [
+    {
+      "id": "e1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 320],
+      "parameters": {}
+    },
+    {
+      "id": "e1b2c3d4-0001-4000-8000-000000000002",
+      "name": "Code - Extraer Turno ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 320],
+      "parameters": {
+        "mode": "runOnceForAll",
+        "language": "javaScript",
+        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\n\nlet turnoId = null;\nif (input.payload && input.payload.turno_id) {\n  turnoId = input.payload.turno_id;\n} else if (input.text) {\n  const textLower = String(input.text).toLowerCase();\n  const match = textLower.match(/\\/reprogramar\\s+(\\d+)/) || textLower.match(/reprogramar:(\\d+)/);\n  if (match) {\n    turnoId = match[1];\n  }\n}\n\nreturn [{\n  json: {\n    chat_id: input.chat_id,\n    turno_id: turnoId,\n    text: input.text\n  }\n}];"
+      }
+    },
+    {
+      "id": "e1b2c3d4-0001-4000-8000-000000000003",
+      "name": "Code - Generar Fechas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 320],
+      "parameters": {
+        "mode": "runOnceForAll",
+        "language": "javaScript",
+        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst turnoId = input.turno_id;\n\nconst fechas = [];\nconst today = new Date();\nfor (let i = 1; i <= 7; i++) {\n  const d = new Date(today);\n  d.setDate(d.getDate() + i);\n  fechas.push(d.toISOString().slice(0, 10));\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: turnoId,\n    fechas_disponibles: fechas\n  }\n}];"
+      }
+    },
+    {
+      "id": "e1b2c3d4-0001-4000-8000-000000000004",
+      "name": "Telegram - Pedir Nueva Fecha",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [900, 320],
+      "parameters": {
+        "operation": "sendAndWait",
+        "chatId": "={{ $json.chat_id }}",
+        "message": "=Reprogramando turno #{{ $json.turno_id }}. Seleccion\u00e1 la nueva fecha:",
+        "options": {
+          "buttons": {
+            "values": "={{ $json.fechas_disponibles.map(function(f){ return { label: f, value: 'fecha:' + f }; }) }}"
+          }
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram Bot Credentials"
+        }
+      }
+    },
+    {
+      "id": "e1b2c3d4-0001-4000-8000-000000000005",
+      "name": "HTTP Request - GET Disponibilidad",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1120, 320],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.BACKEND_URL }}/turnos/disponibles?fecha={{ $json.data.callback_query.data.split(':')[1] }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fecha",
+              "value": "={{ $json.data.callback_query.data.split(':')[1] }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        },
+        "authentication": {
+          "type": "generic",
+          "properties": {
+            "genericAuthType": "httpHeaderAuth"
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "profesional-api-key",
+          "name": "Profesional API Key"
+        }
+      }
+    },
+    {
+      "id": "e1b2c3d4-0001-4000-8000-000000000006",
+      "name": "Code - Formatear Slots",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 320],
+      "parameters": {
+        "mode": "runOnceForAll",
+        "language": "javaScript",
+        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst turnoId = ($('Code - Extraer Turno ID').item && $('Code - Extraer Turno ID').item.json && $('Code - Extraer Turno ID').item.json.turno_id) || input.turno_id;\nconst chatId = input.chat_id || ($('Code - Extraer Turno ID').item && $('Code - Extraer Turno ID').item.json && $('Code - Extraer Turno ID').item.json.chat_id);\nconst callbackData = (input.data && input.data.callback_query && input.data.callback_query.data) || '';\nconst nuevaFecha = String(callbackData).split(':')[1] || '';\n\nconst slotsList = Array.isArray(input) ? input : (Array.isArray(input.slots) ? input.slots : []);\n\nif (slotsList.length === 0) {\n  return [{\n    json: {\n      chat_id: chatId,\n      turno_id: turnoId,\n      nueva_fecha: nuevaFecha,\n      slots: [],\n      empty: true\n    }\n  }];\n}\n\nconst buttons = slotsList\n  .filter(function (s) { return s.disponible !== false; })\n  .map(function (s) {\n    const hora = s.hora_inicio || s.hora;\n    return { label: hora + (s.hora_fin ? (' - ' + s.hora_fin) : ''), value: 'hora:' + hora };\n  });\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: turnoId,\n    nueva_fecha: nuevaFecha,\n    slots: slotsList,\n    empty: false,\n    buttons: buttons\n  }\n}];"
+      }
+    },
+    {
+      "id": "e1b2c3d4-0001-4000-8000-000000000007",
+      "name": "Telegram - Pedir Nuevo Horario",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1560, 320],
+      "parameters": {
+        "operation": "sendAndWait",
+        "chatId": "={{ $json.chat_id }}",
+        "message": "=Seleccion\u00e1 el nuevo horario para el {{ $json.nueva_fecha }}:",
+        "options": {
+          "buttons": {
+            "values": "={{ $json.buttons }}"
+          }
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram Bot Credentials"
+        }
+      }
+    },
+    {
+      "id": "e1b2c3d4-0001-4000-8000-000000000008",
+      "name": "HTTP Request - PUT Reprogramar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1780, 320],
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $env.BACKEND_URL }}/turnos/{{ $('Code - Extraer Turno ID').item.json.turno_id }}/reprogramar",
+        "sendBody": true,
+        "contentType": "application/json",
+        "body": {
+          "nueva_fecha": "={{ $json.nueva_fecha }}",
+          "nueva_hora_inicio": "={{ $json.data.callback_query.data.split(':')[1] }}",
+          "telegram_chat_id": "={{ $json.chat_id }}"
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        },
+        "authentication": {
+          "type": "generic",
+          "properties": {
+            "genericAuthType": "httpHeaderAuth"
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "profesional-api-key",
+          "name": "Profesional API Key"
+        }
+      }
+    },
+    {
+      "id": "e1b2c3d4-0001-4000-8000-000000000009",
+      "name": "Telegram - Confirmar Reprogramaci\u00f3n",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2000, 320],
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id }}",
+        "text": "=\u2705 Turno #{{ $('Code - Extraer Turno ID').item.json.turno_id }} reprogramado!\n\nNueva fecha: {{ $json.nueva_fecha || $json.fecha }}\nNueva hora: {{ $json.nueva_hora_inicio || $json.hora_inicio }}\n\nTe enviaremos un recordatorio un d\u00eda antes. \ud83d\ude4f",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram Bot Credentials"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code - Extraer Turno ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Extraer Turno ID": {
+      "main": [
+        [
+          {
+            "node": "Code - Generar Fechas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Generar Fechas": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Pedir Nueva Fecha",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Pedir Nueva Fecha": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - GET Disponibilidad",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - GET Disponibilidad": {
+      "main": [
+        [
+          {
+            "node": "Code - Formatear Slots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Formatear Slots": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Pedir Nuevo Horario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Pedir Nuevo Horario": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - PUT Reprogramar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - PUT Reprogramar": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Confirmar Reprogramaci\u00f3n",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "c-24",
+    "sub-flujo",
+    "reprogramar"
+  ],
+  "pinData": {},
+  "active": false
+}

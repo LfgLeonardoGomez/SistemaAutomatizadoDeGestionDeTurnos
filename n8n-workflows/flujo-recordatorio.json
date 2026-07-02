@@ -2,63 +2,64 @@
   "name": "flujo-recordatorio",
   "nodes": [
     {
-      "id": "schedule-trigger-recordatorio",
+      "id": "f1b2c3d4-0001-4000-8000-000000000001",
       "name": "Schedule Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.1,
-      "position": [250, 300],
+      "position": [240, 320],
       "parameters": {
         "rule": {
           "interval": [
             {
-              "field": "hours",
-              "value": 1
+              "field": "cronExpression",
+              "expression": "0 10 * * *"
             }
           ]
         }
       }
     },
     {
-      "id": "http-placeholder-recordatorio",
-      "name": "HTTP Request - Placeholder Recordatorio",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.1,
-      "position": [450, 300],
-      "parameters": {
-        "method": "GET",
-        "url": "={{ $env.FASTAPI_BASE_URL }}/turnos/pendientes",
-        "options": {}
-      },
-      "notes": "PLACEHOLDER: Este endpoint se implementará en C-10 (scheduler-skeleton). Actualmente retornará 404 hasta que el backend exponga /turnos/pendientes."
-    },
-    {
-      "id": "format-recordatorio",
-      "name": "Format Response - Recordatorio",
+      "id": "f1b2c3d4-0001-4000-8000-000000000002",
+      "name": "Code - Calcular Fecha Ma\u00f1ana",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [650, 300],
+      "position": [460, 320],
       "parameters": {
         "mode": "runOnceForAll",
         "language": "javaScript",
-        "jsCode": "// PLACEHOLDER para C-10\n// Este nodo deberá iterar sobre los turnos pendientes y enviar mensajes a cada paciente.\n\nconst turnos = $input.all()[0].json || [];\n\nif (!Array.isArray(turnos) || turnos.length === 0) {\n  return [{\n    json: {\n      text: 'No hay turnos pendientes para recordar.',\n      turnos: []\n    }\n  }];\n}\n\nreturn turnos.map(turno => ({\n  json: {\n    chat_id: turno.paciente_telegram_id,\n    text: `Recordatorio de turno\\n\\nFecha: ${turno.fecha}\\nHora: ${turno.hora_inicio}\\nProfesional: ${turno.profesional_nombre}`\n  }\n}));"
+        "jsCode": "const maniana = new Date(Date.now() + 86400000);\nconst fecha_maniana = maniana.toISOString().slice(0, 10);\n\nreturn [{\n  json: {\n    fecha_maniana: fecha_maniana,\n    timestamp: new Date().toISOString()\n  }\n}];"
       }
     },
     {
-      "id": "telegram-recordatorio",
-      "name": "Telegram - Enviar Recordatorio",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.1,
-      "position": [850, 300],
+      "id": "f1b2c3d4-0001-4000-8000-000000000003",
+      "name": "HTTP Request - POST Recordatorios Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [680, 320],
       "parameters": {
-        "chatId": "={{ $json.chat_id }}",
-        "text": "={{ $json.text }}"
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/api/v1/recordatorios/run?fecha={{ $json.fecha_maniana }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        },
+        "authentication": {
+          "type": "generic",
+          "properties": {
+            "genericAuthType": "httpHeaderAuth"
+          }
+        }
       },
       "credentials": {
-        "telegramApi": {
-          "id": "telegram-bot-credentials",
-          "name": "Telegram Bot Credentials"
+        "httpHeaderAuth": {
+          "id": "profesional-api-key",
+          "name": "Profesional API Key"
         }
-      }
+      },
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
@@ -66,29 +67,18 @@
       "main": [
         [
           {
-            "node": "HTTP Request - Placeholder Recordatorio",
+            "node": "Code - Calcular Fecha Ma\u00f1ana",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "HTTP Request - Placeholder Recordatorio": {
+    "Code - Calcular Fecha Ma\u00f1ana": {
       "main": [
         [
           {
-            "node": "Format Response - Recordatorio",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Format Response - Recordatorio": {
-      "main": [
-        [
-          {
-            "node": "Telegram - Enviar Recordatorio",
+            "node": "HTTP Request - POST Recordatorios Run",
             "type": "main",
             "index": 0
           }
@@ -97,13 +87,14 @@
     }
   },
   "settings": {
-    "executionOrder": "v1",
-    "errorWorkflow": ""
+    "executionOrder": "v1"
   },
   "staticData": null,
   "tags": [
-    "placeholder",
-    "c-10"
+    "c-24",
+    "recordatorio",
+    "schedule"
   ],
-  "pinData": {}
+  "pinData": {},
+  "active": false
 }

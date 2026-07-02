@@ -24,7 +24,19 @@
       "parameters": {
         "method": "GET",
         "url": "={{ $env.FASTAPI_BASE_URL }}/lista-espera/siguiente",
-        "options": {}
+        "options": {},
+        "authentication": {
+          "type": "generic",
+          "properties": {
+            "genericAuthType": "httpHeaderAuth"
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "profesional-api-key",
+          "name": "Profesional API Key"
+        }
       },
       "notes": "PLACEHOLDER: Este endpoint se implementará en C-11 (core-lista-espera-model). Actualmente retornará 404 hasta que el backend exponga /lista-espera/siguiente."
     },
