@@ -11,41 +11,172 @@
     },
     {
       "id": "e1b2c3d4-0001-4000-8000-000000000002",
-      "name": "Code - Extraer Turno ID",
+      "name": "Code - Decidir Paso",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [460, 320],
       "parameters": {
         "mode": "runOnceForAll",
         "language": "javaScript",
-        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\n\nlet turnoId = null;\nif (input.payload && input.payload.turno_id) {\n  turnoId = input.payload.turno_id;\n} else if (input.text) {\n  const textLower = String(input.text).toLowerCase();\n  const match = textLower.match(/\\/reprogramar\\s+(\\d+)/) || textLower.match(/reprogramar:(\\d+)/);\n  if (match) {\n    turnoId = match[1];\n  }\n}\n\nreturn [{\n  json: {\n    chat_id: input.chat_id,\n    turno_id: turnoId,\n    text: input.text\n  }\n}];"
+        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst comando = input.comando || 'reprogramar';\nconst payload = input.payload || {};\nconst text = String(input.text || '');\n\nlet turnoId = payload.turno_id || '';\nlet nuevaFecha = payload.nueva_fecha || payload.fecha || '';\nlet nuevoSlot = payload.nuevo_slot || payload.slot || '';\n\nconst fechaSlotMatch = text.match(/^cmd:reprogramar:turno_id:(\\d+):fecha:([^:]+):slot:(.+)$/);\nconst fechaOnlyMatch = text.match(/^cmd:reprogramar:turno_id:(\\d+):fecha:([^:]+)$/);\nconst idMatch = text.match(/^cmd:reprogramar:turno_id:(\\d+)$/);\nconst simpleIdMatch = text.match(/^reprogramar:(\\d+)$/);\n\nif (fechaSlotMatch) {\n  turnoId = fechaSlotMatch[1];\n  nuevaFecha = fechaSlotMatch[2];\n  nuevoSlot = fechaSlotMatch[3];\n} else if (fechaOnlyMatch) {\n  turnoId = fechaOnlyMatch[1];\n  nuevaFecha = fechaOnlyMatch[2];\n} else if (idMatch) {\n  turnoId = idMatch[1];\n} else if (simpleIdMatch) {\n  turnoId = simpleIdMatch[1];\n}\n\nconst fechas = [];\nconst today = new Date();\nfor (let i = 1; i <= 7; i++) {\n  const d = new Date(today);\n  d.setDate(d.getDate() + i);\n  fechas.push(d.toISOString().slice(0, 10));\n}\n\nlet accion;\nif (!turnoId) {\n  accion = 'pedir_id';\n} else if (!nuevaFecha) {\n  accion = 'pedir_fecha';\n} else if (!nuevoSlot) {\n  accion = 'pedir_slot';\n} else {\n  accion = 'ejecutar';\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    comando: comando,\n    accion: accion,\n    turno_id: turnoId,\n    nueva_fecha: nuevaFecha,\n    nuevo_slot: nuevoSlot,\n    fechas_disponibles: fechas\n  }\n}];"
       }
     },
     {
       "id": "e1b2c3d4-0001-4000-8000-000000000003",
-      "name": "Code - Generar Fechas",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "name": "Switch Accion",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
       "position": [680, 320],
       "parameters": {
-        "mode": "runOnceForAll",
-        "language": "javaScript",
-        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst turnoId = input.turno_id;\n\nconst fechas = [];\nconst today = new Date();\nfor (let i = 1; i <= 7; i++) {\n  const d = new Date(today);\n  d.setDate(d.getDate() + i);\n  fechas.push(d.toISOString().slice(0, 10));\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: turnoId,\n    fechas_disponibles: fechas\n  }\n}];"
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "e2b2c3d4-0001-4000-8000-000000000001",
+                    "leftValue": "={{ $json.accion }}",
+                    "rightValue": "pedir_id",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pedir_id"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "e2b2c3d4-0001-4000-8000-000000000002",
+                    "leftValue": "={{ $json.accion }}",
+                    "rightValue": "pedir_fecha",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pedir_fecha"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "e2b2c3d4-0001-4000-8000-000000000003",
+                    "leftValue": "={{ $json.accion }}",
+                    "rightValue": "pedir_slot",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pedir_slot"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "e2b2c3d4-0001-4000-8000-000000000004",
+                    "leftValue": "={{ $json.accion }}",
+                    "rightValue": "ejecutar",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ejecutar"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
       }
     },
     {
       "id": "e1b2c3d4-0001-4000-8000-000000000004",
-      "name": "Telegram - Pedir Nueva Fecha",
+      "name": "Telegram - Pedir ID",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [900, 320],
+      "position": [920, 60],
       "parameters": {
-        "operation": "sendAndWait",
+        "operation": "sendMessage",
         "chatId": "={{ $json.chat_id }}",
-        "message": "=Reprogramando turno #{{ $json.turno_id }}. Seleccion\u00e1 la nueva fecha:",
+        "text": "Para reprogramar un turno necesito que me pases el ID. Escribí el comando así:\n\n/reprogramar <ID>\n\nPor ejemplo: /reprogramar 42",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram Bot Credentials"
+        }
+      }
+    },
+    {
+      "id": "e1b2c3d4-0001-4000-8000-000000000005",
+      "name": "Code - Formatear Fechas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, 240],
+      "parameters": {
+        "mode": "runOnceForAll",
+        "language": "javaScript",
+        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst turnoId = input.turno_id;\nconst fechas = input.fechas_disponibles || [];\n\nconst nombresCorto = {\n  '0': 'Hoy',\n  '1': 'Mañana',\n  '2': 'Pasado mañana'\n};\n\nconst diasCortos = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];\nconst mesesCortos = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];\n\nconst etiquetas = fechas.map(function (f, i) {\n  const d = new Date(f + 'T00:00:00');\n  const dow = diasCortos[d.getDay()];\n  const day = d.getDate();\n  const mon = mesesCortos[d.getMonth()];\n  const corto = nombresCorto[String(i)] || (dow + ' ' + day + ' ' + mon);\n  return { fecha: f, label: corto + ' (' + f + ')' };\n});\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: turnoId,\n    fechas_etiquetadas: etiquetas\n  }\n}];"
+      }
+    },
+    {
+      "id": "e1b2c3d4-0001-4000-8000-000000000006",
+      "name": "Telegram - Pedir Fecha",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1160, 240],
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ 'Reprogramando turno #' + $json.turno_id + '. Elegí la nueva fecha:' }}",
         "options": {
-          "buttons": {
-            "values": "={{ $json.fechas_disponibles.map(function(f){ return { label: f, value: 'fecha:' + f }; }) }}"
+          "reply_markup": {
+            "inline_keyboard": "={{ $json.fechas_etiquetadas.map(function(f) { return [{ text: f.label, callback_data: 'cmd:reprogramar:turno_id:' + $json.turno_id + ':fecha:' + f.fecha }]; }) }}"
           }
         }
       },
@@ -57,23 +188,14 @@
       }
     },
     {
-      "id": "e1b2c3d4-0001-4000-8000-000000000005",
-      "name": "HTTP Request - GET Disponibilidad",
+      "id": "e1b2c3d4-0001-4000-8000-000000000007",
+      "name": "HTTP - GET Disponibilidad",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [1120, 320],
+      "position": [920, 420],
       "parameters": {
         "method": "GET",
-        "url": "={{ $env.BACKEND_URL }}/turnos/disponibles?fecha={{ $json.data.callback_query.data.split(':')[1] }}",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "fecha",
-              "value": "={{ $json.data.callback_query.data.split(':')[1] }}"
-            }
-          ]
-        },
+        "url": "http://backend:8000/turnos/disponibles?fecha={{ $json.nueva_fecha }}",
         "options": {
           "response": {
             "response": {
@@ -96,30 +218,30 @@
       }
     },
     {
-      "id": "e1b2c3d4-0001-4000-8000-000000000006",
+      "id": "e1b2c3d4-0001-4000-8000-000000000008",
       "name": "Code - Formatear Slots",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1340, 320],
+      "position": [1160, 420],
       "parameters": {
         "mode": "runOnceForAll",
         "language": "javaScript",
-        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst turnoId = ($('Code - Extraer Turno ID').item && $('Code - Extraer Turno ID').item.json && $('Code - Extraer Turno ID').item.json.turno_id) || input.turno_id;\nconst chatId = input.chat_id || ($('Code - Extraer Turno ID').item && $('Code - Extraer Turno ID').item.json && $('Code - Extraer Turno ID').item.json.chat_id);\nconst callbackData = (input.data && input.data.callback_query && input.data.callback_query.data) || '';\nconst nuevaFecha = String(callbackData).split(':')[1] || '';\n\nconst slotsList = Array.isArray(input) ? input : (Array.isArray(input.slots) ? input.slots : []);\n\nif (slotsList.length === 0) {\n  return [{\n    json: {\n      chat_id: chatId,\n      turno_id: turnoId,\n      nueva_fecha: nuevaFecha,\n      slots: [],\n      empty: true\n    }\n  }];\n}\n\nconst buttons = slotsList\n  .filter(function (s) { return s.disponible !== false; })\n  .map(function (s) {\n    const hora = s.hora_inicio || s.hora;\n    return { label: hora + (s.hora_fin ? (' - ' + s.hora_fin) : ''), value: 'hora:' + hora };\n  });\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: turnoId,\n    nueva_fecha: nuevaFecha,\n    slots: slotsList,\n    empty: false,\n    buttons: buttons\n  }\n}];"
+        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst turnoId = input.turno_id;\nconst nuevaFecha = input.nueva_fecha || '';\n\nlet slots = [];\nif (Array.isArray(input)) {\n  slots = input;\n} else if (Array.isArray(input.slots)) {\n  slots = input.slots;\n}\n\nconst disponibles = slots.filter(function (s) { return s.disponible !== false; });\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: turnoId,\n    nueva_fecha: nuevaFecha,\n    slots: disponibles,\n    cantidad: disponibles.length\n  }\n}];"
       }
     },
     {
-      "id": "e1b2c3d4-0001-4000-8000-000000000007",
-      "name": "Telegram - Pedir Nuevo Horario",
+      "id": "e1b2c3d4-0001-4000-8000-000000000009",
+      "name": "Telegram - Pedir Slot",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1560, 320],
+      "position": [1400, 420],
       "parameters": {
-        "operation": "sendAndWait",
+        "operation": "sendMessage",
         "chatId": "={{ $json.chat_id }}",
-        "message": "=Seleccion\u00e1 el nuevo horario para el {{ $json.nueva_fecha }}:",
+        "text": "={{ 'Elegí el nuevo horario para el ' + $json.nueva_fecha + ':' }}",
         "options": {
-          "buttons": {
-            "values": "={{ $json.buttons }}"
+          "reply_markup": {
+            "inline_keyboard": "={{ $json.slots.length > 0 ? $json.slots.map(function(s) { return [{ text: s.hora_inicio + (s.hora_fin ? (' - ' + s.hora_fin) : ''), callback_data: 'cmd:reprogramar:turno_id:' + $json.turno_id + ':fecha:' + $json.nueva_fecha + ':slot:' + s.hora_inicio }]; }) : [[{ text: 'No hay horarios', callback_data: 'cmd:reprogramar:turno_id:' + $json.turno_id + ':fecha:' + $json.nueva_fecha + ':slot:none' }]] }}"
           }
         }
       },
@@ -131,19 +253,19 @@
       }
     },
     {
-      "id": "e1b2c3d4-0001-4000-8000-000000000008",
-      "name": "HTTP Request - PUT Reprogramar",
+      "id": "e1b2c3d4-0001-4000-8000-000000000010",
+      "name": "HTTP - PUT Reprogramar",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [1780, 320],
+      "position": [920, 600],
       "parameters": {
         "method": "PUT",
-        "url": "={{ $env.BACKEND_URL }}/turnos/{{ $('Code - Extraer Turno ID').item.json.turno_id }}/reprogramar",
+        "url": "http://backend:8000/turnos/{{ $json.turno_id }}/reprogramar",
         "sendBody": true,
         "contentType": "application/json",
         "body": {
           "nueva_fecha": "={{ $json.nueva_fecha }}",
-          "nueva_hora_inicio": "={{ $json.data.callback_query.data.split(':')[1] }}",
+          "nueva_hora_inicio": "={{ $json.nuevo_slot }}",
           "telegram_chat_id": "={{ $json.chat_id }}"
         },
         "options": {
@@ -168,16 +290,32 @@
       }
     },
     {
-      "id": "e1b2c3d4-0001-4000-8000-000000000009",
-      "name": "Telegram - Confirmar Reprogramaci\u00f3n",
+      "id": "e1b2c3d4-0001-4000-8000-000000000011",
+      "name": "Code - Formatear Resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1160, 600],
+      "parameters": {
+        "mode": "runOnceForAll",
+        "language": "javaScript",
+        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst turnoId = input.turno_id;\nconst nuevaFecha = input.fecha || input.nueva_fecha;\nconst nuevoSlot = input.hora_inicio || input.nuevo_slot;\nconst errorStatus = input.statusCode && input.statusCode >= 400;\nconst errorDetail = input.detail || (errorStatus ? 'Error HTTP ' + input.statusCode : null);\n\nlet mensaje = '';\nlet exito = false;\nif (errorStatus) {\n  if (input.statusCode === 404) {\n    mensaje = 'Turno no encontrado.';\n  } else if (input.statusCode === 409) {\n    mensaje = 'No se puede reprogramar el turno en su estado actual o el horario ya está ocupado.';\n  } else {\n    mensaje = 'Error al reprogramar: ' + (input.detail || ('HTTP ' + input.statusCode));\n  }\n  exito = false;\n} else {\n  mensaje = 'Turno #' + turnoId + ' reprogramado.\\n\\nNueva fecha: ' + nuevaFecha + '\\nNueva hora: ' + nuevoSlot + '\\n\\nTe enviaremos un recordatorio el día anterior.';\n  exito = true;\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: turnoId,\n    nueva_fecha: nuevaFecha,\n    nuevo_slot: nuevoSlot,\n    exito: exito,\n    mensaje: mensaje\n  }\n}];"
+      }
+    },
+    {
+      "id": "e1b2c3d4-0001-4000-8000-000000000012",
+      "name": "Telegram - Reprogramar Confirmado",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [2000, 320],
+      "position": [1400, 600],
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $json.chat_id }}",
-        "text": "=\u2705 Turno #{{ $('Code - Extraer Turno ID').item.json.turno_id }} reprogramado!\n\nNueva fecha: {{ $json.nueva_fecha || $json.fecha }}\nNueva hora: {{ $json.nueva_hora_inicio || $json.hora_inicio }}\n\nTe enviaremos un recordatorio un d\u00eda antes. \ud83d\ude4f",
-        "additionalFields": {}
+        "text": "={{ $json.mensaje }}",
+        "options": {
+          "reply_markup": {
+            "inline_keyboard": "={{ $json.exito ? [[{ text: 'Cancelar este turno', callback_data: 'cmd:cancelar:turno_id:' + $json.turno_id }]] : [[{ text: 'Volver a intentar', callback_data: 'cmd:reprogramar' }]] }}"
+          }
+        }
       },
       "credentials": {
         "telegramApi": {
@@ -192,47 +330,75 @@
       "main": [
         [
           {
-            "node": "Code - Extraer Turno ID",
+            "node": "Code - Decidir Paso",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Code - Extraer Turno ID": {
+    "Code - Decidir Paso": {
       "main": [
         [
           {
-            "node": "Code - Generar Fechas",
+            "node": "Switch Accion",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Code - Generar Fechas": {
+    "Switch Accion": {
       "main": [
         [
           {
-            "node": "Telegram - Pedir Nueva Fecha",
+            "node": "Telegram - Pedir ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Formatear Fechas",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP - GET Disponibilidad",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP - PUT Reprogramar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram - Pedir ID",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Telegram - Pedir Nueva Fecha": {
+    "Code - Formatear Fechas": {
       "main": [
         [
           {
-            "node": "HTTP Request - GET Disponibilidad",
+            "node": "Telegram - Pedir Fecha",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "HTTP Request - GET Disponibilidad": {
+    "HTTP - GET Disponibilidad": {
       "main": [
         [
           {
@@ -247,29 +413,29 @@
       "main": [
         [
           {
-            "node": "Telegram - Pedir Nuevo Horario",
+            "node": "Telegram - Pedir Slot",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Telegram - Pedir Nuevo Horario": {
+    "HTTP - PUT Reprogramar": {
       "main": [
         [
           {
-            "node": "HTTP Request - PUT Reprogramar",
+            "node": "Code - Formatear Resultado",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "HTTP Request - PUT Reprogramar": {
+    "Code - Formatear Resultado": {
       "main": [
         [
           {
-            "node": "Telegram - Confirmar Reprogramaci\u00f3n",
+            "node": "Telegram - Reprogramar Confirmado",
             "type": "main",
             "index": 0
           }

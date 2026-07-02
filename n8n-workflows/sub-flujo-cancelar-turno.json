@@ -11,25 +11,108 @@
     },
     {
       "id": "d1b2c3d4-0001-4000-8000-000000000002",
-      "name": "Code - Extraer Turno ID",
+      "name": "Code - Decidir Paso",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [460, 320],
       "parameters": {
         "mode": "runOnceForAll",
         "language": "javaScript",
-        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\n\nlet turnoId = null;\nif (input.payload && input.payload.turno_id) {\n  turnoId = input.payload.turno_id;\n} else if (input.text) {\n  const textLower = String(input.text).toLowerCase();\n  const match = textLower.match(/\\/cancelar\\s+(\\d+)/) || textLower.match(/cancelar:(\\d+)/);\n  if (match) {\n    turnoId = match[1];\n  }\n}\n\nreturn [{\n  json: {\n    chat_id: input.chat_id,\n    turno_id: turnoId,\n    text: input.text\n  }\n}];"
+        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst comando = input.comando || 'cancelar';\nconst payload = input.payload || {};\nconst text = String(input.text || '');\n\nlet turnoId = payload.turno_id || '';\n\nif (text.startsWith('cmd:cancelar:turno_id:')) {\n  turnoId = text.substring('cmd:cancelar:turno_id:'.length);\n} else if (text.startsWith('cancelar:') && text.indexOf(':') === text.lastIndexOf(':')) {\n  const candidate = text.substring('cancelar:'.length).trim();\n  if (/^\\d+$/.test(candidate)) {\n    turnoId = candidate;\n  }\n}\n\nconst accion = turnoId ? 'cancelar' : 'pedir_id';\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    comando: comando,\n    accion: accion,\n    turno_id: turnoId\n  }\n}];"
       }
     },
     {
       "id": "d1b2c3d4-0001-4000-8000-000000000003",
-      "name": "HTTP Request - PUT Cancelar",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.1,
+      "name": "Switch Accion",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
       "position": [680, 320],
       "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "d2b2c3d4-0001-4000-8000-000000000001",
+                    "leftValue": "={{ $json.accion }}",
+                    "rightValue": "pedir_id",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pedir_id"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "d2b2c3d4-0001-4000-8000-000000000002",
+                    "leftValue": "={{ $json.accion }}",
+                    "rightValue": "cancelar",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "cancelar"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      }
+    },
+    {
+      "id": "d1b2c3d4-0001-4000-8000-000000000004",
+      "name": "Telegram - Pedir ID",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [920, 120],
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id }}",
+        "text": "Para cancelar un turno necesito que me pases el ID. Escribí el comando así:\n\n/cancelar <ID>\n\nPor ejemplo: /cancelar 42\n\nSi no sabés el ID, escribí /reservar para crear uno nuevo o contactanos.",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram Bot Credentials"
+        }
+      }
+    },
+    {
+      "id": "d1b2c3d4-0001-4000-8000-000000000005",
+      "name": "HTTP - PUT Cancelar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [920, 320],
+      "parameters": {
         "method": "PUT",
-        "url": "={{ $env.BACKEND_URL }}/turnos/{{ $json.turno_id }}/cancelar",
+        "url": "http://backend:8000/turnos/{{ $json.turno_id }}/cancelar",
         "options": {
           "response": {
             "response": {
@@ -52,30 +135,30 @@
       }
     },
     {
-      "id": "d1b2c3d4-0001-4000-8000-000000000004",
+      "id": "d1b2c3d4-0001-4000-8000-000000000006",
       "name": "Code - Formatear Respuesta",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [900, 320],
+      "position": [1160, 320],
       "parameters": {
         "mode": "runOnceForAll",
         "language": "javaScript",
-        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst turnoId = input.turno_id || (input.id) || ($('Code - Extraer Turno ID').item && $('Code - Extraer Turno ID').item.json && $('Code - Extraer Turno ID').item.json.turno_id);\n\nif (input.detail || (input.statusCode && input.statusCode >= 400)) {\n  const statusCode = input.statusCode || 500;\n  let mensaje = 'Error al cancelar el turno.';\n  if (statusCode === 404) {\n    mensaje = 'Turno no encontrado. Verific\u00e1 el ID y prob\u00e1 de nuevo.';\n  } else if (statusCode === 409) {\n    mensaje = 'El turno ya fue cancelado previamente o no se puede cancelar en su estado actual.';\n  } else if (input.detail) {\n    mensaje = 'Error: ' + input.detail;\n  }\n  return [{\n    json: {\n      chat_id: chatId,\n      turno_id: turnoId,\n      exito: false,\n      text: mensaje,\n      buttons: []\n    }\n  }];\n}\n\nconst fecha = input.fecha || '';\nconst hora = input.hora_inicio || '';\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: turnoId,\n    exito: true,\n    text: 'Turno #' + turnoId + ' cancelado exitosamente.' + (fecha ? '\\n\\nFecha: ' + fecha : '') + (hora ? '\\nHora: ' + hora : '') + '\\n\\n\u00bfQuer\u00e9s reprogramarlo?',\n    buttons: [\n      { label: 'Reprogramar este turno', value: 'reprogramar:' + turnoId }\n    ]\n  }\n}];"
+        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst turnoId = input.turno_id;\nconst errorStatus = input.statusCode && input.statusCode >= 400;\nconst errorDetail = input.detail || (errorStatus ? 'Error HTTP ' + input.statusCode : null);\n\nlet mensaje = '';\nlet exito = false;\nif (errorStatus) {\n  if (input.statusCode === 404) {\n    mensaje = 'Turno no encontrado. Verificá el ID y probá de nuevo.';\n  } else if (input.statusCode === 409) {\n    mensaje = 'El turno ya fue cancelado previamente o no se puede cancelar en su estado actual.';\n  } else {\n    mensaje = 'Error al cancelar el turno: ' + (input.detail || ('HTTP ' + input.statusCode));\n  }\n  exito = false;\n} else {\n  mensaje = 'Turno #' + turnoId + ' cancelado exitosamente.';\n  exito = true;\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: turnoId,\n    exito: exito,\n    mensaje: mensaje\n  }\n}];"
       }
     },
     {
-      "id": "d1b2c3d4-0001-4000-8000-000000000005",
-      "name": "Telegram - Confirmar Cancelaci\u00f3n",
+      "id": "d1b2c3d4-0001-4000-8000-000000000007",
+      "name": "Telegram - Cancelar Confirmado",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1120, 320],
+      "position": [1400, 320],
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $json.chat_id }}",
-        "text": "={{ $json.text }}",
+        "text": "={{ $json.mensaje }}",
         "options": {
           "reply_markup": {
-            "inline_keyboard": "={{ $json.buttons && $json.buttons.length > 0 ? $json.buttons.map(function(b){ return [{text: b.label, callback_data: b.value}]; }) : [] }}"
+            "inline_keyboard": "={{ $json.exito ? [[{ text: 'Reprogramar este turno', callback_data: 'cmd:reprogramar:turno_id:' + $json.turno_id }], [{ text: 'Volver al menú', callback_data: 'cmd:menu' }]] : [[{ text: 'Volver a intentar', callback_data: 'cmd:cancelar' }]] }}"
           }
         }
       },
@@ -92,25 +175,50 @@
       "main": [
         [
           {
-            "node": "Code - Extraer Turno ID",
+            "node": "Code - Decidir Paso",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Code - Extraer Turno ID": {
+    "Code - Decidir Paso": {
       "main": [
         [
           {
-            "node": "HTTP Request - PUT Cancelar",
+            "node": "Switch Accion",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "HTTP Request - PUT Cancelar": {
+    "Switch Accion": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Pedir ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP - PUT Cancelar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram - Pedir ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - PUT Cancelar": {
       "main": [
         [
           {
@@ -125,7 +233,7 @@
       "main": [
         [
           {
-            "node": "Telegram - Confirmar Cancelaci\u00f3n",
+            "node": "Telegram - Cancelar Confirmado",
             "type": "main",
             "index": 0
           }

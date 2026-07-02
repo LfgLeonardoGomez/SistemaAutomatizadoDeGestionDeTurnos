@@ -104,15 +104,20 @@ def _extract_callback_query_id(update: dict[str, Any]) -> str | None:
 # ---------------------------------------------------------------------------
 
 async def enviar_mensaje(chat_id: int, text: str, bot_token: str, reply_markup: Any | None = None) -> bool:
-    """Send a message to a Telegram chat via run_in_threadpool.
+    """Send a message to a Telegram chat.
 
     Returns True if Telegram accepted the message, False otherwise.
     Callers decide whether to retry, log, or surface the failure.
+
+    NOTE: ``python-telegram-bot`` v20+ expone los métodos del ``Bot`` como
+    ``async`` nativos (NO sync). Por eso se hace ``await bot.send_message(...)``
+    directamente, sin ``run_in_threadpool`` (que es para funciones sync y
+    rompe el flow con un ``RuntimeWarning: coroutine ... was never awaited``
+    si le pasás una coroutine ya construida por error).
     """
     bot = _get_bot(bot_token)
     try:
-        await run_in_threadpool(
-            bot.send_message,
+        await bot.send_message(
             chat_id=chat_id,
             text=text,
             parse_mode="MarkdownV2",
@@ -145,7 +150,9 @@ async def responder_callback_query(callback_query_id: str, bot_token: str) -> No
     """Answer a callback query to remove the loading spinner."""
     bot = _get_bot(bot_token)
     try:
-        await run_in_threadpool(bot.answer_callback_query, callback_query_id)
+        # C-24 fix: ``Bot.answer_callback_query`` es async nativo en
+        # python-telegram-bot v20+ — ``await`` directo, sin ``run_in_threadpool``.
+        await bot.answer_callback_query(callback_query_id)
     except Exception as exc:
         logger.error(f"Error respondiendo callback query {callback_query_id}: {exc}")
 
