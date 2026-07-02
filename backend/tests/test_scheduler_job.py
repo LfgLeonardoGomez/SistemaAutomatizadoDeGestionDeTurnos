@@ -208,13 +208,21 @@ class TestSchedulerJob:
         # Crear 2 turnos a 1h y 1h10m en el futuro desde AHORA (no hora
         # fija) para evitar problemas de TZ y para garantizar que estén
         # dentro de la ventana ``horas_antes=24`` del job.
+        # ``hora_fin`` se mantiene a +5min de ``hora_inicio`` (no +30) y la
+        # ``fecha`` se calcula a partir de la MISMA expresión que produce la
+        # ``hora_inicio`` (con ``timedelta``) para evitar inconsistencias
+        # cuando el test corre cerca de medianoche (donde
+        # ``(base_dt + 10min).time()`` cae en el día siguiente pero
+        # ``base_dt.date()`` no). El check ``ck_turno_horario_valido`` exige
+        # ``hora_fin > hora_inicio`` en el mismo día.
         from unittest.mock import patch
         base_dt = datetime.now() + timedelta(hours=1)
         for i in range(2):
+            slot_dt = base_dt + timedelta(minutes=i * 10)
             turno = Turno(
-                fecha=base_dt.date(),
-                hora_inicio=(base_dt + timedelta(minutes=i * 10)).time(),
-                hora_fin=(base_dt + timedelta(minutes=i * 10 + 30)).time(),
+                fecha=slot_dt.date(),
+                hora_inicio=slot_dt.time(),
+                hora_fin=(slot_dt + timedelta(minutes=5)).time(),
                 estado="CONFIRMADO",
                 profesional_id=p.id,
                 paciente_id=paciente.id,
@@ -284,11 +292,15 @@ class TestSchedulerJob:
         # evitar problemas de TZ. El filtro ``ahora <= dt <= limite`` de
         # ``obtener_turnos_para_recordar`` requiere que el turno esté
         # estrictamente en el futuro, así que ``+1h`` es seguro.
+        # ``hora_fin`` a +5min (no +30) para EVITAR cruce de medianoche
+        # cuando el test corre entre 22:30 y 00:00 hora local: el check
+        # ``ck_turno_horario_valido`` exige ``hora_fin > hora_inicio`` en
+        # el mismo día.
         base_dt = datetime.now() + timedelta(hours=1)
         turno = Turno(
             fecha=base_dt.date(),
             hora_inicio=base_dt.time(),
-            hora_fin=(base_dt + timedelta(minutes=30)).time(),
+            hora_fin=(base_dt + timedelta(minutes=5)).time(),
             estado="CONFIRMADO",
             profesional_id=p.id,
             paciente_id=paciente.id,
@@ -336,14 +348,14 @@ class TestSchedulerJob:
         db_session.add(paciente)
         await db_session.commit()
 
-        # Usar HOY con hora 23:00 para evitar cruce de medianoche.
-        # Turno a 1h en el futuro desde AHORA (no hora fija) para evitar
-        # problemas de TZ y garantizar que esté dentro de la ventana.
+        # Turno a 1h en el futuro desde AHORA. ``hora_fin`` a +5min para
+        # EVITAR cruce de medianoche cuando el test corre entre 22:30 y
+        # 00:00 hora local.
         base_dt = datetime.now() + timedelta(hours=1)
         turno = Turno(
             fecha=base_dt.date(),
             hora_inicio=base_dt.time(),
-            hora_fin=(base_dt + timedelta(minutes=30)).time(),
+            hora_fin=(base_dt + timedelta(minutes=5)).time(),
             estado="CONFIRMADO",
             profesional_id=p.id,
             paciente_id=paciente.id,

@@ -63,7 +63,7 @@
 
 ## 9. Verificación y cierre
 
-- [ ] 9.1 Correr la suite completa (`pytest`): 0 regresiones sobre el baseline documentado.
-- [ ] 9.2 `openspec validate c-23-turno-destinatario-multicanal --strict` sin errores.
-- [ ] 9.3 Verificar manualmente el caso E2E multi-chat que motivó el cambio (reserva desde chat A y chat B para el mismo DNI).
+- [x] 9.1 Correr la suite completa (`pytest`): 0 regresiones sobre el baseline documentado. → **448 passed, 4 xfailed, 0 failed, 0 errors** (era 420 base antes de C-23 → +28 tests nuevos: 9 de TAREA 4, 4 de TAREA 5, 5 de TAREA 6, 10 de TAREA 7, y los 0 de TAREA 8 que ya estaban en el commit 0265e7b). Tiempo: 13:08.
+- [x] 9.2 `openspec validate c-23-turno-destinatario-multicanal --strict` sin errores. → Output: `Change 'c-23-turno-destinatario-multicanal' is valid`.
+- [ ] 9.3 Verificar manualmente el caso E2E multi-chat que motivó el cambio (reserva desde chat A y chat B para el mismo DNI). → Cubierto automáticamente por `test_confirmar_turno_no_sobrescribe_destinatario_entre_turnos_mismo_dni` (TAREA 7.4, el test CRÍTICO del change). El test crea 2 turnos del mismo DNI, confirma cada uno con chat distinto, cancela el primero entre confirmaciones, y verifica que cada turno conserva SU destinatario. La verificación manual real (con n8n + Telegram + backend) queda para el entorno de staging, fuera del alcance del apply.
 - [ ] 9.4 (post-archive) chronicle update de la KB: `04_modelo_de_datos.md` (ERD + `turno_destinatario`, quita `telegram_chat_id`), `03_actores_y_roles.md` (identificación vs autenticación), `05_reglas_de_negocio.md` (RN de destinatario+canal).

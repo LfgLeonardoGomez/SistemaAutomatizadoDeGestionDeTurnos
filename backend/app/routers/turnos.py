@@ -52,7 +52,13 @@ async def create_turno(
     data: ReservaTurnoRequest,
     response: Response,
 ) -> TurnoResponse:
-    """Crea una reserva temporal de turno. Patrón A: commit en happy path, rollback en except."""
+    """Crea una reserva temporal de turno. Patrón A: commit en happy path, rollback en except.
+
+    C-23 TAREA 6: si el request trae ``telegram_chat_id``, se propaga al
+    servicio para registrar un ``TurnoDestinatario`` canal=TELEGRAM. Si no
+    viene, el turno queda sin destinatario (reserva válida, recordatorio
+    no se envía).
+    """
     try:
         turno = await reservar_turno(
             db,
@@ -60,6 +66,7 @@ async def create_turno(
             fecha=data.fecha,
             hora_inicio=data.hora_inicio,
             paciente_id=data.paciente_id,
+            telegram_chat_id=data.telegram_chat_id,
         )
         await db.commit()
     except PacienteConTurnoActivoError as exc:
