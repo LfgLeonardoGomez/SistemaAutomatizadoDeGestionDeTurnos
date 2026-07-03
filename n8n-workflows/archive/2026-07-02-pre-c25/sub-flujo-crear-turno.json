@@ -1,0 +1,443 @@
+{
+  "name": "sub-flujo-crear-turno",
+  "nodes": [
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 320],
+      "parameters": {}
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000002",
+      "name": "Code - Decidir Paso",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 320],
+      "parameters": {
+        "mode": "runOnceForAll",
+        "language": "javaScript",
+        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst comando = input.comando || 'crear';\nconst textRaw = String(input.text || '');\nconst payload = input.payload || {};\n\nlet fecha = payload.fecha || '';\nlet slot = payload.slot || '';\nlet rango = payload.rango || '';\nlet fechaRaw = payload.fecha_raw || '';\nlet accion = '';\nlet mensajeError = '';\n\n// Defensa: parsear callbacks que el orquestador no haya procesado\nif (textRaw.startsWith('cmd:crear:slot:')) {\n  const parsed = textRaw.substring('cmd:crear:slot:'.length);\n  if (parsed !== 'none') slot = parsed;\n}\n\n// Si hay rango (botón) y no hay fecha, calcular fecha exacta\nif (!fecha && rango && rango !== 'exacto') {\n  const today = new Date();\n  today.setHours(0, 0, 0, 0);\n  let daysToAdd = 0;\n  if (rango === 'inmediato') daysToAdd = 1;\n  else if (rango === '2semanas') daysToAdd = 14;\n  else if (rango === '1mes') daysToAdd = 28;\n  if (daysToAdd > 0) {\n    today.setDate(today.getDate() + daysToAdd);\n    fecha = today.toISOString().slice(0, 10);\n  }\n}\n\n// Si hay fechaRaw (input DD/MM/AAAA) y no hay fecha, validar y convertir\nif (!fecha && fechaRaw) {\n  const match = /^(\\d{2})\\/(\\d{2})\\/(\\d{4})$/.exec(fechaRaw);\n  if (match) {\n    const day = parseInt(match[1], 10);\n    const month = parseInt(match[2], 10) - 1;\n    const year = parseInt(match[3], 10);\n    const parsed = new Date(year, month, day);\n    if (parsed.getDate() === day && parsed.getMonth() === month && parsed.getFullYear() === year) {\n      const today = new Date();\n      today.setHours(0, 0, 0, 0);\n      const maxDate = new Date(today);\n      maxDate.setMonth(maxDate.getMonth() + 3);\n      if (parsed < today) {\n        accion = 'fecha_invalida';\n        mensajeError = 'La fecha está en el pasado.';\n      } else if (parsed > maxDate) {\n        accion = 'fecha_invalida';\n        mensajeError = 'Solo podés reservar hasta 3 meses adelante.';\n      } else {\n        fecha = parsed.toISOString().slice(0, 10);\n      }\n    } else {\n      accion = 'fecha_invalida';\n      mensajeError = 'La fecha no es válida (día o mes incorrecto).';\n    }\n  } else {\n    accion = 'fecha_invalida';\n    mensajeError = 'Formato incorrecto. Usá DD/MM/AAAA (ej: 15/07/2026).';\n  }\n}\n\n// Decidir accion final\nif (!accion) {\n  if (rango === 'exacto' && !fecha) {\n    accion = 'pedir_fecha';\n  } else if (fecha && slot) {\n    accion = 'crear_turno';\n  } else if (fecha) {\n    accion = 'pedir_slot';\n  } else {\n    accion = 'pedir_rango';\n  }\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    comando: comando,\n    accion: accion,\n    fecha: fecha,\n    slot: slot,\n    rango: rango,\n    fecha_inicio: fecha || '',\n    mensaje_error: mensajeError\n  }\n}];"
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000003",
+      "name": "Switch Accion",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [680, 320],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 3},
+                "conditions": [
+                  {
+                    "id": "c2b2c3d4-0001-4000-8000-000000000010",
+                    "leftValue": "={{ $json.accion }}",
+                    "rightValue": "pedir_rango",
+                    "operator": {"type": "string", "operation": "equals"}
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pedir_rango"
+            },
+            {
+              "conditions": {
+                "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 3},
+                "conditions": [
+                  {
+                    "id": "c2b2c3d4-0001-4000-8000-000000000011",
+                    "leftValue": "={{ $json.accion }}",
+                    "rightValue": "pedir_fecha",
+                    "operator": {"type": "string", "operation": "equals"}
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pedir_fecha"
+            },
+            {
+              "conditions": {
+                "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 3},
+                "conditions": [
+                  {
+                    "id": "c2b2c3d4-0001-4000-8000-000000000012",
+                    "leftValue": "={{ $json.accion }}",
+                    "rightValue": "fecha_invalida",
+                    "operator": {"type": "string", "operation": "equals"}
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "fecha_invalida"
+            },
+            {
+              "conditions": {
+                "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 3},
+                "conditions": [
+                  {
+                    "id": "c2b2c3d4-0001-4000-8000-000000000001",
+                    "leftValue": "={{ $json.accion }}",
+                    "rightValue": "pedir_slot",
+                    "operator": {"type": "string", "operation": "equals"}
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pedir_slot"
+            },
+            {
+              "conditions": {
+                "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 3},
+                "conditions": [
+                  {
+                    "id": "c2b2c3d4-0001-4000-8000-000000000002",
+                    "leftValue": "={{ $json.accion }}",
+                    "rightValue": "crear_turno",
+                    "operator": {"type": "string", "operation": "equals"}
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "crear_turno"
+            }
+          ]
+        },
+        "options": {"fallbackOutput": "extra"}
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000020",
+      "name": "Telegram - Pedir Rango",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [920, 80],
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id }}",
+        "text": "✍️ ¿Para cuándo necesitás el turno?",
+        "options": {
+          "reply_markup": {
+            "inline_keyboard": [
+              [{"text": "🟢 Lo antes posible", "callback_data": "cmd:crear:rango:inmediato"}],
+              [{"text": "📅 En 2 semanas", "callback_data": "cmd:crear:rango:2semanas"}],
+              [{"text": "📆 En 1 mes", "callback_data": "cmd:crear:rango:1mes"}],
+              [{"text": "⌨️ Escribir fecha", "callback_data": "cmd:crear:rango:exacto"}]
+            ]
+          }
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram Bot Credentials"
+        }
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000021",
+      "name": "Telegram - Pedir Fecha",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [920, 200],
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id }}",
+        "text": "⌨️ Escribí la fecha del turno\n\nFormato: DD/MM/AAAA\nEjemplo: 15/07/2026\n\n❌ Para cancelar, escribí /reservar de nuevo",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram Bot Credentials"
+        }
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000022",
+      "name": "Telegram - Fecha Invalida",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [920, 320],
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ '❌ ' + $json.mensaje_error + '\\n\\nFormato: DD/MM/AAAA\\nEjemplo: 15/07/2026\\n\\nVolvé a escribir la fecha:' }}",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram Bot Credentials"
+        }
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000004",
+      "name": "HTTP - GET Disponibilidad",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [920, 440],
+      "parameters": {
+        "method": "GET",
+        "url": "http://backend:8000/turnos/disponibles?fecha={{ $json.fecha }}",
+        "options": {
+          "response": {"response": {"responseFormat": "json"}}
+        },
+        "authentication": {
+          "type": "generic",
+          "properties": {"genericAuthType": "httpHeaderAuth"}
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "profesional-api-key",
+          "name": "Profesional API Key"
+        }
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000023",
+      "name": "Code - Verificar Slots",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1160, 440],
+      "parameters": {
+        "mode": "runOnceForAll",
+        "language": "javaScript",
+        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst fecha = input.fecha || '';\n\nlet slots = [];\nif (Array.isArray(input)) {\n  slots = input;\n} else if (Array.isArray(input.slots)) {\n  slots = input.slots;\n}\nslots = slots.filter(function (s) { return s.disponible !== false; });\n\n// Leer fecha_inicio del Code - Decidir Paso original (sobrevive al loop)\nlet fechaInicio = fecha;\ntry {\n  const codeData = $('Code - Decidir Paso').first().json;\n  if (codeData && codeData.fecha_inicio) {\n    fechaInicio = codeData.fecha_inicio;\n  }\n} catch (e) {\n  // fallback silencioso\n}\n\n// Contador en staticData, keyed por chat_id (soporta múltiples usuarios)\nconst staticData = $getWorkflowStaticData('global');\nconst contadorKey = 'contador_' + chatId;\nlet contador = staticData[contadorKey] || 0;\n\nif (slots.length > 0) {\n  // Encontrado - limpiar estado\n  delete staticData[contadorKey];\n  return [{\n    json: {\n      chat_id: chatId,\n      fecha: fecha,\n      fecha_inicio: fechaInicio,\n      slots: slots,\n      decision: 'found'\n    }\n  }];\n}\n\n// No hay slots. ¿Ya intentamos los 7 días?\nconst MAX_DIAS = 7;\nif (contador >= MAX_DIAS - 1) {\n  delete staticData[contadorKey];\n  return [{\n    json: {\n      chat_id: chatId,\n      fecha: fecha,\n      fecha_inicio: fechaInicio,\n      slots: [],\n      decision: 'exhausted'\n    }\n  }];\n}\n\n// Retry: +1 día\nstaticData[contadorKey] = contador + 1;\nconst nextDate = new Date(fecha + 'T00:00:00');\nnextDate.setDate(nextDate.getDate() + 1);\nconst nextFecha = nextDate.toISOString().slice(0, 10);\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    fecha: nextFecha,\n    fecha_inicio: fechaInicio,\n    slots: [],\n    decision: 'retry'\n  }\n}];"
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000024",
+      "name": "Switch - Found",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [1380, 440],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 3},
+                "conditions": [
+                  {
+                    "id": "c2b2c3d4-0001-4000-8000-000000000020",
+                    "leftValue": "={{ $json.decision }}",
+                    "rightValue": "found",
+                    "operator": {"type": "string", "operation": "equals"}
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "found"
+            },
+            {
+              "conditions": {
+                "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 3},
+                "conditions": [
+                  {
+                    "id": "c2b2c3d4-0001-4000-8000-000000000021",
+                    "leftValue": "={{ $json.decision }}",
+                    "rightValue": "retry",
+                    "operator": {"type": "string", "operation": "equals"}
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "retry"
+            }
+          ]
+        },
+        "options": {"fallbackOutput": "extra"}
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000005",
+      "name": "Code - Formatear Slots",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1620, 320],
+      "parameters": {
+        "mode": "runOnceForAll",
+        "language": "javaScript",
+        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst fecha = input.fecha || '';\nlet slots = input.slots || [];\nif (!Array.isArray(slots)) slots = [];\nconst disponibles = slots.filter(function (s) { return s.disponible !== false; });\nreturn [{\n  json: {\n    chat_id: chatId,\n    fecha: fecha,\n    slots: disponibles,\n    cantidad: disponibles.length\n  }\n}];"
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000006",
+      "name": "Telegram - Pedir Slot",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1840, 320],
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ 'Elegí un horario disponible para el ' + $json.fecha + ':' }}",
+        "options": {
+          "reply_markup": {
+            "inline_keyboard": "={{ $json.slots.length > 0 ? $json.slots.map(function(s) { return [{ text: s.hora_inicio + (s.hora_fin ? (' - ' + s.hora_fin) : ''), callback_data: 'cmd:crear:slot:' + s.hora_inicio }]; }) : [] }}"
+          }
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram Bot Credentials"
+        }
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000025",
+      "name": "Telegram - No Hay Turnos",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1620, 560],
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id }}",
+        "text": "😔 No encontramos turnos disponibles en los próximos 7 días desde la fecha que pediste.\n\nProbá con otra fecha o contactanos.",
+        "options": {
+          "reply_markup": {
+            "inline_keyboard": [
+              [{"text": "📅 Buscar otra fecha", "callback_data": "cmd:crear"}]
+            ]
+          }
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram Bot Credentials"
+        }
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000007",
+      "name": "HTTP - POST Crear Turno",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [920, 560],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/turnos",
+        "sendBody": true,
+        "contentType": "application/json",
+        "body": {
+          "fecha": "={{ $json.fecha }}",
+          "hora_inicio": "={{ $json.slot }}",
+          "telegram_chat_id": "={{ $json.chat_id }}"
+        },
+        "options": {
+          "response": {"response": {"responseFormat": "json"}}
+        },
+        "authentication": {
+          "type": "generic",
+          "properties": {"genericAuthType": "httpHeaderAuth"}
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "profesional-api-key",
+          "name": "Profesional API Key"
+        }
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000008",
+      "name": "Code - Extraer Turno ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1160, 560],
+      "parameters": {
+        "mode": "runOnceForAll",
+        "language": "javaScript",
+        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst fecha = input.fecha;\nconst slot = input.hora_inicio || input.slot;\nconst turnoId = input.id;\nconst errorStatus = input.statusCode && input.statusCode >= 400;\nconst errorDetail = input.detail || (errorStatus ? 'Error HTTP ' + input.statusCode : null);\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    fecha: fecha,\n    slot: slot,\n    turno_id: turnoId,\n    exito: !!turnoId && !errorStatus,\n    error: errorDetail\n  }\n}];"
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000009",
+      "name": "Telegram - Turno Creado",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1400, 560],
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.exito ? ('Reserva creada (turno #' + $json.turno_id + ').\\n\\nFecha: ' + $json.fecha + '\\nHora: ' + $json.slot + '\\n\\nTu reserva está en estado temporal. Te enviaremos un recordatorio el día anterior. Si necesitás cancelar o reprogramar, escribinos.') : ('No se pudo crear la reserva. ' + ($json.error || 'Intentá de nuevo más tarde.')) }}",
+        "options": {
+          "reply_markup": {
+            "inline_keyboard": "={{ $json.exito ? [[{ text: 'Cancelar esta reserva', callback_data: 'cmd:cancelar:turno_id:' + $json.turno_id }]] : [[{ text: 'Volver a intentar', callback_data: 'cmd:crear' }]] }}"
+          }
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram Bot Credentials"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [[{"node": "Code - Decidir Paso", "type": "main", "index": 0}]]
+    },
+    "Code - Decidir Paso": {
+      "main": [[{"node": "Switch Accion", "type": "main", "index": 0}]]
+    },
+    "Switch Accion": {
+      "main": [
+        [{"node": "Telegram - Pedir Rango", "type": "main", "index": 0}],
+        [{"node": "Telegram - Pedir Fecha", "type": "main", "index": 0}],
+        [{"node": "Telegram - Fecha Invalida", "type": "main", "index": 0}],
+        [{"node": "HTTP - GET Disponibilidad", "type": "main", "index": 0}],
+        [{"node": "HTTP - POST Crear Turno", "type": "main", "index": 0}]
+      ]
+    },
+    "HTTP - GET Disponibilidad": {
+      "main": [[{"node": "Code - Verificar Slots", "type": "main", "index": 0}]]
+    },
+    "Code - Verificar Slots": {
+      "main": [[{"node": "Switch - Found", "type": "main", "index": 0}]]
+    },
+    "Switch - Found": {
+      "main": [
+        [{"node": "Code - Formatear Slots", "type": "main", "index": 0}],
+        [{"node": "HTTP - GET Disponibilidad", "type": "main", "index": 0}],
+        [{"node": "Telegram - No Hay Turnos", "type": "main", "index": 0}]
+      ]
+    },
+    "Code - Formatear Slots": {
+      "main": [[{"node": "Telegram - Pedir Slot", "type": "main", "index": 0}]]
+    },
+    "HTTP - POST Crear Turno": {
+      "main": [[{"node": "Code - Extraer Turno ID", "type": "main", "index": 0}]]
+    },
+    "Code - Extraer Turno ID": {
+      "main": [[{"node": "Telegram - Turno Creado", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "c-25",
+    "sub-flujo",
+    "crear"
+  ],
+  "pinData": {},
+  "active": false
+}
