@@ -76,6 +76,11 @@ services:
       FASTAPI_BASE_URL: http://backend:8000
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
 
+      # Permite acceder a $env en expresiones de nodos. Necesario para el nodo
+      # HTTP que envia teclados dinamicos a Telegram (el token va en la URL, y
+      # la imagen n8n:latest bloquea el acceso a env por default).
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+
       # --- URL publica (ngrok) que n8n usa para registrar los webhooks ---
       # Unica fuente de verdad: NGROK_DOMAIN (ej. tu-nombre.ngrok-free.app).
       # n8n construye las URLs de webhook con esto, ngrok expone el mismo dominio.
