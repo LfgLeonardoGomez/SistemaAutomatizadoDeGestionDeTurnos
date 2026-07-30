@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi import Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import DbDep, CurrentProfesionalDep
+from app.dependencies import DbDep, FlexibleProfesionalDep
 from app.schemas.turno import (
     ReservaTurnoRequest,
     ConfirmarTurnoRequest,
@@ -37,7 +37,7 @@ router = APIRouter(prefix="/turnos", tags=["turnos"])
 @router.get("/disponibles", response_model=list[SlotResponse])
 async def get_turnos_disponibles(
     db: DbDep,
-    profesional: CurrentProfesionalDep,
+    profesional: FlexibleProfesionalDep,
     fecha: Annotated[date, Query(description="Fecha en formato YYYY-MM-DD")],
 ) -> list[SlotResponse]:
     """Retorna los slots disponibles para una fecha dada."""
@@ -48,7 +48,7 @@ async def get_turnos_disponibles(
 @router.post("", response_model=TurnoResponse, status_code=status.HTTP_201_CREATED)
 async def create_turno(
     db: DbDep,
-    profesional: CurrentProfesionalDep,
+    profesional: FlexibleProfesionalDep,
     data: ReservaTurnoRequest,
     response: Response,
 ) -> TurnoResponse:
@@ -81,7 +81,7 @@ async def create_turno(
 @router.put("/{turno_id}/confirmar", response_model=TurnoResponse)
 async def confirmar_turno_endpoint(
     db: DbDep,
-    profesional: CurrentProfesionalDep,
+    profesional: FlexibleProfesionalDep,
     turno_id: int,
     data: ConfirmarTurnoRequest,
 ) -> TurnoResponse:
@@ -109,7 +109,7 @@ async def confirmar_turno_endpoint(
 @router.put("/{turno_id}/cancelar", response_model=TurnoResponse)
 async def cancelar_turno_endpoint(
     db: DbDep,
-    profesional: CurrentProfesionalDep,
+    profesional: FlexibleProfesionalDep,
     turno_id: int,
 ) -> TurnoResponse:
     """Cancela un turno confirmado. Patrón A: commit en happy path, rollback en except."""
@@ -128,7 +128,7 @@ async def cancelar_turno_endpoint(
 @router.put("/{turno_id}/reprogramar", response_model=TurnoResponse)
 async def reprogramar_turno_endpoint(
     db: DbDep,
-    profesional: CurrentProfesionalDep,
+    profesional: FlexibleProfesionalDep,
     turno_id: int,
     data: ReprogramarTurnoRequest,
 ) -> TurnoResponse:
@@ -168,7 +168,7 @@ async def reprogramar_turno_endpoint(
 @router.put("/{turno_id}/completar", response_model=TurnoResponse)
 async def completar_turno_endpoint(
     db: DbDep,
-    profesional: CurrentProfesionalDep,
+    profesional: FlexibleProfesionalDep,
     turno_id: int,
 ) -> TurnoResponse:
     """Marca un turno confirmado como completado.
@@ -191,7 +191,7 @@ async def completar_turno_endpoint(
 @router.put("/{turno_id}/confirmar-asistencia", response_model=TurnoResponse)
 async def confirmar_asistencia_endpoint(
     db: DbDep,
-    profesional: CurrentProfesionalDep,
+    profesional: FlexibleProfesionalDep,
     turno_id: int,
 ) -> TurnoResponse:
     """Confirma la asistencia de un turno ya confirmado (idempotente). Patrón A."""

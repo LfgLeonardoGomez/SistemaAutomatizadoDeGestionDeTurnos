@@ -297,8 +297,8 @@
       ],
       "credentials": {
         "httpHeaderAuth": {
-          "id": "Aaw5tL1OiWSNc2Eg",
-          "name": "Authorization"
+          "id": "profesional-api-key",
+          "name": "Profesional API Key"
         }
       }
     },
@@ -479,8 +479,8 @@
       ],
       "credentials": {
         "httpHeaderAuth": {
-          "id": "Aaw5tL1OiWSNc2Eg",
-          "name": "Authorization"
+          "id": "profesional-api-key",
+          "name": "Profesional API Key"
         }
       }
     },
