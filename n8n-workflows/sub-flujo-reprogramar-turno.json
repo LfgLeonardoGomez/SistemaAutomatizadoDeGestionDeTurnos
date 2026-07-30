@@ -195,7 +195,7 @@
       "position": [920, 420],
       "parameters": {
         "method": "GET",
-        "url": "http://backend:8000/turnos/disponibles?fecha={{ $json.nueva_fecha }}",
+        "url": "=http://backend:8000/turnos/disponibles?fecha={{ $json.nueva_fecha }}",
         "options": {
           "response": {
             "response": {
@@ -260,7 +260,7 @@
       "position": [920, 600],
       "parameters": {
         "method": "PUT",
-        "url": "http://backend:8000/turnos/{{ $json.turno_id }}/reprogramar",
+        "url": "=http://backend:8000/turnos/{{ $json.turno_id }}/reprogramar",
         "sendBody": true,
         "contentType": "application/json",
         "body": {

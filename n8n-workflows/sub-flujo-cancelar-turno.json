@@ -112,7 +112,7 @@
       "position": [920, 320],
       "parameters": {
         "method": "PUT",
-        "url": "http://backend:8000/turnos/{{ $json.turno_id }}/cancelar",
+        "url": "=http://backend:8000/turnos/{{ $json.turno_id }}/cancelar",
         "options": {
           "response": {
             "response": {
