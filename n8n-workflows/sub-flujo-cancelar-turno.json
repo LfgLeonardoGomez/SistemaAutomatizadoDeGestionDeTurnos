@@ -120,12 +120,8 @@
             }
           }
         },
-        "authentication": {
-          "type": "generic",
-          "properties": {
-            "genericAuthType": "httpHeaderAuth"
-          }
-        }
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
       },
       "credentials": {
         "httpHeaderAuth": {

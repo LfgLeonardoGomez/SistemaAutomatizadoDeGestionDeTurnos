@@ -203,12 +203,8 @@
             }
           }
         },
-        "authentication": {
-          "type": "generic",
-          "properties": {
-            "genericAuthType": "httpHeaderAuth"
-          }
-        }
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -262,12 +258,8 @@
         "method": "PUT",
         "url": "=http://backend:8000/turnos/{{ $json.turno_id }}/reprogramar",
         "sendBody": true,
-        "contentType": "application/json",
-        "body": {
-          "nueva_fecha": "={{ $json.nueva_fecha }}",
-          "nueva_hora_inicio": "={{ $json.nuevo_slot }}",
-          "telegram_chat_id": "={{ $json.chat_id }}"
-        },
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ nueva_fecha: $json.nueva_fecha, nueva_hora_inicio: $json.nuevo_slot }) }}",
         "options": {
           "response": {
             "response": {
@@ -275,12 +267,8 @@
             }
           }
         },
-        "authentication": {
-          "type": "generic",
-          "properties": {
-            "genericAuthType": "httpHeaderAuth"
-          }
-        }
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
       },
       "credentials": {
         "httpHeaderAuth": {
