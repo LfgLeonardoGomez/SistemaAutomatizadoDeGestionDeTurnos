@@ -110,9 +110,10 @@
       "credentials": {
         "telegramApi": {
           "id": "telegram-bot-credentials",
-          "name": "Telegram Bot Credentials"
+          "name": "Telegram account"
         }
-      }
+      },
+      "notes": "Credencial por NOMBRE, no por id. Los ids de credenciales son locales a cada instancia de n8n, asi que nunca coinciden entre entornos. n8n resuelve por nombre cuando el id no matchea: mientras el nombre sea exactamente \"Telegram account\", el workflow reconecta solo al importarse. No reemplazar este nombre por el id de tu instancia. Ver n8n-workflows/README.md"
     },
     {
       "id": "d1b2c3d4-0001-4000-8000-000000000005",
@@ -178,9 +179,10 @@
       "credentials": {
         "telegramApi": {
           "id": "telegram-bot-credentials",
-          "name": "Telegram Bot Credentials"
+          "name": "Telegram account"
         }
-      }
+      },
+      "notes": "Credencial por NOMBRE, no por id. Los ids de credenciales son locales a cada instancia de n8n, asi que nunca coinciden entre entornos. n8n resuelve por nombre cuando el id no matchea: mientras el nombre sea exactamente \"Telegram account\", el workflow reconecta solo al importarse. No reemplazar este nombre por el id de tu instancia. Ver n8n-workflows/README.md"
     }
   ],
   "connections": {

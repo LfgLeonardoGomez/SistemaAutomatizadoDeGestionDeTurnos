@@ -72,6 +72,42 @@ Más el bloque `credentials.httpHeaderAuth: { id, name }` que apunta a la creden
 
 > 🔁 **Rotación de `api_key`**: tocar solo la credencial en n8n (un cambio, todos los nodos actualizados). No requiere redeploy del workflow.
 
+### ⚠️ El `id` de una credencial es local a cada instancia — referenciala por `name`
+
+**Leé esto antes de "corregir" un id de credencial en el repo.**
+
+Los ids de credenciales los genera cada instancia de n8n cuando la credencial se
+crea. Son locales a esa instancia y **nunca coinciden entre dos máquinas**:
+
+| Credencial | Instancia de Leonardo | Otra instancia |
+|---|---|---|
+| Telegram | `TZgUFY41hdHCU9fu` | `telegram-bot-credentials` |
+| API Key del profesional | `T9DkbhELoxyryvzg` | (otro) |
+
+Si commiteás el id de tu instancia, al otro se le queda el nodo con una credencial
+colgada. Y no falla al importar: falla **en runtime**. Como los nodos de Telegram
+suelen estar al final del flujo, el error aparece lejos de la causa.
+
+Ya nos pasó tres veces — con `profesional-api-key`, y con Telegram en `943fdb7`.
+
+**La regla:** lo único portable entre instancias es el `name`. Cuando n8n importa un
+workflow cuyo id de credencial no existe localmente, **resuelve por nombre** y
+reescribe el id con el suyo. Entonces:
+
+- El `name` es el contrato. Tiene que ser **exacto**, mayúsculas incluidas.
+- El `id` del repo es irrelevante. No hace falta tocarlo ni "arreglarlo".
+
+**Nombres canónicos** (los nodos llevan además un campo `notes` que repite esto):
+
+| Tipo de credencial | `name` que va en el repo |
+|---|---|
+| `telegramApi` | `Telegram account` |
+| `httpHeaderAuth` (X-API-Key) | `Profesional API Key` |
+
+Si tu instancia tiene la credencial con otro nombre, **renombrala en tu n8n** para
+que coincida con el repo. No cambies el repo para que coincida con tu instancia:
+eso le rompe el entorno al otro.
+
 ## Variables de entorno en n8n
 
 Configurá estas variables en tu instancia de n8n (Settings → External Secrets o via `.env`):
@@ -153,10 +189,18 @@ for f in n8n-workflows/*.json; do
 done
 
 # Estructura: cada HTTP Request usa Generic Credential Type → httpHeaderAuth
+#
+# `authentication` es un STRING, no un objeto. HttpRequestV3 lo compara contra
+# 'genericCredentialType' | 'predefinedCredentialType' | 'none'. Una forma anidada
+# ({"type": "generic", "properties": {...}}) no matchea ninguno, cae a "sin auth",
+# y el request sale SIN el header → 401. Es silencioso: n8n no se queja al importar.
 for f in n8n-workflows/sub-flujo-*.json n8n-workflows/flujo-lista-espera.json n8n-workflows/flujo-recordatorio.json; do
   echo "=== $f ==="
-  python -c "import json,sys; d=json.load(open('$f')); nodes=[n for n in d['nodes'] if n['type']=='n8n-nodes-base.httpRequest']; [print(n['name'], '→', n['parameters'].get('authentication',{}).get('type','MISSING')) for n in nodes]"
+  python -c "import json; d=json.load(open('$f')); nodes=[n for n in d['nodes'] if n['type']=='n8n-nodes-base.httpRequest']; [print(n['name'], '→', n['parameters'].get('authentication','MISSING'), '/', n['parameters'].get('genericAuthType','MISSING')) for n in nodes]"
 done
+
+# Lo mismo para el body de un POST/PUT: sendBody + specifyBody:"json" + jsonBody.
+# Un campo `body` suelto no es schema válido y el request sale con el body vacío.
 
 # Orquestador referencia los 3 sub-workflows
 python -c "import json; d=json.load(open('n8n-workflows/orquestador.json')); nodes=[n for n in d['nodes'] if n['type']=='n8n-nodes-base.executeWorkflow']; [print(n['name'], '→', n['parameters'].get('workflowId',{}).get('value','MISSING')) for n in nodes]"
