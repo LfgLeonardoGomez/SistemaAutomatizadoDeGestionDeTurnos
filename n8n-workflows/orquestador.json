@@ -20,7 +20,7 @@
       "webhookId": "orquestador-telegram",
       "credentials": {
         "telegramApi": {
-          "id": "TZgUFY41hdHCU9fu",
+          "id": "telegram-bot-credentials",
           "name": "Telegram account"
         }
       }
@@ -268,7 +268,7 @@
       "webhookId": "657cb996-9742-4b14-a54f-5897963605e0",
       "credentials": {
         "telegramApi": {
-          "id": "TZgUFY41hdHCU9fu",
+          "id": "telegram-bot-credentials",
           "name": "Telegram account"
         }
       }

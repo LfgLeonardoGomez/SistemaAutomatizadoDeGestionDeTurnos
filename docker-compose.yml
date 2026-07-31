@@ -74,6 +74,7 @@ services:
       # NO por localhost:18000. Dentro de la red de Compose cada contenedor
       # tiene su propio localhost; los servicios se hablan por su nombre.
       FASTAPI_BASE_URL: http://backend:8000
+      BACKEND_URL: http://backend:8000
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
 
       # Permite acceder a $env en expresiones de nodos. Necesario para el nodo
