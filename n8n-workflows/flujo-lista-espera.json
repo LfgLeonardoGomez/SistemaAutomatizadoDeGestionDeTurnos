@@ -6,7 +6,10 @@
       "name": "Webhook Trigger",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [250, 300],
+      "position": [
+        250,
+        300
+      ],
       "webhookId": "lista-espera",
       "parameters": {
         "httpMethod": "POST",
@@ -20,7 +23,10 @@
       "name": "HTTP Request - Placeholder Lista Espera",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [450, 300],
+      "position": [
+        450,
+        300
+      ],
       "parameters": {
         "method": "GET",
         "url": "={{ $env.FASTAPI_BASE_URL }}/lista-espera/siguiente",
@@ -45,10 +51,11 @@
       "name": "Format Response - Lista Espera",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [650, 300],
+      "position": [
+        650,
+        300
+      ],
       "parameters": {
-        "mode": "runOnceForAll",
-        "language": "javaScript",
         "jsCode": "// PLACEHOLDER para C-11\n// Este nodo deberá recibir el siguiente paciente en lista de espera y enviarle una notificación.\n\nconst paciente = $input.all()[0].json;\n\nif (!paciente || !paciente.id) {\n  return [{\n    json: {\n      text: 'No hay pacientes en lista de espera.',\n      paciente: null\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    chat_id: paciente.telegram_id,\n    text: `Se liberó un turno!\\n\\nFecha: ${paciente.fecha_solicitada}\\nHora: ${paciente.hora_preferida}\\n\\n¿Querés reservarlo?`,\n    inline_buttons: [\n      { text: 'Reservar turno', callback_data: `reservar_lista_${paciente.id}` },\n      { text: 'No, gracias', callback_data: `rechazar_lista_${paciente.id}` }\n    ]\n  }\n}];"
       }
     },
@@ -57,7 +64,10 @@
       "name": "Telegram - Notificar Lista Espera",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.1,
-      "position": [850, 300],
+      "position": [
+        850,
+        300
+      ],
       "parameters": {
         "chatId": "={{ $json.chat_id }}",
         "text": "={{ $json.text }}",
@@ -117,9 +127,6 @@
     "errorWorkflow": ""
   },
   "staticData": null,
-  "tags": [
-    "placeholder",
-    "c-11"
-  ],
-  "pinData": {}
+  "pinData": {},
+  "id": "f-list-0000-0000-0000-0000000000l1"
 }

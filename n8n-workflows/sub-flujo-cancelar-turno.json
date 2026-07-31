@@ -6,7 +6,10 @@
       "name": "Execute Workflow Trigger",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1,
-      "position": [240, 320],
+      "position": [
+        240,
+        320
+      ],
       "parameters": {}
     },
     {
@@ -14,10 +17,11 @@
       "name": "Code - Decidir Paso",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 320],
+      "position": [
+        460,
+        320
+      ],
       "parameters": {
-        "mode": "runOnceForAll",
-        "language": "javaScript",
         "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst comando = input.comando || 'cancelar';\nconst payload = input.payload || {};\nconst text = String(input.text || '');\n\nlet turnoId = payload.turno_id || '';\n\nif (text.startsWith('cmd:cancelar:turno_id:')) {\n  turnoId = text.substring('cmd:cancelar:turno_id:'.length);\n} else if (text.startsWith('cancelar:') && text.indexOf(':') === text.lastIndexOf(':')) {\n  const candidate = text.substring('cancelar:'.length).trim();\n  if (/^\\d+$/.test(candidate)) {\n    turnoId = candidate;\n  }\n}\n\nconst accion = turnoId ? 'cancelar' : 'pedir_id';\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    comando: comando,\n    accion: accion,\n    turno_id: turnoId\n  }\n}];"
       }
     },
@@ -26,7 +30,10 @@
       "name": "Switch Accion",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.4,
-      "position": [680, 320],
+      "position": [
+        680,
+        320
+      ],
       "parameters": {
         "rules": {
           "values": [
@@ -90,7 +97,10 @@
       "name": "Telegram - Pedir ID",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [920, 120],
+      "position": [
+        920,
+        120
+      ],
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $json.chat_id }}",
@@ -109,7 +119,10 @@
       "name": "HTTP - PUT Cancelar",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [920, 320],
+      "position": [
+        920,
+        320
+      ],
       "parameters": {
         "method": "PUT",
         "url": "=http://backend:8000/turnos/{{ $json.turno_id }}/cancelar",
@@ -139,10 +152,11 @@
       "name": "Code - Formatear Respuesta",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1160, 320],
+      "position": [
+        1160,
+        320
+      ],
       "parameters": {
-        "mode": "runOnceForAll",
-        "language": "javaScript",
         "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst turnoId = input.turno_id;\nconst errorStatus = input.statusCode && input.statusCode >= 400;\nconst errorDetail = input.detail || (errorStatus ? 'Error HTTP ' + input.statusCode : null);\n\nlet mensaje = '';\nlet exito = false;\nif (errorStatus) {\n  if (input.statusCode === 404) {\n    mensaje = 'Turno no encontrado. Verificá el ID y probá de nuevo.';\n  } else if (input.statusCode === 409) {\n    mensaje = 'El turno ya fue cancelado previamente o no se puede cancelar en su estado actual.';\n  } else {\n    mensaje = 'Error al cancelar el turno: ' + (input.detail || ('HTTP ' + input.statusCode));\n  }\n  exito = false;\n} else {\n  mensaje = 'Turno #' + turnoId + ' cancelado exitosamente.';\n  exito = true;\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: turnoId,\n    exito: exito,\n    mensaje: mensaje\n  }\n}];"
       }
     },
@@ -151,7 +165,10 @@
       "name": "Telegram - Cancelar Confirmado",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1400, 320],
+      "position": [
+        1400,
+        320
+      ],
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $json.chat_id }}",
@@ -245,11 +262,7 @@
     "executionOrder": "v1"
   },
   "staticData": null,
-  "tags": [
-    "c-24",
-    "sub-flujo",
-    "cancelar"
-  ],
   "pinData": {},
-  "active": false
+  "active": false,
+  "id": "7SwnKOvr-VGUN0oMzX9rT"
 }

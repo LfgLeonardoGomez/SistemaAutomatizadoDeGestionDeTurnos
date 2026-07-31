@@ -6,7 +6,10 @@
       "name": "Schedule Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.1,
-      "position": [240, 320],
+      "position": [
+        240,
+        320
+      ],
       "parameters": {
         "rule": {
           "interval": [
@@ -20,13 +23,14 @@
     },
     {
       "id": "f1b2c3d4-0001-4000-8000-000000000002",
-      "name": "Code - Calcular Fecha Ma\u00f1ana",
+      "name": "Code - Calcular Fecha Mañana",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 320],
+      "position": [
+        460,
+        320
+      ],
       "parameters": {
-        "mode": "runOnceForAll",
-        "language": "javaScript",
         "jsCode": "const maniana = new Date(Date.now() + 86400000);\nconst fecha_maniana = maniana.toISOString().slice(0, 10);\n\nreturn [{\n  json: {\n    fecha_maniana: fecha_maniana,\n    timestamp: new Date().toISOString()\n  }\n}];"
       }
     },
@@ -35,7 +39,10 @@
       "name": "HTTP Request - POST Recordatorios Run",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [680, 320],
+      "position": [
+        680,
+        320
+      ],
       "parameters": {
         "method": "POST",
         "url": "={{ $env.BACKEND_URL }}/api/v1/recordatorios/run?fecha={{ $json.fecha_maniana }}",
@@ -67,14 +74,14 @@
       "main": [
         [
           {
-            "node": "Code - Calcular Fecha Ma\u00f1ana",
+            "node": "Code - Calcular Fecha Mañana",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Code - Calcular Fecha Ma\u00f1ana": {
+    "Code - Calcular Fecha Mañana": {
       "main": [
         [
           {
@@ -90,11 +97,7 @@
     "executionOrder": "v1"
   },
   "staticData": null,
-  "tags": [
-    "c-24",
-    "recordatorio",
-    "schedule"
-  ],
   "pinData": {},
-  "active": false
+  "active": false,
+  "id": "f-rec-0000-0000-0000-0000000000r1"
 }
