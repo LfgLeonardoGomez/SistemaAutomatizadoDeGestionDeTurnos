@@ -5,14 +5,21 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import DbDep, CurrentProfesionalDep
+from app.dependencies import DbDep, FlexibleProfesionalDep
 from app.models.paciente import Paciente
-from app.schemas.paciente import PacienteCreate, PacienteRead, PacienteConHistorial, TurnoRead
+from app.schemas.paciente import (
+    PacienteCreate,
+    PacienteRead,
+    PacienteConHistorial,
+    TurnoRead,
+    PacienteBusqueda,
+)
 from app.services.paciente_service import (
     crear_o_obtener_paciente,
     listar_pacientes,
     obtener_paciente_con_historial,
     listar_turnos_por_paciente,
+    buscar_paciente_por_dni,
 )
 
 router = APIRouter(prefix="/pacientes", tags=["pacientes"])
@@ -21,7 +28,7 @@ router = APIRouter(prefix="/pacientes", tags=["pacientes"])
 @router.post("", response_model=PacienteRead)
 async def create_paciente(
     db: DbDep,
-    profesional: CurrentProfesionalDep,
+    profesional: FlexibleProfesionalDep,
     data: PacienteCreate,
     response: Response,
 ) -> PacienteRead:
@@ -63,7 +70,7 @@ async def create_paciente(
 @router.get("", response_model=list[PacienteRead])
 async def list_pacientes(
     db: DbDep,
-    profesional: CurrentProfesionalDep,
+    profesional: FlexibleProfesionalDep,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[PacienteRead]:
@@ -71,10 +78,29 @@ async def list_pacientes(
     return await listar_pacientes(db, profesional_id=profesional.id, limit=limit, offset=offset)
 
 
+@router.get("/buscar", response_model=PacienteBusqueda)
+async def buscar_paciente(
+    db: DbDep,
+    profesional: FlexibleProfesionalDep,
+    dni: Annotated[str, Query(min_length=1)],
+) -> PacienteBusqueda:
+    """Busca un paciente por DNI, acotado al profesional autenticado.
+
+    MUST declararse antes de ``GET /{paciente_id}``: FastAPI matchea rutas
+    en orden de declaración, así que si esta ruta fuera después, "buscar"
+    sería parseado como ``paciente_id`` y el request moriría con 422
+    (design.md § D1 — c-27).
+    """
+    paciente = await buscar_paciente_por_dni(db, profesional_id=profesional.id, dni=dni)
+    if paciente is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado")
+    return paciente
+
+
 @router.get("/{paciente_id}", response_model=PacienteConHistorial)
 async def get_paciente(
     db: DbDep,
-    profesional: CurrentProfesionalDep,
+    profesional: FlexibleProfesionalDep,
     paciente_id: int,
 ) -> PacienteConHistorial:
     """Obtiene un paciente por ID con su historial de turnos."""
@@ -87,7 +113,7 @@ async def get_paciente(
 @router.get("/{paciente_id}/turnos", response_model=list[TurnoRead])
 async def get_paciente_turnos(
     db: DbDep,
-    profesional: CurrentProfesionalDep,
+    profesional: FlexibleProfesionalDep,
     paciente_id: int,
 ) -> list[TurnoRead]:
     """Lista todos los turnos asociados a un paciente."""

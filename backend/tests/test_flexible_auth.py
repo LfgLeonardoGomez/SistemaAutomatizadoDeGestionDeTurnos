@@ -192,22 +192,23 @@ class TestFlexibleAuthTurnosDisponibles:
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @pytest.mark.asyncio
-    async def test_endpoint_no_turno_no_afectado_por_x_api_key(self, client, db_session):
-        """2.9: a non-/turnos/* professional endpoint keeps its JWT-only dependency.
+    async def test_endpoint_pacientes_tambien_acepta_x_api_key(self, client, db_session):
+        """2.9 (superseded by c-27 group 4): /pacientes/* was widened too.
 
-        GET /pacientes carries only a valid X-API-Key and no Authorization —
-        the flexible dependency is not wired there, so it must still reject
-        (401/403, same as the existing JWT-only contract; HTTPBearer with
-        auto_error=True returns 403 when the Authorization header is absent).
+        This originally asserted /pacientes stayed JWT-only because the
+        flexible dependency was not wired there under C-26. c-27 group 4
+        (CRITICAL governance, explicit human approval granted 2026-07-31)
+        deliberately widens /pacientes/* to the same X-API-Key OR Bearer JWT
+        contract as /turnos/*, scoped per profesional_id exactly as before.
+        See test_pacientes_flexible_auth.py for the full auth matrix on
+        /pacientes/*; this test stays here only to document the change in
+        behavior relative to the original C-26 assumption.
         """
         prof_a = await _seed_activa_con_api_key(db_session)
 
         response = client.get("/pacientes", headers={"X-API-Key": prof_a.api_key})
 
-        assert response.status_code in (
-            status.HTTP_401_UNAUTHORIZED,
-            status.HTTP_403_FORBIDDEN,
-        )
+        assert response.status_code == status.HTTP_200_OK
 
 
 class TestFlexibleAuthTenantIsolation:
