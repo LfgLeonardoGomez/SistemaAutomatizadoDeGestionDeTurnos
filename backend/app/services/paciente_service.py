@@ -6,7 +6,13 @@ from sqlalchemy.orm import joinedload
 
 from app.models.paciente import Paciente
 from app.models.turno import Turno
-from app.schemas.paciente import PacienteCreate, PacienteRead, PacienteConHistorial, TurnoRead
+from app.schemas.paciente import (
+    PacienteCreate,
+    PacienteRead,
+    PacienteConHistorial,
+    TurnoRead,
+    PacienteBusqueda,
+)
 
 
 async def crear_o_obtener_paciente(
@@ -104,3 +110,22 @@ async def listar_turnos_por_paciente(
     result = await db_session.execute(stmt)
     turnos = result.scalars().all()
     return [TurnoRead.model_validate(t) for t in turnos]
+
+
+async def buscar_paciente_por_dni(
+    db_session, profesional_id: int, dni: str
+) -> Optional[PacienteBusqueda]:
+    """Busca un paciente por ``(profesional_id, dni)``; ``None`` si no existe.
+
+    Tenant-scoped: un DNI registrado bajo otro profesional nunca es
+    resoluble acá, aunque el mismo DNI exista legítimamente bajo varios
+    profesionales (c-27, patient-dni-lookup spec).
+    """
+    stmt = select(Paciente).where(
+        Paciente.profesional_id == profesional_id, Paciente.dni == dni
+    )
+    result = await db_session.execute(stmt)
+    paciente = result.scalar_one_or_none()
+    if paciente is None:
+        return None
+    return PacienteBusqueda.model_validate(paciente)

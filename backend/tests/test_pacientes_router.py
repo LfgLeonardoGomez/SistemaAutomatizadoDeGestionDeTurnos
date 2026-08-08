@@ -264,3 +264,125 @@ class TestPacientesRouter:
 
         response = authenticated_client.get(f"/pacientes/{paciente.id}")
         assert response.status_code == 404
+
+
+class TestPacienteBuscarPorDni:
+    """Tests de integración para GET /pacientes/buscar — c-27 grupo 2 (RED) y 3.5.
+
+    Auth: usa ``authenticated_client`` (JWT) — el widening a X-API-Key es
+    grupo 4 (CRITICAL governance, fuera de este batch); estos tests cubren
+    solo el comportamiento funcional del lookup (Requirement 1 y 2 del spec
+    patient-dni-lookup), no el Requirement 3 (dual auth).
+    """
+
+    @pytest.mark.asyncio
+    async def test_buscar_dni_existente_devuelve_200_con_datos(self, authenticated_client, db_session, profesional):
+        """Scenario: DNI belongs to an existing patient of the authenticated professional."""
+        paciente = Paciente(
+            nombre="Juan", apellido="Pérez", dni="30111222", telefono="1122334455",
+            profesional_id=profesional.id,
+        )
+        db_session.add(paciente)
+        await db_session.commit()
+
+        response = authenticated_client.get("/pacientes/buscar", params={"dni": "30111222"})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == paciente.id
+        assert data["nombre"] == "Juan"
+        assert data["apellido"] == "Pérez"
+        assert data["dni"] == "30111222"
+        assert data["telefono"] == "1122334455"
+
+    @pytest.mark.asyncio
+    async def test_buscar_dni_no_registrado_devuelve_404(self, authenticated_client, db_session, profesional):
+        """Scenario: DNI is not registered → 404."""
+        response = authenticated_client.get("/pacientes/buscar", params={"dni": "99999999"})
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_buscar_sin_dni_devuelve_422_sin_query(self, authenticated_client, db_session, profesional, monkeypatch):
+        """Scenario: DNI is absent → 422 and performs no query."""
+        called = False
+
+        async def _fail_if_called(*args, **kwargs):
+            nonlocal called
+            called = True
+            raise AssertionError("buscar_paciente_por_dni no debe llamarse sin dni")
+
+        import app.routers.pacientes as pacientes_router
+        monkeypatch.setattr(pacientes_router, "buscar_paciente_por_dni", _fail_if_called)
+
+        response = authenticated_client.get("/pacientes/buscar")
+
+        assert response.status_code == 422
+        assert called is False
+
+    @pytest.mark.asyncio
+    async def test_buscar_dni_vacio_devuelve_422(self, authenticated_client, db_session, profesional):
+        """Scenario: DNI is an empty value → 422."""
+        response = authenticated_client.get("/pacientes/buscar", params={"dni": ""})
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_buscar_mismo_dni_dos_profesionales_devuelve_el_propio(self, authenticated_client, db_session, profesional):
+        """Scenario: professionals A and B both have a patient with the same DNI."""
+        otro = make_profesional(
+            nombre="Dr. B", dias_atencion=["Lunes"],
+            email="drb-buscar@local.dev", password_hash="fakehash",
+        )
+        db_session.add(otro)
+        await db_session.commit()
+        await db_session.refresh(otro)
+
+        db_session.add(Paciente(
+            nombre="Propio", apellido="A", dni="30111222", telefono="1",
+            profesional_id=profesional.id,
+        ))
+        db_session.add(Paciente(
+            nombre="Ajeno", apellido="B", dni="30111222", telefono="2",
+            profesional_id=otro.id,
+        ))
+        await db_session.commit()
+
+        response = authenticated_client.get("/pacientes/buscar", params={"dni": "30111222"})
+
+        assert response.status_code == 200
+        assert response.json()["nombre"] == "Propio"
+
+    @pytest.mark.asyncio
+    async def test_buscar_dni_existe_solo_bajo_otro_profesional_devuelve_404(self, authenticated_client, db_session, profesional):
+        """Scenario: DNI exists only under another professional → 404, nothing disclosed."""
+        otro = make_profesional(
+            nombre="Dr. B", dias_atencion=["Lunes"],
+            email="drb-buscar-2@local.dev", password_hash="fakehash",
+        )
+        db_session.add(otro)
+        await db_session.commit()
+        await db_session.refresh(otro)
+
+        db_session.add(Paciente(
+            nombre="DeOtro", apellido="Prof", dni="40555666", telefono="3",
+            profesional_id=otro.id,
+        ))
+        await db_session.commit()
+
+        response = authenticated_client.get("/pacientes/buscar", params={"dni": "40555666"})
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_ruta_buscar_no_es_capturada_por_ruta_paciente_id(self, authenticated_client, db_session, profesional):
+        """Scenario (task 3.5): /pacientes/buscar?dni=... must NOT be parsed as /pacientes/{paciente_id}.
+
+        Guards the declaration-order requirement from design.md D1: if
+        `/pacientes/{paciente_id}` were declared first, `buscar` would be
+        parsed as `paciente_id` and FastAPI would reject it with 422
+        (int parsing failure) instead of ever reaching the lookup logic.
+        """
+        response = authenticated_client.get("/pacientes/buscar", params={"dni": "30111222"})
+
+        # 404 (no match) is the lookup's own "not found" — proof the request
+        # reached the /buscar handler. A 422 here would mean the route was
+        # shadowed by /{paciente_id} trying to parse "buscar" as an int.
+        assert response.status_code == 404

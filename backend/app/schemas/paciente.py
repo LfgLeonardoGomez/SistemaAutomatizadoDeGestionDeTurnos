@@ -37,3 +37,21 @@ class PacienteRead(BaseModel):
 
 class PacienteConHistorial(PacienteRead):
     turnos: list[TurnoRead] = []
+
+
+class PacienteBusqueda(BaseModel):
+    """Respuesta de ``GET /pacientes/buscar`` — c-27 patient-dni-lookup.
+
+    Deliberadamente no incluye ``creado_en``: el spec solo exige
+    ``id``, ``nombre``, ``apellido``, ``dni`` y ``telefono`` (lo mínimo
+    para que un cliente conversacional confirme un paciente existente
+    sin re-solicitar sus datos).
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nombre: str
+    apellido: str
+    dni: str
+    telefono: str

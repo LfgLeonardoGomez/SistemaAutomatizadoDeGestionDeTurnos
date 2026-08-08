@@ -11,7 +11,9 @@ from app.services.paciente_service import (
     crear_o_obtener_paciente,
     obtener_paciente_con_historial,
     listar_turnos_por_paciente,
+    buscar_paciente_por_dni,
 )
+from tests.conftest import make_profesional_persisted
 
 
 class TestPacienteService:
@@ -146,3 +148,71 @@ class TestPacienteService:
         db_session.add(turno)
         await db_session.commit()
         assert turno.id is not None
+
+
+class TestBuscarPacientePorDni:
+    """Tests unitarios para ``buscar_paciente_por_dni`` — c-27 grupo 2 (RED)."""
+
+    @pytest.mark.asyncio
+    async def test_buscar_paciente_por_dni_existente(self, db_session, profesional):
+        """Scenario: DNI belongs to an existing patient of the professional."""
+        paciente = Paciente(
+            nombre="Juan", apellido="Pérez", dni="30111222", telefono="1122334455",
+            profesional_id=profesional.id,
+        )
+        db_session.add(paciente)
+        await db_session.commit()
+
+        result = await buscar_paciente_por_dni(db_session, profesional.id, "30111222")
+
+        assert result is not None
+        assert result.id == paciente.id
+        assert result.nombre == "Juan"
+        assert result.apellido == "Pérez"
+        assert result.dni == "30111222"
+        assert result.telefono == "1122334455"
+
+    @pytest.mark.asyncio
+    async def test_buscar_paciente_por_dni_no_registrado(self, db_session, profesional):
+        """Scenario: DNI is not registered → None (router maps to 404)."""
+        result = await buscar_paciente_por_dni(db_session, profesional.id, "99999999")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_buscar_paciente_por_dni_aislamiento_entre_profesionales(self, db_session, profesional):
+        """Scenario: same DNI under two professionals → each lookup returns only its own patient."""
+        otro = await make_profesional_persisted(db_session, email="otro-dni@local.dev")
+
+        propio = Paciente(
+            nombre="Propio", apellido="A", dni="30111222", telefono="1",
+            profesional_id=profesional.id,
+        )
+        ajeno = Paciente(
+            nombre="Ajeno", apellido="B", dni="30111222", telefono="2",
+            profesional_id=otro.id,
+        )
+        db_session.add(propio)
+        db_session.add(ajeno)
+        await db_session.commit()
+
+        result_propio = await buscar_paciente_por_dni(db_session, profesional.id, "30111222")
+        result_otro = await buscar_paciente_por_dni(db_session, otro.id, "30111222")
+
+        assert result_propio.nombre == "Propio"
+        assert result_otro.nombre == "Ajeno"
+        assert result_propio.id != result_otro.id
+
+    @pytest.mark.asyncio
+    async def test_buscar_paciente_por_dni_existe_solo_bajo_otro_profesional(self, db_session, profesional):
+        """Scenario: DNI exists only under professional A → professional B gets None."""
+        otro = await make_profesional_persisted(db_session, email="otro-dni-2@local.dev")
+
+        paciente = Paciente(
+            nombre="DeOtro", apellido="Prof", dni="40555666", telefono="3",
+            profesional_id=otro.id,
+        )
+        db_session.add(paciente)
+        await db_session.commit()
+
+        result = await buscar_paciente_por_dni(db_session, profesional.id, "40555666")
+        assert result is None
