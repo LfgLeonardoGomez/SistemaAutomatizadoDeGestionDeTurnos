@@ -30,7 +30,7 @@ Workflows independientes (no dispatch-ados por el orquestador):
 | Archivo | Propósito | Trigger | Estado |
 |---------|-----------|---------|--------|
 | `orquestador.json` | Single entry point del bot; switch por comando | `Telegram Trigger` | ✅ Completo |
-| `sub-flujo-crear-turno.json` | Wizard de crear turno (fecha → hora → CSV → confirmar) | `Execute Workflow Trigger` (invocado por orquestador) | ✅ Completo |
+| `sub-flujo-crear-turno.json` | Crea reserva temporal (fecha → hora); captura y confirmación en progreso | `Execute Workflow Trigger` (invocado por orquestador) | 🔄 Parcial (C-27) |
 | `sub-flujo-cancelar-turno.json` | Cancelar turno por ID | `Execute Workflow Trigger` (invocado por orquestador) | ✅ Completo |
 | `sub-flujo-reprogramar-turno.json` | Wizard de reprogramación (nueva fecha → nueva hora) | `Execute Workflow Trigger` (invocado por orquestador) | ✅ Completo |
 | `flujo-recordatorio.json` | Cron diario → `POST /api/v1/recordatorios/run` | `Schedule Trigger` (cron `0 10 * * *`) | ✅ Completo |
@@ -177,6 +177,8 @@ El sistema de recordatorios tiene **dos motores** que conviven:
 Ambos motores llaman a la **misma lógica** de `notificacion_service` (`obtener_turnos_para_recordar` + `enviar_recordatorio_telegram` + `marcar_recordatorio_enviado`). El campo `turno.recordatorio_enviado` en la DB evita **doble dispatch**: el primer motor que envíe el recordatorio lo marca como enviado, y el segundo lo skipea.
 
 > ℹ️ En v1.0 se recomienda activar **solo uno** de los dos motores por profesional. Si ambos están activos, el de n8n gana por horario (10:00) y el de APScheduler no hace nada (todos los turnos del día siguiente ya están marcados como enviados).
+
+> ⚠️ **Email: almacenado pero no enviado**: Cuando un paciente proporciona un email en la confirmación del turno, se crea un registro de destinatario en la base de datos (canal `EMAIL`), pero **no existe un motor de envío de emails en el backend**. Los recordatorios se envían solo por Telegram en v1.0.
 
 ## Testing
 

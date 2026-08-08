@@ -14,7 +14,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// ======================================================================\n// HELPERS de fecha (timezone Argentina)\n// ======================================================================\nfunction fmtArgentina(d) {\n  const parts = new Intl.DateTimeFormat('en-CA', {\n    timeZone: 'America/Argentina/Buenos_Aires',\n    year: 'numeric', month: '2-digit', day: '2-digit'\n  }).formatToParts(d);\n  const y = parts.find(p => p.type === 'year').value;\n  const m = parts.find(p => p.type === 'month').value;\n  const dd = parts.find(p => p.type === 'day').value;\n  return `${y}-${m}-${dd}`;\n}\n\nfunction addDays(yyyy_mm_dd, n) {\n  const [y, m, d] = yyyy_mm_dd.split('-').map(Number);\n  const date = new Date(Date.UTC(y, m - 1, d));\n  date.setUTCDate(date.getUTCDate() + n);\n  const yy = date.getUTCFullYear();\n  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');\n  const dd = String(date.getUTCDate()).padStart(2, '0');\n  return `${yy}-${mm}-${dd}`;\n}\n\nfunction hoyArgentina() {\n  return fmtArgentina(new Date());\n}\n\n// ======================================================================\n// INPUT\n// ======================================================================\nconst input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst comando = input.comando || 'crear';\nconst textRaw = String(input.text || '');\nconst payload = input.payload || {};\n\nlet fecha = payload.fecha || '';\nlet slot = payload.slot || '';\nlet slotNumero = payload.slot_numero || 0;\nlet rango = payload.rango || '';\nlet fechaRaw = payload.fecha_raw || '';\nlet accion = '';\nlet mensajeError = '';\n\n// ======================================================================\n// STATIC DATA: memoria persistente del workflow\n// ======================================================================\nconst staticData = $getWorkflowStaticData('global');\nconst ctxKey = chatId ? 'ctx_' + chatId : null;\n\n// Start limpio: un cmd:crear sin datos ancla el contexto viejo\nconst freshStart = textRaw === 'cmd:crear' && Object.keys(payload).length === 0;\nif (freshStart && ctxKey) {\n  delete staticData[ctxKey];\n  delete staticData['contador_' + chatId];\n  delete staticData['fecha_' + chatId];\n}\n\nconst ctx = ctxKey ? (staticData[ctxKey] || {}) : {};\n\n// Si no tenemos fecha en el input, leerla de staticData\nif (!fecha && ctx.fecha) fecha = ctx.fecha;\nif (!rango && ctx.rango) rango = ctx.rango;\n\n// Si nos llegó slot_numero, resolverlo a slot real desde los slots guardados\nif (slotNumero && !slot) {\n  const slotsGuardados = ctx.slots || [];\n  const idx = slotNumero - 1;\n  if (idx >= 0 && idx < slotsGuardados.length) {\n    slot = slotsGuardados[idx].hora_inicio;\n  }\n}\n\n// Defensa: parsear callbacks de slot (formato HH:MM:f:YYYY-MM-DD)\nif (textRaw.startsWith('cmd:crear:slot:')) {\n  const parsed = textRaw.substring('cmd:crear:slot:'.length);\n  if (parsed !== 'none') {\n    const fIdx = parsed.indexOf(':f:');\n    if (fIdx >= 0) {\n      slot = parsed.substring(0, fIdx);\n      if (!fecha) fecha = parsed.substring(fIdx + 3);\n    } else {\n      slot = parsed;\n    }\n  }\n}\n\n// ======================================================================\n// CÁLCULO DE FECHA\n// ======================================================================\n\n// Si hay rango y no hay fecha, calcular fecha exacta (en timezone Argentina)\nif (!fecha && rango && rango !== 'exacto') {\n  let daysToAdd = 0;\n  if (rango === 'inmediato') daysToAdd = 1;\n  else if (rango === '2semanas') daysToAdd = 14;\n  else if (rango === '1mes') daysToAdd = 28;\n  if (daysToAdd > 0) {\n    fecha = addDays(hoyArgentina(), daysToAdd);\n  }\n}\n\n// Si hay fechaRaw (input DD/MM/AAAA), validar y convertir\nif (!fecha && fechaRaw) {\n  const match = /^(\\d{2})\\/(\\d{2})\\/(\\d{4})$/.exec(fechaRaw);\n  if (match) {\n    const day = parseInt(match[1], 10);\n    const month = parseInt(match[2], 10) - 1;\n    const year = parseInt(match[3], 10);\n    const parsed = new Date(year, month, day);\n    if (parsed.getDate() === day && parsed.getMonth() === month && parsed.getFullYear() === year) {\n      const todayStr = hoyArgentina();\n      const maxStr = addDays(todayStr, 90);  // ~3 meses\n      const iso = String(year) + '-' + String(month + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');\n      if (iso < todayStr) {\n        accion = 'fecha_invalida';\n        mensajeError = 'La fecha está en el pasado.';\n      } else if (iso > maxStr) {\n        accion = 'fecha_invalida';\n        mensajeError = 'Solo podés reservar hasta 3 meses adelante.';\n      } else {\n        fecha = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;\n      }\n    } else {\n      accion = 'fecha_invalida';\n      mensajeError = 'La fecha no es válida (día o mes incorrecto).';\n    }\n  } else {\n    accion = 'fecha_invalida';\n    mensajeError = 'Formato incorrecto. Usá DD/MM/AAAA (ej: 15/07/2026).';\n  }\n}\n\n// ======================================================================\n// GUARDAR EN STATIC DATA\n// ======================================================================\nif (ctxKey && fecha) {\n  staticData[ctxKey] = {\n    fecha: fecha,\n    rango: rango,\n    slots: ctx.slots || []\n  };\n}\n\n// ======================================================================\n// DECIDIR ACCIÓN FINAL\n// ======================================================================\nif (!accion) {\n  if (rango === 'exacto' && !fecha) {\n    accion = 'pedir_fecha';\n  } else if (fecha && slot) {\n    accion = 'crear_turno';\n  } else if (fecha) {\n    accion = 'pedir_slot';\n  } else {\n    accion = 'pedir_rango';\n  }\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    comando: comando,\n    accion: accion,\n    fecha: fecha,\n    slot: slot,\n    rango: rango,\n    fecha_inicio: fecha || '',\n    mensaje_error: mensajeError\n  }\n}];"
+        "jsCode": "// ======================================================================\n// HELPERS de fecha (timezone Argentina)\n// ======================================================================\nfunction fmtArgentina(d) {\n  const parts = new Intl.DateTimeFormat('en-CA', {\n    timeZone: 'America/Argentina/Buenos_Aires',\n    year: 'numeric', month: '2-digit', day: '2-digit'\n  }).formatToParts(d);\n  const y = parts.find(p => p.type === 'year').value;\n  const m = parts.find(p => p.type === 'month').value;\n  const dd = parts.find(p => p.type === 'day').value;\n  return `${y}-${m}-${dd}`;\n}\n\nfunction addDays(yyyy_mm_dd, n) {\n  const [y, m, d] = yyyy_mm_dd.split('-').map(Number);\n  const date = new Date(Date.UTC(y, m - 1, d));\n  date.setUTCDate(date.getUTCDate() + n);\n  const yy = date.getUTCFullYear();\n  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');\n  const dd = String(date.getUTCDate()).padStart(2, '0');\n  return `${yy}-${mm}-${dd}`;\n}\n\nfunction hoyArgentina() {\n  return fmtArgentina(new Date());\n}\n\n// ======================================================================\n// INPUT\n// ======================================================================\nconst input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst comando = input.comando || 'crear';\nconst textRaw = String(input.text || '');\nconst payload = input.payload || {};\n\n// ======================================================================\n// STATIC DATA: memoria persistente del workflow\n// ======================================================================\nconst staticData = $getWorkflowStaticData('global');\nconst ctxKey = chatId ? 'ctx_' + chatId : null;\nconst capturaKey = chatId ? 'captura_' + chatId : null;\n\n// ======================================================================\n// CAPTURA EN CURSO (design § D3/D4, c-27): si el orquestador reenvio esta\n// respuesta como respuesta_captura, esta ejecucion responde una pregunta\n// de identidad pendiente, no un paso de fecha/hora -- se deriva a\n// Code - Procesar Captura y se corta ACA el resto de la logica de\n// creacion (no tiene sentido calcular fecha/slot para un DNI).\nif (payload.respuesta_captura !== undefined) {\n  return [{\n    json: {\n      chat_id: chatId,\n      comando: comando,\n      accion: 'captura',\n      respuesta_captura: String(payload.respuesta_captura),\n      fecha: '',\n      slot: '',\n      rango: '',\n      fecha_inicio: '',\n      mensaje_error: ''\n    }\n  }];\n}\n\nlet fecha = payload.fecha || '';\nlet slot = payload.slot || '';\nlet slotNumero = payload.slot_numero || 0;\nlet rango = payload.rango || '';\nlet fechaRaw = payload.fecha_raw || '';\nlet accion = '';\nlet mensajeError = '';\n\n// Start limpio: un cmd:crear sin datos ancla el contexto viejo. Tambien\n// limpia captura_ (c-27): una reserva nueva no debe arrastrar una captura\n// abandonada de una reserva anterior.\nconst freshStart = textRaw === 'cmd:crear' && Object.keys(payload).length === 0;\nif (freshStart && ctxKey) {\n  delete staticData[ctxKey];\n  delete staticData['contador_' + chatId];\n  delete staticData['fecha_' + chatId];\n  if (capturaKey) delete staticData[capturaKey];\n}\n\nconst ctx = ctxKey ? (staticData[ctxKey] || {}) : {};\n\n// Si no tenemos fecha en el input, leerla de staticData\nif (!fecha && ctx.fecha) fecha = ctx.fecha;\nif (!rango && ctx.rango) rango = ctx.rango;\n\n// Si nos llegó slot_numero, resolverlo a slot real desde los slots guardados\nif (slotNumero && !slot) {\n  const slotsGuardados = ctx.slots || [];\n  const idx = slotNumero - 1;\n  if (idx >= 0 && idx < slotsGuardados.length) {\n    slot = slotsGuardados[idx].hora_inicio;\n  }\n}\n\n// Defensa: parsear callbacks de slot (formato HH:MM:f:YYYY-MM-DD)\nif (textRaw.startsWith('cmd:crear:slot:')) {\n  const parsed = textRaw.substring('cmd:crear:slot:'.length);\n  if (parsed !== 'none') {\n    const fIdx = parsed.indexOf(':f:');\n    if (fIdx >= 0) {\n      slot = parsed.substring(0, fIdx);\n      if (!fecha) fecha = parsed.substring(fIdx + 3);\n    } else {\n      slot = parsed;\n    }\n  }\n}\n\n// ======================================================================\n// CÁLCULO DE FECHA\n// ======================================================================\n\n// Si hay rango y no hay fecha, calcular fecha exacta (en timezone Argentina)\nif (!fecha && rango && rango !== 'exacto') {\n  let daysToAdd = 0;\n  if (rango === 'inmediato') daysToAdd = 1;\n  else if (rango === '2semanas') daysToAdd = 14;\n  else if (rango === '1mes') daysToAdd = 28;\n  if (daysToAdd > 0) {\n    fecha = addDays(hoyArgentina(), daysToAdd);\n  }\n}\n\n// Si hay fechaRaw (input DD/MM/AAAA), validar y convertir\nif (!fecha && fechaRaw) {\n  const match = /^(\\d{2})\\/(\\d{2})\\/(\\d{4})$/.exec(fechaRaw);\n  if (match) {\n    const day = parseInt(match[1], 10);\n    const month = parseInt(match[2], 10) - 1;\n    const year = parseInt(match[3], 10);\n    const parsed = new Date(year, month, day);\n    if (parsed.getDate() === day && parsed.getMonth() === month && parsed.getFullYear() === year) {\n      const todayStr = hoyArgentina();\n      const maxStr = addDays(todayStr, 90);  // ~3 meses\n      const iso = String(year) + '-' + String(month + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');\n      if (iso < todayStr) {\n        accion = 'fecha_invalida';\n        mensajeError = 'La fecha está en el pasado.';\n      } else if (iso > maxStr) {\n        accion = 'fecha_invalida';\n        mensajeError = 'Solo podés reservar hasta 3 meses adelante.';\n      } else {\n        fecha = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;\n      }\n    } else {\n      accion = 'fecha_invalida';\n      mensajeError = 'La fecha no es válida (día o mes incorrecto).';\n    }\n  } else {\n    accion = 'fecha_invalida';\n    mensajeError = 'Formato incorrecto. Usá DD/MM/AAAA (ej: 15/07/2026).';\n  }\n}\n\n// ======================================================================\n// GUARDAR EN STATIC DATA\n// ======================================================================\nif (ctxKey && fecha) {\n  staticData[ctxKey] = {\n    fecha: fecha,\n    rango: rango,\n    slots: ctx.slots || []\n  };\n}\n\n// ======================================================================\n// DECIDIR ACCIÓN FINAL\n// ======================================================================\nif (!accion) {\n  if (rango === 'exacto' && !fecha) {\n    accion = 'pedir_fecha';\n  } else if (fecha && slot) {\n    accion = 'crear_turno';\n  } else if (fecha) {\n    accion = 'pedir_slot';\n  } else {\n    accion = 'pedir_rango';\n  }\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    comando: comando,\n    accion: accion,\n    fecha: fecha,\n    slot: slot,\n    rango: rango,\n    fecha_inicio: fecha || '',\n    mensaje_error: mensajeError\n  }\n}];"
       },
       "id": "d5afa530-c26c-4eb4-b7d3-d5e2272f1e1c",
       "name": "Code - Decidir Paso",
@@ -148,6 +148,30 @@
               },
               "renameOutput": true,
               "outputKey": "crear_turno"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "c2b2c3d4-0001-4000-8000-000000000030",
+                    "leftValue": "={{ $json.accion }}",
+                    "rightValue": "captura",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "captura"
             }
           ]
         },
@@ -469,7 +493,9 @@
         "options": {
           "response": {
             "response": {
-              "responseFormat": "json"
+              "responseFormat": "json",
+              "neverError": true,
+              "fullResponse": true
             }
           }
         }
@@ -491,7 +517,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Leer chat_id del Code - Decidir Paso (sobrevive al flow)\nlet chatId = '';\ntry {\n  const codeData = $('Code - Decidir Paso').first().json;\n  if (codeData) {\n    chatId = codeData.chat_id || '';\n  }\n} catch (e) {\n  // fallback silencioso\n}\n\nconst input = ($input.all()[0] && $input.all()[0].json) || {};\nconst fecha = input.fecha;\nconst slot = input.hora_inicio || input.slot;\nconst turnoId = input.id;\nconst errorStatus = input.statusCode && input.statusCode >= 400;\nconst errorDetail = input.detail || (errorStatus ? 'Error HTTP ' + input.statusCode : null);\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    fecha: fecha,\n    slot: slot,\n    turno_id: turnoId,\n    exito: !!turnoId && !errorStatus,\n    error: errorDetail\n  }\n}];"
+        "jsCode": "// Leer chat_id del Code - Decidir Paso (sobrevive al flow)\nlet chatId = '';\ntry {\n  const codeData = $('Code - Decidir Paso').first().json;\n  if (codeData) {\n    chatId = codeData.chat_id || '';\n  }\n} catch (e) {\n  // fallback silencioso\n}\n\n// fullResponse: true (c-27, design § D4 nota de implementacion) -- sin\n// esto un 4xx tira excepcion antes de llegar aca y el chequeo de\n// statusCode de abajo era codigo muerto (era el caso ANTES de c-27).\nconst input = ($input.all()[0] && $input.all()[0].json) || {};\nconst statusCode = input.statusCode;\nconst body = input.body || {};\nconst fecha = body.fecha;\nconst slot = body.hora_inicio;\nconst turnoId = body.id;\nconst errorStatus = typeof statusCode === 'number' && statusCode >= 400;\nconst errorDetail = body.detail || (errorStatus ? 'Error HTTP ' + statusCode : null);\nconst exito = !!turnoId && !errorStatus;\n\n// Si la reserva se creo, arrancamos la captura de identidad (design § D3):\n// captura_<chatId> es el UNICO lugar donde vive la conversacion (turno_id,\n// paso, datos). expira_en preferiria la expiracion real del backend, pero\n// POST /turnos no la expone (OQ-4) -- fallback a RESERVA_TEMPORAL_MINUTOS\n// (default 10) + 1 minuto de gracia. Es una comodidad de UX, no el\n// mecanismo de correctitud real: ese es el 409 de PUT /confirmar (D6).\nif (exito && chatId) {\n  const staticData = $getWorkflowStaticData('global');\n  const minutos = Number($env.RESERVA_TEMPORAL_MINUTOS) || 10;\n  const expiraEn = Date.now() + (minutos + 1) * 60000;\n  staticData['captura_' + chatId] = {\n    turno_id: turnoId,\n    paso: 'dni',\n    datos: {},\n    expira_en: expiraEn\n  };\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    fecha: fecha,\n    slot: slot,\n    turno_id: turnoId,\n    exito: exito,\n    error: errorDetail\n  }\n}];"
       },
       "id": "ba52550b-99de-4cdf-bd19-d4698ea47f62",
       "name": "Code - Extraer Turno ID",
@@ -505,11 +531,11 @@
     {
       "parameters": {
         "chatId": "={{ $json.chat_id }}",
-        "text": "={{ $json.exito ? ('Reserva creada (turno #' + $json.turno_id + ').\\n\\nFecha: ' + $json.fecha + '\\nHora: ' + $json.slot + '\\n\\nTu reserva está en estado temporal. Te enviaremos un recordatorio el día anterior. Si necesitás cancelar o reprogramar, escribinos.') : ('No se pudo crear la reserva. ' + ($json.error || 'Intentá de nuevo más tarde.')) }}",
+        "text": "={{ $json.exito ? ('✅ Turno reservado para el ' + $json.fecha + ' a las ' + $json.slot + '.\\n\\n🪪 Para confirmar la reserva, decime tu DNI (sin puntos ni guiones):') : ('No se pudo crear la reserva. ' + ($json.error || 'Intentá de nuevo más tarde.')) }}",
         "additionalFields": {}
       },
       "id": "1caa3ea0-b452-47d7-8967-d63ff859ad03",
-      "name": "Telegram - Turno Creado",
+      "name": "Telegram - Pedir DNI",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
@@ -523,7 +549,532 @@
           "name": "Telegram account"
         }
       },
+      "notes": "Credencial por NOMBRE, no por id. Los ids de credenciales son locales a cada instancia de n8n, asi que nunca coinciden entre entornos. n8n resuelve por nombre cuando el id no matchea: mientras el nombre sea exactamente \"Telegram account\", el workflow reconecta solo al importarse. No reemplazar este nombre por el id de tu instancia. Ver n8n-workflows/README.md. Renombrado de \"Telegram - Turno Creado\" en c-27: ya no anuncia una reserva como definitiva (estaba en RESERVADO_TEMPORAL), pide el DNI para arrancar la captura de identidad (design.md § contexto)."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Procesa la respuesta del usuario segun el paso pendiente en\n// captura_<chatId> (design § D3/D4, D5, c-27). Este nodo es DUEÑO del\n// estado de la conversacion -- lee y escribe su propio staticData; el\n// gate del orquestador es solo un bit de ruteo, nunca una copia de estos\n// datos.\nlet chatId = null;\ntry {\n  chatId = $('Code - Decidir Paso').first().json.chat_id;\n} catch (e) {}\n\nconst input = ($input.all()[0] && $input.all()[0].json) || {};\nconst respuesta = String(input.respuesta_captura || '').trim();\n\nconst staticData = $getWorkflowStaticData('global');\nconst capturaKey = chatId ? 'captura_' + chatId : null;\nconst captura = capturaKey ? staticData[capturaKey] : null;\nconst vigente = !!(captura && (!captura.expira_en || Date.now() <= captura.expira_en));\n\nif (!vigente) {\n  // Auto-sanacion (design § D4): el gate del orquestador decia\n  // \"pendiente\" pero esta captura ya no existe o vencio en el store del\n  // sub-flujo (TTL skew, escritura perdida, reinicio de n8n). No se envia\n  // ningun mensaje desde aca -- el orquestador muestra el menu de ayuda al\n  // recibir captura_pendiente: false, mostrar_ayuda: true desde\n  // Code - Retorno Estado.\n  return [{ json: { chat_id: chatId, decision: 'sin_match' } }];\n}\n\nconst datos = captura.datos || {};\nlet decision;\n\nif (captura.paso === 'dni') {\n  // DNI argentino: 7 u 8 digitos, sin puntos ni guiones (spec: \"A\n  // malformed DNI is rejected without losing the reservation\").\n  if (!/^\\d{7,8}$/.test(respuesta)) {\n    decision = 'dni_invalido';\n  } else {\n    datos.dni = respuesta;\n    decision = 'dni_valido';\n  }\n} else if (captura.paso === 'nombre') {\n  // D5: nombre y apellido en un solo mensaje.\n  const partes = respuesta.split(/\\s+/).filter(Boolean);\n  datos.nombre = partes[0] || respuesta;\n  datos.apellido = partes.slice(1).join(' ') || datos.nombre;\n  captura.paso = 'telefono';\n  decision = 'nombre_ok';\n} else if (captura.paso === 'telefono') {\n  // D5: telefono y email (opcional) en un solo mensaje.\n  const partes = respuesta.split(/[\\s,]+/).filter(Boolean);\n  datos.telefono = (partes[0] || '').replace(/\\D/g, '');\n  const posibleEmail = partes.slice(1).join(' ');\n  if (/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(posibleEmail)) {\n    datos.email = posibleEmail;\n  }\n  captura.paso = 'confirmar';\n  decision = 'telefono_ok';\n} else {\n  decision = 'sin_match';\n}\n\ncaptura.datos = datos;\nif (capturaKey) staticData[capturaKey] = captura;\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: captura.turno_id,\n    decision: decision,\n    dni: datos.dni || '',\n    nombre: datos.nombre || '',\n    apellido: datos.apellido || '',\n    telefono: datos.telefono || '',\n    email: datos.email || ''\n  }\n}];"
+      },
+      "id": "c27b0002-0001-4000-8000-000000000001",
+      "name": "Code - Procesar Captura",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -680,
+        1520
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "c27b0002-0001-4000-8000-000000000002",
+                    "leftValue": "={{ $json.decision }}",
+                    "rightValue": "dni_invalido",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "dni_invalido"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "c27b0002-0001-4000-8000-000000000003",
+                    "leftValue": "={{ $json.decision }}",
+                    "rightValue": "dni_valido",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "dni_valido"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "c27b0002-0001-4000-8000-000000000004",
+                    "leftValue": "={{ $json.decision }}",
+                    "rightValue": "nombre_ok",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "nombre_ok"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "c27b0002-0001-4000-8000-000000000005",
+                    "leftValue": "={{ $json.decision }}",
+                    "rightValue": "telefono_ok",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "telefono_ok"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "c27b0002-0001-4000-8000-000000000006",
+      "name": "Switch - Paso Captura",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -440,
+        1520
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "❌ Ese DNI no parece válido. Escribilo sin puntos ni guiones (7 u 8 dígitos):",
+        "additionalFields": {}
+      },
+      "id": "c27b0003-0001-4000-8000-000000000001",
+      "name": "Telegram - DNI Invalido",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -200,
+        1360
+      ],
+      "webhookId": "c27b0003-0001-4000-8000-000000000002",
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram account"
+        }
+      },
       "notes": "Credencial por NOMBRE, no por id. Los ids de credenciales son locales a cada instancia de n8n, asi que nunca coinciden entre entornos. n8n resuelve por nombre cuando el id no matchea: mientras el nombre sea exactamente \"Telegram account\", el workflow reconecta solo al importarse. No reemplazar este nombre por el id de tu instancia. Ver n8n-workflows/README.md"
+    },
+    {
+      "parameters": {
+        "url": "http://backend:8000/pacientes/buscar",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "dni",
+              "value": "={{ $json.dni }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json",
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "c27b0004-0001-4000-8000-000000000001",
+      "name": "HTTP - GET Buscar Paciente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        -200,
+        1520
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "profesional-api-key",
+          "name": "Profesional API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Branch de la busqueda de paciente (design § D1/D4, task 7.3): 200 =\n// paciente existente, 404 = paciente nuevo. neverError + fullResponse en\n// HTTP - GET Buscar Paciente son obligatorios -- sin ellos el 404 tira\n// excepcion y este nodo nunca corre.\nlet chatId = null;\ntry {\n  chatId = $('Code - Decidir Paso').first().json.chat_id;\n} catch (e) {}\n\nconst input = ($input.all()[0] && $input.all()[0].json) || {};\nconst statusCode = input.statusCode;\nconst body = input.body || {};\n\nconst staticData = $getWorkflowStaticData('global');\nconst capturaKey = chatId ? 'captura_' + chatId : null;\nconst captura = capturaKey ? (staticData[capturaKey] || {}) : {};\nconst datos = captura.datos || {};\n\nlet decision;\nif (statusCode === 200) {\n  // Paciente existente (spec \"Returning patient\"): se completan los datos\n  // guardados SIN volver a pedirselos al usuario.\n  datos.nombre = body.nombre;\n  datos.apellido = body.apellido;\n  datos.telefono = body.telefono;\n  captura.paso = 'confirmar';\n  decision = 'encontrado';\n} else {\n  captura.paso = 'nombre';\n  decision = 'no_encontrado';\n}\n\ncaptura.datos = datos;\nif (capturaKey) staticData[capturaKey] = captura;\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: captura.turno_id,\n    decision: decision,\n    dni: datos.dni || '',\n    nombre: datos.nombre || '',\n    apellido: datos.apellido || '',\n    telefono: datos.telefono || '',\n    email: datos.email || ''\n  }\n}];"
+      },
+      "id": "c27b0005-0001-4000-8000-000000000001",
+      "name": "Code - Evaluar Paciente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        40,
+        1520
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "c27b0006-0001-4000-8000-000000000001",
+              "leftValue": "={{ $json.decision }}",
+              "rightValue": "encontrado",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c27b0006-0001-4000-8000-000000000002",
+      "name": "IF - Paciente Encontrado",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        280,
+        1520
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "Para completar tu reserva necesito algunos datos.\n\n👤 Decime tu nombre y apellido:",
+        "additionalFields": {}
+      },
+      "id": "c27b0007-0001-4000-8000-000000000001",
+      "name": "Telegram - Pedir Nombre",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        280,
+        1680
+      ],
+      "webhookId": "c27b0007-0001-4000-8000-000000000002",
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "Credencial por NOMBRE, no por id. Los ids de credenciales son locales a cada instancia de n8n, asi que nunca coinciden entre entornos. n8n resuelve por nombre cuando el id no matchea: mientras el nombre sea exactamente \"Telegram account\", el workflow reconecta solo al importarse. No reemplazar este nombre por el id de tu instancia. Ver n8n-workflows/README.md"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "📞 Ahora decime tu teléfono y, si querés, tu email (separados por un espacio o coma):",
+        "additionalFields": {}
+      },
+      "id": "c27b0008-0001-4000-8000-000000000001",
+      "name": "Telegram - Pedir Telefono",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -200,
+        1680
+      ],
+      "webhookId": "c27b0008-0001-4000-8000-000000000002",
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "Credencial por NOMBRE, no por id. Los ids de credenciales son locales a cada instancia de n8n, asi que nunca coinciden entre entornos. n8n resuelve por nombre cuando el id no matchea: mientras el nombre sea exactamente \"Telegram account\", el workflow reconecta solo al importarse. No reemplazar este nombre por el id de tu instancia. Ver n8n-workflows/README.md"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=http://backend:8000/turnos/{{ $json.turno_id }}/confirmar",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ nombre: $json.nombre, apellido: $json.apellido, dni: $json.dni, telefono: $json.telefono, email: $json.email || null, telegram_chat_id: String($json.chat_id) }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json",
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "c27b0009-0001-4000-8000-000000000001",
+      "name": "HTTP - PUT Confirmar Turno",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        520,
+        1520
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "profesional-api-key",
+          "name": "Profesional API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Lee el resultado de HTTP - PUT Confirmar Turno. neverError + fullResponse\n// (design § D4 nota de implementacion, D6): sin esas opciones un 409 tira\n// excepcion y las ramas de abajo (7.9, 7.10) son inalcanzables.\nlet chatId = null;\ntry {\n  chatId = $('Code - Decidir Paso').first().json.chat_id;\n} catch (e) {}\n\nconst input = ($input.all()[0] && $input.all()[0].json) || {};\nconst statusCode = input.statusCode;\nconst body = input.body || {};\nconst detail = String(body.detail || '').toLowerCase();\n\nconst staticData = $getWorkflowStaticData('global');\nconst capturaKey = chatId ? 'captura_' + chatId : null;\nconst captura = capturaKey ? (staticData[capturaKey] || {}) : {};\nconst datos = captura.datos || {};\n\nlet decision = 'error';\nif (typeof statusCode === 'number' && statusCode >= 200 && statusCode < 300) {\n  decision = 'confirmado';\n} else if (statusCode === 409 && detail.includes('expir')) {\n  decision = 'expirado';\n} else if (statusCode === 409 && detail.includes('turno activo')) {\n  decision = 'paciente_turno_activo';\n}\n\n// Limpieza (design § D3, task 7.7): en los 3 desenlaces terminales se\n// borran las 4 claves JUNTAS -- incluye el leak preexistente de ctx_ (y\n// contador_/fecha_ del retry diario) que nunca se limpiaba tras una\n// creacion exitosa. captura_pendiente saldra en false desde Code -\n// Retorno Estado en el mismo round trip, asi que el gate del orquestador\n// se limpia sin un mecanismo aparte.\nif (decision === 'confirmado' || decision === 'expirado' || decision === 'paciente_turno_activo') {\n  if (chatId) {\n    delete staticData['captura_' + chatId];\n    delete staticData['ctx_' + chatId];\n    delete staticData['contador_' + chatId];\n    delete staticData['fecha_' + chatId];\n  }\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    decision: decision,\n    nombre: datos.nombre || '',\n    apellido: datos.apellido || '',\n    fecha: body.fecha || '',\n    hora: body.hora_inicio || ''\n  }\n}];"
+      },
+      "id": "c27b000a-0001-4000-8000-000000000001",
+      "name": "Code - Evaluar Confirmacion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        1520
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "c27b000b-0001-4000-8000-000000000001",
+                    "leftValue": "={{ $json.decision }}",
+                    "rightValue": "confirmado",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "confirmado"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "c27b000b-0001-4000-8000-000000000002",
+                    "leftValue": "={{ $json.decision }}",
+                    "rightValue": "expirado",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "expirado"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "c27b000b-0001-4000-8000-000000000003",
+                    "leftValue": "={{ $json.decision }}",
+                    "rightValue": "paciente_turno_activo",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "paciente_turno_activo"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "c27b000b-0001-4000-8000-000000000004",
+      "name": "Switch - Resultado Confirmacion",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1000,
+        1520
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "=✅ Turno confirmado para {{ $json.nombre }} {{ $json.apellido }}.\n\n📅 Fecha: {{ $json.fecha }}\n🕐 Hora: {{ $json.hora }}\n\nTe vamos a recordar por Telegram antes del turno.",
+        "additionalFields": {}
+      },
+      "id": "c27b000c-0001-4000-8000-000000000001",
+      "name": "Telegram - Turno Confirmado",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1240,
+        1400
+      ],
+      "webhookId": "c27b000c-0001-4000-8000-000000000002",
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "Credencial por NOMBRE, no por id. Los ids de credenciales son locales a cada instancia de n8n, asi que nunca coinciden entre entornos. n8n resuelve por nombre cuando el id no matchea: mientras el nombre sea exactamente \"Telegram account\", el workflow reconecta solo al importarse. No reemplazar este nombre por el id de tu instancia. Ver n8n-workflows/README.md. No promete recordatorio por email (spec \"Email delivery is not promised\"): no hay mail sender en el backend todavia."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "😕 La reserva expiró mientras completábamos tus datos. Escribí /reservar para empezar de nuevo.",
+        "additionalFields": {}
+      },
+      "id": "c27b000d-0001-4000-8000-000000000001",
+      "name": "Telegram - Reserva Expirada",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1240,
+        1520
+      ],
+      "webhookId": "c27b000d-0001-4000-8000-000000000002",
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "Credencial por NOMBRE, no por id. Los ids de credenciales son locales a cada instancia de n8n, asi que nunca coinciden entre entornos. n8n resuelve por nombre cuando el id no matchea: mientras el nombre sea exactamente \"Telegram account\", el workflow reconecta solo al importarse. No reemplazar este nombre por el id de tu instancia. Ver n8n-workflows/README.md"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "⚠️ Ya tenés un turno activo con este profesional, así que no podemos confirmar uno nuevo. Si necesitás reprogramar o cancelar el que ya tenés, escribinos.",
+        "additionalFields": {}
+      },
+      "id": "c27b000e-0001-4000-8000-000000000001",
+      "name": "Telegram - Paciente Con Turno Activo",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1240,
+        1640
+      ],
+      "webhookId": "c27b000e-0001-4000-8000-000000000002",
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "Credencial por NOMBRE, no por id. Los ids de credenciales son locales a cada instancia de n8n, asi que nunca coinciden entre entornos. n8n resuelve por nombre cuando el id no matchea: mientras el nombre sea exactamente \"Telegram account\", el workflow reconecta solo al importarse. No reemplazar este nombre por el id de tu instancia. Ver n8n-workflows/README.md"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "No pudimos confirmar el turno. Intentá de nuevo en unos minutos o contactanos.",
+        "additionalFields": {}
+      },
+      "id": "c27b000f-0001-4000-8000-000000000001",
+      "name": "Telegram - Error Confirmacion",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1240,
+        1760
+      ],
+      "webhookId": "c27b000f-0001-4000-8000-000000000002",
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "Credencial por NOMBRE, no por id. Los ids de credenciales son locales a cada instancia de n8n, asi que nunca coinciden entre entornos. n8n resuelve por nombre cuando el id no matchea: mientras el nombre sea exactamente \"Telegram account\", el workflow reconecta solo al importarse. No reemplazar este nombre por el id de tu instancia. Ver n8n-workflows/README.md"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fan-in de TODAS las ramas terminales del sub-flujo (design § D3, task\n// 7.0). Lee su propio store (captura_<chatId>) y devuelve el estado a\n// quien invoco este workflow -- el orquestador (Code - Sync Captura) usa\n// esto para mantener su gate en sincronia con la conversacion real en\n// CADA dispatch, sea o no de creacion de turno.\nlet chatId = null;\ntry {\n  chatId = $('Code - Decidir Paso').first().json.chat_id;\n} catch (e) {}\n\nconst staticData = $getWorkflowStaticData('global');\nconst capturaKey = chatId ? 'captura_' + chatId : null;\nconst captura = capturaKey ? staticData[capturaKey] : null;\nconst capturaPendiente = !!(captura && (!captura.expira_en || Date.now() <= captura.expira_en));\n\n// mostrar_ayuda: true SOLO en la auto-sanacion (design § D4) -- Code -\n// Procesar Captura decidio 'sin_match' porque el gate del orquestador\n// estaba pendiente pero esta captura ya no existe o vencio.\nlet mostrarAyuda = false;\ntry {\n  const decidido = $('Code - Decidir Paso').first().json;\n  if (decidido && decidido.accion === 'captura') {\n    let procesado = null;\n    try { procesado = $('Code - Procesar Captura').first().json; } catch (e) {}\n    if (procesado && procesado.decision === 'sin_match') mostrarAyuda = true;\n  }\n} catch (e) {}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    captura_pendiente: capturaPendiente,\n    expira_en: captura ? captura.expira_en : null,\n    mostrar_ayuda: mostrarAyuda\n  }\n}];"
+      },
+      "id": "c27b0010-0001-4000-8000-000000000001",
+      "name": "Code - Retorno Estado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        900
+      ]
     }
   ],
   "pinData": {},
@@ -583,6 +1134,13 @@
         [
           {
             "node": "HTTP - POST Crear Turno",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Procesar Captura",
             "type": "main",
             "index": 0
           }
@@ -662,7 +1220,294 @@
       "main": [
         [
           {
-            "node": "Telegram - Turno Creado",
+            "node": "Telegram - Pedir DNI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Procesar Captura": {
+      "main": [
+        [
+          {
+            "node": "Switch - Paso Captura",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch - Paso Captura": {
+      "main": [
+        [
+          {
+            "node": "Telegram - DNI Invalido",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP - GET Buscar Paciente",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram - Pedir Telefono",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP - PUT Confirmar Turno",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Retorno Estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - GET Buscar Paciente": {
+      "main": [
+        [
+          {
+            "node": "Code - Evaluar Paciente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Evaluar Paciente": {
+      "main": [
+        [
+          {
+            "node": "IF - Paciente Encontrado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Paciente Encontrado": {
+      "main": [
+        [
+          {
+            "node": "HTTP - PUT Confirmar Turno",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram - Pedir Nombre",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - PUT Confirmar Turno": {
+      "main": [
+        [
+          {
+            "node": "Code - Evaluar Confirmacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Evaluar Confirmacion": {
+      "main": [
+        [
+          {
+            "node": "Switch - Resultado Confirmacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch - Resultado Confirmacion": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Turno Confirmado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram - Reserva Expirada",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram - Paciente Con Turno Activo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram - Error Confirmacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Pedir Rango": {
+      "main": [
+        [
+          {
+            "node": "Code - Retorno Estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Pedir Fecha": {
+      "main": [
+        [
+          {
+            "node": "Code - Retorno Estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Fecha Invalida": {
+      "main": [
+        [
+          {
+            "node": "Code - Retorno Estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - No Hay Turnos": {
+      "main": [
+        [
+          {
+            "node": "Code - Retorno Estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Pedir Slot": {
+      "main": [
+        [
+          {
+            "node": "Code - Retorno Estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Pedir DNI": {
+      "main": [
+        [
+          {
+            "node": "Code - Retorno Estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - DNI Invalido": {
+      "main": [
+        [
+          {
+            "node": "Code - Retorno Estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Pedir Nombre": {
+      "main": [
+        [
+          {
+            "node": "Code - Retorno Estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Pedir Telefono": {
+      "main": [
+        [
+          {
+            "node": "Code - Retorno Estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Turno Confirmado": {
+      "main": [
+        [
+          {
+            "node": "Code - Retorno Estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Reserva Expirada": {
+      "main": [
+        [
+          {
+            "node": "Code - Retorno Estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Paciente Con Turno Activo": {
+      "main": [
+        [
+          {
+            "node": "Code - Retorno Estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Error Confirmacion": {
+      "main": [
+        [
+          {
+            "node": "Code - Retorno Estado",
             "type": "main",
             "index": 0
           }
