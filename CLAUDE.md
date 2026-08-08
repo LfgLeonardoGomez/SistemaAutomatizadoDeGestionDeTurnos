@@ -99,12 +99,18 @@ Acá van las reglas **específicas de este proyecto**, derivadas de su stack (Fa
 
 | Fase OPSX | Modelo obligatorio | Razón |
 |-----------|-------------------|-------|
-| **Propose** | `kimi` | El mismo modelo que generó la KB y el roadmap; mantiene coherencia conceptual y de estilo. |
-| **Apply** | `deepdeek-v4-flash` | Optimizado para implementación, refactoring y generación de código en bloque. |
-| **Archive** | `deepdeek-v4-flash` | Operaciones mecánicas de sincronización de specs y cierre de change. |
-| **Explore** | `kimi` | Pensamiento arquitectónico y análisis de dominio; mejor con el modelo original. |
+| **Explore** | `sonnet` | Lectura de código y análisis estructural; no toma decisiones arquitectónicas. |
+| **Propose** | `opus` | Decisiones arquitectónicas y de alcance; define el contrato del change. |
+| **Design** | `opus` | Decisiones técnicas que condicionan todo el apply; los errores acá se propagan. |
+| **Spec** | `sonnet` | Escritura estructurada a partir de un proposal ya decidido. |
+| **Tasks** | `sonnet` | Desglose mecánico de spec + design en checklist. |
+| **Apply** | `sonnet` | Implementación de tasks ya especificadas. |
+| **Verify** | `haiku` | Validación de la implementación contra el contrato ya escrito. |
+| **Archive** | `haiku` | Operaciones mecánicas de sincronización de specs y cierre de change. |
 
 **Regla adicional**: si el modelo asignado no está disponible en el entorno, el orquestador DEBE abortar la delegación y notificar al usuario en lugar de hacer fallback silencioso a otro modelo.
+
+**Regla adicional**: toda llamada al Agent tool DEBE incluir `model`. Si la fase no figura en la tabla, usar `sonnet`.
 
 ---
 
