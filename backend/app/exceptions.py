@@ -40,3 +40,17 @@ class TurnoYaCanceladoError(TurnoError):
     def __init__(self, message: str = "El turno ya está cancelado"):
         self.message = message
         super().__init__(self.message)
+
+
+class CapturaNoEncontradaError(TurnoError):
+    """Raised when there is no live capture state for the given turno.
+
+    Covers all the ways a capture stops being writable — the turno does not
+    exist, belongs to another professional, is no longer RESERVADO_TEMPORAL,
+    or its reservation expired — deliberately without distinguishing them,
+    so the caller cannot probe another professional's turno ids.
+    """
+
+    def __init__(self, message: str = "No hay una captura pendiente para este turno"):
+        self.message = message
+        super().__init__(self.message)

@@ -6,12 +6,20 @@ from fastapi import Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import DbDep, FlexibleProfesionalDep
+from app.schemas.captura import (
+    ActualizarCapturaRequest,
+    CapturaPendienteResponse,
+)
 from app.schemas.turno import (
     ReservaTurnoRequest,
     ConfirmarTurnoRequest,
     ReprogramarTurnoRequest,
     TurnoResponse,
     SlotResponse,
+)
+from app.services.captura_service import (
+    actualizar_datos_captura,
+    obtener_captura_pendiente,
 )
 from app.services.turno_service import (
     reservar_turno,
@@ -24,6 +32,7 @@ from app.services.turno_service import (
     completar_turno,
 )
 from app.exceptions import (
+    CapturaNoEncontradaError,
     TurnoNoDisponibleError,
     TurnoExpiradoError,
     PacienteConTurnoActivoError,
@@ -43,6 +52,63 @@ async def get_turnos_disponibles(
     """Retorna los slots disponibles para una fecha dada."""
     slots = await consultar_disponibilidad(db, profesional.id, fecha)
     return [SlotResponse(**s) for s in slots]
+
+
+@router.get("/captura-pendiente", response_model=CapturaPendienteResponse)
+async def get_captura_pendiente(
+    db: DbDep,
+    profesional: FlexibleProfesionalDep,
+    telegram_chat_id: Annotated[
+        str, Query(description="Chat de Telegram que respondió")
+    ],
+) -> CapturaPendienteResponse:
+    """Devuelve la captura de datos pendiente para un chat de Telegram.
+
+    C-27: cada mensaje del bot es una ejecución distinta de n8n, así que el
+    orquestador no puede recordar que dejó una pregunta abierta. Consulta acá
+    antes de interpretar un texto libre: un 200 significa "esto es la
+    respuesta a mi pregunta", un 404 significa "tratalo como un mensaje
+    normal". El 404 es un desenlace esperado, no un error.
+    """
+    captura = await obtener_captura_pendiente(
+        db, profesional_id=profesional.id, telegram_chat_id=telegram_chat_id
+    )
+    if captura is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No hay una captura pendiente para este chat",
+        )
+    return CapturaPendienteResponse(
+        turno_id=captura.turno_id, paso=captura.paso, datos=captura.datos
+    )
+
+
+@router.patch("/{turno_id}/captura", response_model=CapturaPendienteResponse)
+async def actualizar_captura_endpoint(
+    db: DbDep,
+    profesional: FlexibleProfesionalDep,
+    turno_id: int,
+    data: ActualizarCapturaRequest,
+) -> CapturaPendienteResponse:
+    """Guarda una respuesta de la conversación y devuelve el paso siguiente.
+
+    Mergea sobre lo ya capturado: cada mensaje trae una sola respuesta y no
+    debe pisar las anteriores.
+    """
+    try:
+        captura = await actualizar_datos_captura(
+            db,
+            profesional_id=profesional.id,
+            turno_id=turno_id,
+            nuevos_datos=data.datos,
+        )
+        await db.commit()
+    except CapturaNoEncontradaError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=exc.message)
+    return CapturaPendienteResponse(
+        turno_id=captura.turno_id, paso=captura.paso, datos=captura.datos
+    )
 
 
 @router.post("", response_model=TurnoResponse, status_code=status.HTTP_201_CREATED)
