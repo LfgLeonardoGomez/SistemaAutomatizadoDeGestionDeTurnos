@@ -56,6 +56,14 @@
       "sessions": 1,
       "memories": 15,
       "prompts": 23
+    },
+    {
+      "id": "d8be661a",
+      "created_by": "pc",
+      "created_at": "2026-08-11T22:50:14Z",
+      "sessions": 4,
+      "memories": 43,
+      "prompts": 117
     }
   ]
 }
