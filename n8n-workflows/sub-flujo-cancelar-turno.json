@@ -130,7 +130,9 @@
         "options": {
           "response": {
             "response": {
-              "responseFormat": "json"
+              "responseFormat": "json",
+              "neverError": true,
+              "fullResponse": true
             }
           }
         },
@@ -154,7 +156,7 @@
         320
       ],
       "parameters": {
-        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst turnoId = input.turno_id;\nconst errorStatus = input.statusCode && input.statusCode >= 400;\nconst errorDetail = input.detail || (errorStatus ? 'Error HTTP ' + input.statusCode : null);\n\nlet mensaje = '';\nlet exito = false;\nif (errorStatus) {\n  if (input.statusCode === 404) {\n    mensaje = 'Turno no encontrado. Verificá el ID y probá de nuevo.';\n  } else if (input.statusCode === 409) {\n    mensaje = 'El turno ya fue cancelado previamente o no se puede cancelar en su estado actual.';\n  } else {\n    mensaje = 'Error al cancelar el turno: ' + (input.detail || ('HTTP ' + input.statusCode));\n  }\n  exito = false;\n} else {\n  mensaje = 'Turno #' + turnoId + ' cancelado exitosamente.';\n  exito = true;\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: turnoId,\n    exito: exito,\n    mensaje: mensaje\n  }\n}];"
+        "jsCode": "// Lee el resultado de PUT /turnos/{id}/cancelar y arma la respuesta.\n//\n// Tres defectos corregidos acá, todos de la misma familia: el nodo leía del\n// item equivocado.\n//\n// 1. chat_id se leía de $json, pero la respuesta HTTP reemplaza el item y no\n//    lo trae -> llegaba undefined y el nodo de Telegram no sabía a dónde\n//    enviar. Se lee por nodo nombrado, la regla que documenta el README.\n// 2. turno_id se leía de la raíz, pero TurnoResponse expone `id`, no\n//    `turno_id` -> el mensaje decía \"Turno #undefined cancelado\".\n// 3. El bloque de errores dependía de input.statusCode, que solo existe con\n//    fullResponse: true. Como estaba en false, errorStatus era SIEMPRE falso\n//    y el nodo reportaba éxito incluso ante un fallo. Los mensajes de 404 y\n//    409 estaban escritos y no podían dispararse nunca.\nlet chatId = null;\nlet turnoIdSolicitado = '';\ntry {\n  const decidido = $('Code - Decidir Paso').first().json;\n  chatId = decidido.chat_id;\n  turnoIdSolicitado = decidido.turno_id || '';\n} catch (e) {}\n\nconst input = ($input.all()[0] && $input.all()[0].json) || {};\nconst statusCode = input.statusCode;\nconst body = input.body || {};\nconst ok = typeof statusCode === 'number' && statusCode >= 200 && statusCode < 300;\n\n// El id se toma de la respuesta cuando el backend la devuelve; si el turno no\n// existe no hay body, y se usa el que pidió el usuario para que el mensaje\n// siga diciendo de qué turno habla.\nconst turnoId = body.id || turnoIdSolicitado;\n\nlet mensaje;\nif (ok) {\n  mensaje = '✅ Turno #' + turnoId + ' cancelado. El horario vuelve a estar disponible.';\n} else if (statusCode === 404) {\n  mensaje = 'No encontramos el turno #' + turnoId + '. Verificá el número e intentá de nuevo.';\n} else if (statusCode === 409) {\n  mensaje = 'El turno #' + turnoId + ' ya estaba cancelado, o no se puede cancelar en su estado actual.';\n} else {\n  const detalle = body.detail ? (' (' + body.detail + ')') : '';\n  mensaje = 'No pudimos cancelar el turno' + detalle + '. Intentá de nuevo en un rato.';\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: turnoId,\n    exito: ok,\n    mensaje: mensaje\n  }\n}];\n"
       }
     },
     {
