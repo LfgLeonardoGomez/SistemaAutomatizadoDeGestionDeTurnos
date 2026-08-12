@@ -31,7 +31,7 @@ Workflows independientes (no dispatch-ados por el orquestador):
 |---------|-----------|---------|--------|
 | `orquestador.json` | Single entry point del bot; switch por comando | `Telegram Trigger` | ✅ Completo |
 | `sub-flujo-crear-turno.json` | Crea reserva temporal (fecha → hora); captura y confirmación en progreso | `Execute Workflow Trigger` (invocado por orquestador) | 🔄 Parcial (C-27) |
-| `sub-flujo-cancelar-turno.json` | Cancelar turno por ID | `Execute Workflow Trigger` (invocado por orquestador) | ✅ Completo |
+| `sub-flujo-cancelar-turno.json` | Lista los turnos activos del chat, el paciente elige y confirma | `Execute Workflow Trigger` (invocado por orquestador) | ✅ Completo |
 | `sub-flujo-reprogramar-turno.json` | Wizard de reprogramación (nueva fecha → nueva hora) | `Execute Workflow Trigger` (invocado por orquestador) | ✅ Completo |
 | `flujo-recordatorio.json` | Cron diario → `POST /api/v1/recordatorios/run` | `Schedule Trigger` (cron `0 10 * * *`) | ✅ Completo |
 | `flujo-lista-espera.json` | Notificación de lista de espera (placeholder C-11) | `Webhook Trigger` | ⏳ Placeholder (C-11) |
@@ -42,6 +42,27 @@ Workflows independientes (no dispatch-ados por el orquestador):
 
 - `flujo-reserva.json` → reemplazado por `sub-flujo-crear-turno.json` (con `Header Auth` y sin `paciente_id` en el body, consistente con C-23).
 - `flujo-cancelacion.json` → reemplazado por `sub-flujo-cancelar-turno.json` (con `Header Auth`).
+
+### Vocabulario de callbacks de cancelar
+
+El flujo NO acepta ningún ID tipeado. Un formato de texto libre ya causó un
+bucle infinito: el bot indicaba `/cancelar <ID>` (con espacio) y el parser solo
+aceptaba `cancelar:<id>` (con dos puntos), así que el usuario seguía la
+instrucción del propio bot y el sistema la rechazaba. Se eliminó el parseo
+tipeado entero en vez de elegir un formato: el paciente no tiene por qué
+conocer el ID de su turno.
+
+| `callback_data` | Significado |
+|---|---|
+| `cmd:cancelar` | Listar los turnos activos del chat |
+| `cmd:cancelar:turno_id:<id>` | Mostrar el paso de confirmación de ese turno |
+| `cmd:cancelar:confirmado:<id>` | Ejecutar la cancelación |
+| `cmd:menu` | Volver al menú (lo resuelve el orquestador por su fallback) |
+
+El botón de cancelar del recordatorio (que arma el **backend**, en
+`telegram_service.format_recordatorio_keyboard`) emite
+`cmd:cancelar:turno_id:<id>`, así que también pasa por la confirmación: un
+toque accidental no debe costarle el turno al paciente.
 
 Si los necesitás para rollback, están en el historial de git: `git log -- n8n-workflows/flujo-reserva.json`.
 
@@ -153,6 +174,7 @@ Configurá estas variables en tu instancia de n8n (Settings → External Secrets
 | `sub-flujo-crear-turno.json` | `/turnos/disponibles` | GET | Header Auth | Lista horarios disponibles para la fecha |
 | `sub-flujo-crear-turno.json` | `/turnos` | POST | Header Auth | Crea reserva temporal (sin `paciente_id`, el backend resuelve en confirmación) |
 | `sub-flujo-crear-turno.json` | `/turnos/{id}/confirmar` | PUT | Header Auth | Confirma turno reservado + datos paciente (CSV) |
+| `sub-flujo-cancelar-turno.json` | `/turnos/activos` | GET | Header Auth | Turnos CONFIRMADOS y futuros del chat |
 | `sub-flujo-cancelar-turno.json` | `/turnos/{id}/cancelar` | PUT | Header Auth | Cancela turno confirmado |
 | `sub-flujo-reprogramar-turno.json` | `/turnos/disponibles` | GET | Header Auth | Lista horarios disponibles para la nueva fecha |
 | `sub-flujo-reprogramar-turno.json` | `/turnos/{id}/reprogramar` | PUT | Header Auth | Reprograma turno preservando al paciente |
