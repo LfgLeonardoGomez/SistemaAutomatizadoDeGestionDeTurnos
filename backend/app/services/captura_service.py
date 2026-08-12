@@ -13,7 +13,7 @@ no extra chat-to-turno mapping is introduced.
 from dataclasses import dataclass
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import CapturaNoEncontradaError
@@ -21,6 +21,7 @@ from app.models.reserva_temporal import ReservaTemporal
 from app.models.turno import Turno
 from app.models.turno_destinatario import TurnoDestinatario
 from app.services.turno_service import _utcnow_naive
+from app.tiempo import ahora_local
 
 # Fields required before the booking can be confirmed. ``email`` is absent on
 # purpose: it is optional for the patient and never blocks confirmation.
@@ -135,3 +136,44 @@ async def actualizar_datos_captura(
     await db.flush()
 
     return _a_captura(turno_id, reserva.datos_captura)
+
+
+async def obtener_turnos_activos(
+    db: AsyncSession,
+    profesional_id: int,
+    telegram_chat_id: str,
+) -> list[Turno]:
+    """Return this chat's manageable turnos for one professional: CONFIRMADO
+    and still ahead of "now", earliest first.
+
+    CONFIRMADO is the only state this returns because it is the only state
+    ``turno_service.cancelar_turno`` accepts — a turno in any other state is
+    not something the chat can act on yet (or anymore).
+
+    "Now" is evaluated with ``app.tiempo.ahora_local`` rather than the naive
+    process clock: ``fecha``/``hora_inicio`` are local wall-clock columns,
+    and the backend container runs in UTC, so comparing them against
+    ``datetime.now()`` would misclassify appointments made late in the
+    evening (see ``app/tiempo.py`` for the concrete failure mode).
+    """
+    ahora = ahora_local()
+    hoy = ahora.date()
+    hora_actual = ahora.time()
+
+    stmt = (
+        select(Turno)
+        .join(TurnoDestinatario, TurnoDestinatario.turno_id == Turno.id)
+        .where(
+            Turno.profesional_id == profesional_id,
+            Turno.estado == "CONFIRMADO",
+            TurnoDestinatario.canal == "TELEGRAM",
+            TurnoDestinatario.destinatario == telegram_chat_id,
+            or_(
+                Turno.fecha > hoy,
+                and_(Turno.fecha == hoy, Turno.hora_inicio > hora_actual),
+            ),
+        )
+        .order_by(Turno.fecha.asc(), Turno.hora_inicio.asc())
+    )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())

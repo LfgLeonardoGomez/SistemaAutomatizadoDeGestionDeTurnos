@@ -81,6 +81,23 @@ class TurnoDestinatarioRead(BaseModel):
         return v
 
 
+class TurnoActivoResponse(BaseModel):
+    """Un turno que un chat de Telegram puede gestionar (ver GET /turnos/activos).
+
+    Subconjunto deliberado de ``TurnoResponse``: el bot solo necesita lo que
+    va a mostrarle al paciente para elegir cuál turno cancelar, no los campos
+    internos (``profesional_id``, ``paciente_id``, ``google_event_id``).
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    fecha: date
+    hora_inicio: time
+    hora_fin: time
+    estado: str
+
+
 class TurnoResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

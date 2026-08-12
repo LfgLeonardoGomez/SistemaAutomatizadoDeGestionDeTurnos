@@ -15,11 +15,13 @@ from app.schemas.turno import (
     ConfirmarTurnoRequest,
     ReprogramarTurnoRequest,
     TurnoResponse,
+    TurnoActivoResponse,
     SlotResponse,
 )
 from app.services.captura_service import (
     actualizar_datos_captura,
     obtener_captura_pendiente,
+    obtener_turnos_activos,
 )
 from app.services.turno_service import (
     reservar_turno,
@@ -52,6 +54,27 @@ async def get_turnos_disponibles(
     """Retorna los slots disponibles para una fecha dada."""
     slots = await consultar_disponibilidad(db, profesional.id, fecha)
     return [SlotResponse(**s) for s in slots]
+
+
+@router.get("/activos", response_model=list[TurnoActivoResponse])
+async def get_turnos_activos(
+    db: DbDep,
+    profesional: FlexibleProfesionalDep,
+    telegram_chat_id: Annotated[
+        str, Query(description="Chat de Telegram que consulta sus turnos")
+    ],
+) -> list[TurnoActivoResponse]:
+    """Devuelve los turnos CONFIRMADOS y futuros que este chat puede gestionar.
+
+    Declarada ANTES que cualquier ruta ``/{turno_id}/...`` a propósito: FastAPI
+    matchea rutas en el orden en que se declaran, y si esta viniera después,
+    ``activos`` se interpretaría como un ``turno_id`` (mismo motivo por el que
+    ``/captura-pendiente`` está declarada arriba).
+    """
+    turnos = await obtener_turnos_activos(
+        db, profesional_id=profesional.id, telegram_chat_id=telegram_chat_id
+    )
+    return [TurnoActivoResponse.model_validate(t) for t in turnos]
 
 
 @router.get("/captura-pendiente", response_model=CapturaPendienteResponse)
