@@ -598,11 +598,20 @@ def format_recordatorio_mensaje(
 
 
 def format_recordatorio_keyboard(turno_id: int) -> InlineKeyboardMarkup:
-    """Build inline keyboard for reminder actions."""
+    """Build inline keyboard for reminder actions.
+
+    The callbacks use the ``cmd:`` vocabulary that the n8n orquestador
+    already speaks, not the ``reminder:`` prefix handled by this module's
+    own webhook processor. A Telegram bot has exactly one webhook and it
+    belongs to n8n, so ``reminder:*`` callbacks reached the orquestador,
+    matched nothing, and fell through to the help menu — all three buttons
+    were dead. The ``reminder:*`` handler is kept for the direct-webhook
+    path, which is not the one in use.
+    """
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Confirmar asistencia", callback_data=f"reminder:confirmar:{turno_id}")],
-        [InlineKeyboardButton("Cancelar", callback_data=f"reminder:cancelar:{turno_id}")],
-        [InlineKeyboardButton("Reprogramar", callback_data=f"reminder:reprogramar:{turno_id}")],
+        [InlineKeyboardButton("Confirmar asistencia", callback_data=f"cmd:confirmar:turno_id:{turno_id}")],
+        [InlineKeyboardButton("Cancelar", callback_data=f"cmd:cancelar:turno_id:{turno_id}")],
+        [InlineKeyboardButton("Reprogramar", callback_data=f"cmd:reprogramar:turno_id:{turno_id}")],
     ])
 
 

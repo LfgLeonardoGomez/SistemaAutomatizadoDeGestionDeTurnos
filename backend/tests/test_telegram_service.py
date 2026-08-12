@@ -398,9 +398,12 @@ class TestRecordatorioFormatting:
     def test_format_recordatorio_keyboard_tres_botones(self):
         kb = format_recordatorio_keyboard(42)
         assert len(kb.inline_keyboard) == 3
-        assert kb.inline_keyboard[0][0].callback_data == "reminder:confirmar:42"
-        assert kb.inline_keyboard[1][0].callback_data == "reminder:cancelar:42"
-        assert kb.inline_keyboard[2][0].callback_data == "reminder:reprogramar:42"
+        # El webhook del bot lo tiene n8n, no este backend: los botones deben
+        # hablar el vocabulario `cmd:` que entiende el orquestador. Con el
+        # prefijo `reminder:` los tres botones caian en el menu de ayuda.
+        assert kb.inline_keyboard[0][0].callback_data == "cmd:confirmar:turno_id:42"
+        assert kb.inline_keyboard[1][0].callback_data == "cmd:cancelar:turno_id:42"
+        assert kb.inline_keyboard[2][0].callback_data == "cmd:reprogramar:turno_id:42"
 
 
 class TestRecordatorioCallbacks:
