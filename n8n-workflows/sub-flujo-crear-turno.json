@@ -14,7 +14,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// ======================================================================\n// HELPERS de fecha (timezone Argentina)\n// ======================================================================\nfunction fmtArgentina(d) {\n  const parts = new Intl.DateTimeFormat('en-CA', {\n    timeZone: 'America/Argentina/Buenos_Aires',\n    year: 'numeric', month: '2-digit', day: '2-digit'\n  }).formatToParts(d);\n  const y = parts.find(p => p.type === 'year').value;\n  const m = parts.find(p => p.type === 'month').value;\n  const dd = parts.find(p => p.type === 'day').value;\n  return `${y}-${m}-${dd}`;\n}\n\nfunction addDays(yyyy_mm_dd, n) {\n  const [y, m, d] = yyyy_mm_dd.split('-').map(Number);\n  const date = new Date(Date.UTC(y, m - 1, d));\n  date.setUTCDate(date.getUTCDate() + n);\n  const yy = date.getUTCFullYear();\n  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');\n  const dd = String(date.getUTCDate()).padStart(2, '0');\n  return `${yy}-${mm}-${dd}`;\n}\n\nfunction hoyArgentina() {\n  return fmtArgentina(new Date());\n}\n\n// ======================================================================\n// INPUT\n// ======================================================================\nconst input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst comando = input.comando || 'crear';\nconst textRaw = String(input.text || '');\nconst payload = input.payload || {};\n\n// ======================================================================\n// STATIC DATA: memoria persistente del workflow\n// ======================================================================\nconst staticData = $getWorkflowStaticData('global');\nconst ctxKey = chatId ? 'ctx_' + chatId : null;\nconst capturaKey = chatId ? 'captura_' + chatId : null;\n\n// ======================================================================\n// CAPTURA EN CURSO (design § D3/D4, c-27): si el orquestador reenvio esta\n// respuesta como respuesta_captura, esta ejecucion responde una pregunta\n// de identidad pendiente, no un paso de fecha/hora -- se deriva a\n// Code - Procesar Captura y se corta ACA el resto de la logica de\n// creacion (no tiene sentido calcular fecha/slot para un DNI).\nif (payload.respuesta_captura !== undefined) {\n  return [{\n    json: {\n      chat_id: chatId,\n      comando: comando,\n      accion: 'captura',\n      respuesta_captura: String(payload.respuesta_captura),\n      fecha: '',\n      slot: '',\n      rango: '',\n      fecha_inicio: '',\n      mensaje_error: ''\n    }\n  }];\n}\n\nlet fecha = payload.fecha || '';\nlet slot = payload.slot || '';\nlet slotNumero = payload.slot_numero || 0;\nlet rango = payload.rango || '';\nlet fechaRaw = payload.fecha_raw || '';\nlet accion = '';\nlet mensajeError = '';\n\n// Start limpio: un cmd:crear sin datos ancla el contexto viejo. Tambien\n// limpia captura_ (c-27): una reserva nueva no debe arrastrar una captura\n// abandonada de una reserva anterior.\nconst freshStart = textRaw === 'cmd:crear' && Object.keys(payload).length === 0;\nif (freshStart && ctxKey) {\n  delete staticData[ctxKey];\n  delete staticData['contador_' + chatId];\n  delete staticData['fecha_' + chatId];\n  if (capturaKey) delete staticData[capturaKey];\n}\n\nconst ctx = ctxKey ? (staticData[ctxKey] || {}) : {};\n\n// Si no tenemos fecha en el input, leerla de staticData\nif (!fecha && ctx.fecha) fecha = ctx.fecha;\nif (!rango && ctx.rango) rango = ctx.rango;\n\n// Si nos llegó slot_numero, resolverlo a slot real desde los slots guardados\nif (slotNumero && !slot) {\n  const slotsGuardados = ctx.slots || [];\n  const idx = slotNumero - 1;\n  if (idx >= 0 && idx < slotsGuardados.length) {\n    slot = slotsGuardados[idx].hora_inicio;\n  }\n}\n\n// Defensa: parsear callbacks de slot (formato HH:MM:f:YYYY-MM-DD)\nif (textRaw.startsWith('cmd:crear:slot:')) {\n  const parsed = textRaw.substring('cmd:crear:slot:'.length);\n  if (parsed !== 'none') {\n    const fIdx = parsed.indexOf(':f:');\n    if (fIdx >= 0) {\n      slot = parsed.substring(0, fIdx);\n      if (!fecha) fecha = parsed.substring(fIdx + 3);\n    } else {\n      slot = parsed;\n    }\n  }\n}\n\n// ======================================================================\n// CÁLCULO DE FECHA\n// ======================================================================\n\n// Si hay rango y no hay fecha, calcular fecha exacta (en timezone Argentina)\nif (!fecha && rango && rango !== 'exacto') {\n  let daysToAdd = 0;\n  if (rango === 'inmediato') daysToAdd = 1;\n  else if (rango === '2semanas') daysToAdd = 14;\n  else if (rango === '1mes') daysToAdd = 28;\n  if (daysToAdd > 0) {\n    fecha = addDays(hoyArgentina(), daysToAdd);\n  }\n}\n\n// Si hay fechaRaw (input DD/MM/AAAA), validar y convertir\nif (!fecha && fechaRaw) {\n  const match = /^(\\d{2})\\/(\\d{2})\\/(\\d{4})$/.exec(fechaRaw);\n  if (match) {\n    const day = parseInt(match[1], 10);\n    const month = parseInt(match[2], 10) - 1;\n    const year = parseInt(match[3], 10);\n    const parsed = new Date(year, month, day);\n    if (parsed.getDate() === day && parsed.getMonth() === month && parsed.getFullYear() === year) {\n      const todayStr = hoyArgentina();\n      const maxStr = addDays(todayStr, 90);  // ~3 meses\n      const iso = String(year) + '-' + String(month + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');\n      if (iso < todayStr) {\n        accion = 'fecha_invalida';\n        mensajeError = 'La fecha está en el pasado.';\n      } else if (iso > maxStr) {\n        accion = 'fecha_invalida';\n        mensajeError = 'Solo podés reservar hasta 3 meses adelante.';\n      } else {\n        fecha = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;\n      }\n    } else {\n      accion = 'fecha_invalida';\n      mensajeError = 'La fecha no es válida (día o mes incorrecto).';\n    }\n  } else {\n    accion = 'fecha_invalida';\n    mensajeError = 'Formato incorrecto. Usá DD/MM/AAAA (ej: 15/07/2026).';\n  }\n}\n\n// ======================================================================\n// GUARDAR EN STATIC DATA\n// ======================================================================\nif (ctxKey && fecha) {\n  staticData[ctxKey] = {\n    fecha: fecha,\n    rango: rango,\n    slots: ctx.slots || []\n  };\n}\n\n// ======================================================================\n// DECIDIR ACCIÓN FINAL\n// ======================================================================\nif (!accion) {\n  if (rango === 'exacto' && !fecha) {\n    accion = 'pedir_fecha';\n  } else if (fecha && slot) {\n    accion = 'crear_turno';\n  } else if (fecha) {\n    accion = 'pedir_slot';\n  } else {\n    accion = 'pedir_rango';\n  }\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    comando: comando,\n    accion: accion,\n    fecha: fecha,\n    slot: slot,\n    rango: rango,\n    fecha_inicio: fecha || '',\n    mensaje_error: mensajeError\n  }\n}];"
+        "jsCode": "// ======================================================================\n// HELPERS de fecha (timezone Argentina)\n// ======================================================================\nfunction fmtArgentina(d) {\n  const parts = new Intl.DateTimeFormat('en-CA', {\n    timeZone: 'America/Argentina/Buenos_Aires',\n    year: 'numeric', month: '2-digit', day: '2-digit'\n  }).formatToParts(d);\n  const y = parts.find(p => p.type === 'year').value;\n  const m = parts.find(p => p.type === 'month').value;\n  const dd = parts.find(p => p.type === 'day').value;\n  return `${y}-${m}-${dd}`;\n}\n\nfunction addDays(yyyy_mm_dd, n) {\n  const [y, m, d] = yyyy_mm_dd.split('-').map(Number);\n  const date = new Date(Date.UTC(y, m - 1, d));\n  date.setUTCDate(date.getUTCDate() + n);\n  const yy = date.getUTCFullYear();\n  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');\n  const dd = String(date.getUTCDate()).padStart(2, '0');\n  return `${yy}-${mm}-${dd}`;\n}\n\nfunction hoyArgentina() {\n  return fmtArgentina(new Date());\n}\n\n// ======================================================================\n// INPUT\n//\n// C-27: este nodo ya NO usa $getWorkflowStaticData. En n8n 2.4.4 ese store\n// no sobrevive entre ejecuciones (verificado sobre ejecuciones reales), y\n// cada mensaje de Telegram es una ejecucion distinta. El estado de la\n// conversacion vive en Postgres y llega por HTTP - GET Captura Pendiente,\n// que corre justo antes que este nodo.\n//\n// Como el nodo HTTP reemplaza el item, el input original del orquestador se\n// lee del trigger por nombre -- el mismo patron que ya usaban\n// Code - Verificar Slots y Code - Extraer Turno ID para el chat_id.\n// ======================================================================\nlet trigger = {};\ntry {\n  trigger = $('Execute Workflow Trigger').first().json || {};\n} catch (e) {}\n\nconst chatId = trigger.chat_id;\nconst comando = trigger.comando || 'crear';\nconst textRaw = String(trigger.text || '');\nconst payload = trigger.payload || {};\n\n// Resultado del GET: 200 = hay una captura pendiente, 404 = no hay.\n// neverError + fullResponse son obligatorios en ese nodo; sin ellos el 404\n// tira excepcion y este nodo nunca corre.\nconst httpIn = ($input.all()[0] && $input.all()[0].json) || {};\nconst capturaBody = httpIn.body || {};\nconst hayCaptura = httpIn.statusCode === 200 && !!capturaBody.turno_id;\n\n// Un comando reconocido gana sobre una captura pendiente (escape hatch):\n// quien abandona una reserva a mitad de pregunta no debe quedar atrapado.\nconst freshStart = payload.fresh_start === true;\n\n// ======================================================================\n// CAPTURA EN CURSO: si hay una captura viva y el orquestador adjunto un\n// texto libre, esta ejecucion responde una pregunta de identidad. Se corta\n// aca el resto de la logica de creacion -- no tiene sentido calcular\n// fecha/slot para un DNI. Esto es lo que hace que un \"15\" mientras el bot\n// espera un DNI sea un DNI invalido y no el slot numero 15: el desempate\n// ocurre aca, con la base a la vista, no en el orquestador.\n// ======================================================================\nif (hayCaptura && !freshStart && payload.respuesta_captura !== undefined) {\n  return [{\n    json: {\n      chat_id: chatId,\n      comando: comando,\n      accion: 'captura',\n      respuesta_captura: String(payload.respuesta_captura),\n      captura_turno_id: capturaBody.turno_id,\n      captura_paso: capturaBody.paso,\n      captura_datos: capturaBody.datos || {},\n      fecha: '',\n      slot: '',\n      rango: '',\n      fecha_inicio: '',\n      mensaje_error: ''\n    }\n  }];\n}\n\nlet fecha = payload.fecha || '';\nlet slot = payload.slot || '';\nlet rango = payload.rango || '';\nlet fechaRaw = payload.fecha_raw || '';\nlet accion = '';\nlet mensajeError = '';\n\n// Defensa: parsear callbacks de slot (formato HH:MM:f:YYYY-MM-DD). La fecha\n// viaja en el callback a proposito: es la unica forma de que sobreviva entre\n// ejecuciones sin tocar la base.\nif (textRaw.startsWith('cmd:crear:slot:')) {\n  const parsed = textRaw.substring('cmd:crear:slot:'.length);\n  if (parsed !== 'none') {\n    const fIdx = parsed.indexOf(':f:');\n    if (fIdx >= 0) {\n      slot = parsed.substring(0, fIdx);\n      if (!fecha) fecha = parsed.substring(fIdx + 3);\n    } else {\n      slot = parsed;\n    }\n  }\n}\n\n// ======================================================================\n// CALCULO DE FECHA\n// ======================================================================\nif (!fecha && rango && rango !== 'exacto') {\n  let daysToAdd = 0;\n  if (rango === 'inmediato') daysToAdd = 1;\n  else if (rango === '2semanas') daysToAdd = 14;\n  else if (rango === '1mes') daysToAdd = 28;\n  if (daysToAdd > 0) {\n    fecha = addDays(hoyArgentina(), daysToAdd);\n  }\n}\n\nif (!fecha && fechaRaw) {\n  const match = /^(\\d{2})\\/(\\d{2})\\/(\\d{4})$/.exec(fechaRaw);\n  if (match) {\n    const day = parseInt(match[1], 10);\n    const month = parseInt(match[2], 10) - 1;\n    const year = parseInt(match[3], 10);\n    const parsed = new Date(year, month, day);\n    if (parsed.getDate() === day && parsed.getMonth() === month && parsed.getFullYear() === year) {\n      const todayStr = hoyArgentina();\n      const maxStr = addDays(todayStr, 90);\n      const iso = String(year) + '-' + String(month + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');\n      if (iso < todayStr) {\n        accion = 'fecha_invalida';\n        mensajeError = 'La fecha está en el pasado.';\n      } else if (iso > maxStr) {\n        accion = 'fecha_invalida';\n        mensajeError = 'Solo podés reservar hasta 3 meses adelante.';\n      } else {\n        fecha = iso;\n      }\n    } else {\n      accion = 'fecha_invalida';\n      mensajeError = 'La fecha no es válida (día o mes incorrecto).';\n    }\n  } else {\n    accion = 'fecha_invalida';\n    mensajeError = 'Formato incorrecto. Usá DD/MM/AAAA (ej: 15/07/2026).';\n  }\n}\n\n// ======================================================================\n// DECIDIR ACCION FINAL\n// ======================================================================\nif (!accion) {\n  if (rango === 'exacto' && !fecha) {\n    accion = 'pedir_fecha';\n  } else if (fecha && slot) {\n    accion = 'crear_turno';\n  } else if (fecha) {\n    accion = 'pedir_slot';\n  } else {\n    accion = 'pedir_rango';\n  }\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    comando: comando,\n    accion: accion,\n    fecha: fecha,\n    slot: slot,\n    rango: rango,\n    fecha_inicio: fecha || '',\n    mensaje_error: mensajeError\n  }\n}];\n"
       },
       "id": "d5afa530-c26c-4eb4-b7d3-d5e2272f1e1c",
       "name": "Code - Decidir Paso",
@@ -517,7 +517,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Leer chat_id del Code - Decidir Paso (sobrevive al flow)\nlet chatId = '';\ntry {\n  const codeData = $('Code - Decidir Paso').first().json;\n  if (codeData) {\n    chatId = codeData.chat_id || '';\n  }\n} catch (e) {\n  // fallback silencioso\n}\n\n// fullResponse: true (c-27, design § D4 nota de implementacion) -- sin\n// esto un 4xx tira excepcion antes de llegar aca y el chequeo de\n// statusCode de abajo era codigo muerto (era el caso ANTES de c-27).\nconst input = ($input.all()[0] && $input.all()[0].json) || {};\nconst statusCode = input.statusCode;\nconst body = input.body || {};\nconst fecha = body.fecha;\nconst slot = body.hora_inicio;\nconst turnoId = body.id;\nconst errorStatus = typeof statusCode === 'number' && statusCode >= 400;\nconst errorDetail = body.detail || (errorStatus ? 'Error HTTP ' + statusCode : null);\nconst exito = !!turnoId && !errorStatus;\n\n// Si la reserva se creo, arrancamos la captura de identidad (design § D3):\n// captura_<chatId> es el UNICO lugar donde vive la conversacion (turno_id,\n// paso, datos). expira_en preferiria la expiracion real del backend, pero\n// POST /turnos no la expone (OQ-4) -- fallback a RESERVA_TEMPORAL_MINUTOS\n// (default 10) + 1 minuto de gracia. Es una comodidad de UX, no el\n// mecanismo de correctitud real: ese es el 409 de PUT /confirmar (D6).\nif (exito && chatId) {\n  const staticData = $getWorkflowStaticData('global');\n  const minutos = Number($env.RESERVA_TEMPORAL_MINUTOS) || 10;\n  const expiraEn = Date.now() + (minutos + 1) * 60000;\n  staticData['captura_' + chatId] = {\n    turno_id: turnoId,\n    paso: 'dni',\n    datos: {},\n    expira_en: expiraEn\n  };\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    fecha: fecha,\n    slot: slot,\n    turno_id: turnoId,\n    exito: exito,\n    error: errorDetail\n  }\n}];"
+        "jsCode": "// Leer chat_id del Code - Decidir Paso (sobrevive al flow)\nlet chatId = '';\ntry {\n  const codeData = $('Code - Decidir Paso').first().json;\n  if (codeData) {\n    chatId = codeData.chat_id || '';\n  }\n} catch (e) {}\n\n// fullResponse: true es obligatorio -- sin eso un 4xx tira excepcion antes\n// de llegar aca y el chequeo de statusCode de abajo seria codigo muerto.\nconst input = ($input.all()[0] && $input.all()[0].json) || {};\nconst statusCode = input.statusCode;\nconst body = input.body || {};\nconst fecha = body.fecha;\nconst slot = body.hora_inicio;\nconst turnoId = body.id;\nconst errorStatus = typeof statusCode === 'number' && statusCode >= 400;\nconst errorDetail = body.detail || (errorStatus ? 'Error HTTP ' + statusCode : null);\nconst exito = !!turnoId && !errorStatus;\n\n// C-27: no se escribe ningun estado aca. La reserva creada por POST /turnos\n// YA es el estado de la captura -- reserva_temporal nace con datos_captura\n// vacio, y un datos_captura vacio significa \"falta el DNI\". El chat se\n// resuelve a este turno por el TurnoDestinatario canal TELEGRAM que el\n// backend escribe con el telegram_chat_id que le mandamos.\nreturn [{\n  json: {\n    chat_id: chatId,\n    fecha: fecha,\n    slot: slot,\n    turno_id: turnoId,\n    exito: exito,\n    error: errorDetail\n  }\n}];\n"
       },
       "id": "ba52550b-99de-4cdf-bd19-d4698ea47f62",
       "name": "Code - Extraer Turno ID",
@@ -553,7 +553,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Procesa la respuesta del usuario segun el paso pendiente en\n// captura_<chatId> (design § D3/D4, D5, c-27). Este nodo es DUEÑO del\n// estado de la conversacion -- lee y escribe su propio staticData; el\n// gate del orquestador es solo un bit de ruteo, nunca una copia de estos\n// datos.\nlet chatId = null;\ntry {\n  chatId = $('Code - Decidir Paso').first().json.chat_id;\n} catch (e) {}\n\nconst input = ($input.all()[0] && $input.all()[0].json) || {};\nconst respuesta = String(input.respuesta_captura || '').trim();\n\nconst staticData = $getWorkflowStaticData('global');\nconst capturaKey = chatId ? 'captura_' + chatId : null;\nconst captura = capturaKey ? staticData[capturaKey] : null;\nconst vigente = !!(captura && (!captura.expira_en || Date.now() <= captura.expira_en));\n\nif (!vigente) {\n  // Auto-sanacion (design § D4): el gate del orquestador decia\n  // \"pendiente\" pero esta captura ya no existe o vencio en el store del\n  // sub-flujo (TTL skew, escritura perdida, reinicio de n8n). No se envia\n  // ningun mensaje desde aca -- el orquestador muestra el menu de ayuda al\n  // recibir captura_pendiente: false, mostrar_ayuda: true desde\n  // Code - Retorno Estado.\n  return [{ json: { chat_id: chatId, decision: 'sin_match' } }];\n}\n\nconst datos = captura.datos || {};\nlet decision;\n\nif (captura.paso === 'dni') {\n  // DNI argentino: 7 u 8 digitos, sin puntos ni guiones (spec: \"A\n  // malformed DNI is rejected without losing the reservation\").\n  if (!/^\\d{7,8}$/.test(respuesta)) {\n    decision = 'dni_invalido';\n  } else {\n    datos.dni = respuesta;\n    decision = 'dni_valido';\n  }\n} else if (captura.paso === 'nombre') {\n  // D5: nombre y apellido en un solo mensaje.\n  const partes = respuesta.split(/\\s+/).filter(Boolean);\n  datos.nombre = partes[0] || respuesta;\n  datos.apellido = partes.slice(1).join(' ') || datos.nombre;\n  captura.paso = 'telefono';\n  decision = 'nombre_ok';\n} else if (captura.paso === 'telefono') {\n  // D5: telefono y email (opcional) en un solo mensaje.\n  const partes = respuesta.split(/[\\s,]+/).filter(Boolean);\n  datos.telefono = (partes[0] || '').replace(/\\D/g, '');\n  const posibleEmail = partes.slice(1).join(' ');\n  if (/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(posibleEmail)) {\n    datos.email = posibleEmail;\n  }\n  captura.paso = 'confirmar';\n  decision = 'telefono_ok';\n} else {\n  decision = 'sin_match';\n}\n\ncaptura.datos = datos;\nif (capturaKey) staticData[capturaKey] = captura;\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: captura.turno_id,\n    decision: decision,\n    dni: datos.dni || '',\n    nombre: datos.nombre || '',\n    apellido: datos.apellido || '',\n    telefono: datos.telefono || '',\n    email: datos.email || ''\n  }\n}];"
+        "jsCode": "// Procesa la respuesta del usuario segun el paso pendiente.\n//\n// C-27: el paso y los datos ya capturados NO se leen de staticData -- llegan\n// desde Postgres via HTTP - GET Captura Pendiente y los propaga\n// Code - Decidir Paso. Este nodo solo VALIDA e interpreta el texto; quien\n// persiste es HTTP - PATCH Captura (o directamente el PUT de confirmacion\n// cuando ya no queda nada por preguntar).\nconst input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst respuesta = String(input.respuesta_captura || '').trim();\nconst turnoId = input.captura_turno_id;\nconst paso = input.captura_paso;\nconst datos = Object.assign({}, input.captura_datos || {});\n\nlet decision;\nlet datosNuevos = {};\n\nif (paso === 'dni') {\n  // DNI argentino: 7 u 8 digitos, sin puntos ni guiones (spec: \"A malformed\n  // DNI is rejected without losing the reservation\" -- por eso no se\n  // persiste nada en esta rama).\n  if (!/^\\d{7,8}$/.test(respuesta)) {\n    decision = 'dni_invalido';\n  } else {\n    datos.dni = respuesta;\n    datosNuevos = { dni: respuesta };\n    decision = 'buscar';\n  }\n} else if (paso === 'nombre') {\n  // D5: nombre y apellido en un solo mensaje.\n  const partes = respuesta.split(/\\s+/).filter(Boolean);\n  datos.nombre = partes[0] || respuesta;\n  datos.apellido = partes.slice(1).join(' ') || datos.nombre;\n  datosNuevos = { nombre: datos.nombre, apellido: datos.apellido };\n  decision = 'guardar';\n} else if (paso === 'telefono') {\n  // D5: telefono y email (opcional) en un solo mensaje. Es la ultima\n  // pregunta: con esto se puede confirmar sin pasar por el PATCH, porque no\n  // hay un mensaje siguiente que necesite recordar nada.\n  const partes = respuesta.split(/[\\s,]+/).filter(Boolean);\n  datos.telefono = (partes[0] || '').replace(/\\D/g, '');\n  const posibleEmail = partes.slice(1).join(' ');\n  if (/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(posibleEmail)) {\n    datos.email = posibleEmail;\n  }\n  decision = 'confirmar';\n} else if (paso === 'confirmar') {\n  decision = 'confirmar';\n} else {\n  decision = 'sin_match';\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: turnoId,\n    decision: decision,\n    datos_nuevos: datosNuevos,\n    dni: datos.dni || '',\n    nombre: datos.nombre || '',\n    apellido: datos.apellido || '',\n    telefono: datos.telefono || '',\n    email: datos.email || ''\n  }\n}];\n"
       },
       "id": "c27b0002-0001-4000-8000-000000000001",
       "name": "Code - Procesar Captura",
@@ -578,7 +578,7 @@
                 },
                 "conditions": [
                   {
-                    "id": "c27b0002-0001-4000-8000-000000000002",
+                    "id": "c27b0002-0001-4000-8000-000000000011",
                     "leftValue": "={{ $json.decision }}",
                     "rightValue": "dni_invalido",
                     "operator": {
@@ -602,9 +602,9 @@
                 },
                 "conditions": [
                   {
-                    "id": "c27b0002-0001-4000-8000-000000000003",
+                    "id": "c27b0002-0001-4000-8000-000000000012",
                     "leftValue": "={{ $json.decision }}",
-                    "rightValue": "dni_valido",
+                    "rightValue": "buscar",
                     "operator": {
                       "type": "string",
                       "operation": "equals"
@@ -614,7 +614,7 @@
                 "combinator": "and"
               },
               "renameOutput": true,
-              "outputKey": "dni_valido"
+              "outputKey": "buscar"
             },
             {
               "conditions": {
@@ -626,9 +626,9 @@
                 },
                 "conditions": [
                   {
-                    "id": "c27b0002-0001-4000-8000-000000000004",
+                    "id": "c27b0002-0001-4000-8000-000000000013",
                     "leftValue": "={{ $json.decision }}",
-                    "rightValue": "nombre_ok",
+                    "rightValue": "guardar",
                     "operator": {
                       "type": "string",
                       "operation": "equals"
@@ -638,7 +638,7 @@
                 "combinator": "and"
               },
               "renameOutput": true,
-              "outputKey": "nombre_ok"
+              "outputKey": "guardar"
             },
             {
               "conditions": {
@@ -650,9 +650,9 @@
                 },
                 "conditions": [
                   {
-                    "id": "c27b0002-0001-4000-8000-000000000005",
+                    "id": "c27b0002-0001-4000-8000-000000000014",
                     "leftValue": "={{ $json.decision }}",
-                    "rightValue": "telefono_ok",
+                    "rightValue": "confirmar",
                     "operator": {
                       "type": "string",
                       "operation": "equals"
@@ -662,7 +662,7 @@
                 "combinator": "and"
               },
               "renameOutput": true,
-              "outputKey": "telefono_ok"
+              "outputKey": "confirmar"
             }
           ]
         },
@@ -743,7 +743,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Branch de la busqueda de paciente (design § D1/D4, task 7.3): 200 =\n// paciente existente, 404 = paciente nuevo. neverError + fullResponse en\n// HTTP - GET Buscar Paciente son obligatorios -- sin ellos el 404 tira\n// excepcion y este nodo nunca corre.\nlet chatId = null;\ntry {\n  chatId = $('Code - Decidir Paso').first().json.chat_id;\n} catch (e) {}\n\nconst input = ($input.all()[0] && $input.all()[0].json) || {};\nconst statusCode = input.statusCode;\nconst body = input.body || {};\n\nconst staticData = $getWorkflowStaticData('global');\nconst capturaKey = chatId ? 'captura_' + chatId : null;\nconst captura = capturaKey ? (staticData[capturaKey] || {}) : {};\nconst datos = captura.datos || {};\n\nlet decision;\nif (statusCode === 200) {\n  // Paciente existente (spec \"Returning patient\"): se completan los datos\n  // guardados SIN volver a pedirselos al usuario.\n  datos.nombre = body.nombre;\n  datos.apellido = body.apellido;\n  datos.telefono = body.telefono;\n  captura.paso = 'confirmar';\n  decision = 'encontrado';\n} else {\n  captura.paso = 'nombre';\n  decision = 'no_encontrado';\n}\n\ncaptura.datos = datos;\nif (capturaKey) staticData[capturaKey] = captura;\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: captura.turno_id,\n    decision: decision,\n    dni: datos.dni || '',\n    nombre: datos.nombre || '',\n    apellido: datos.apellido || '',\n    telefono: datos.telefono || '',\n    email: datos.email || ''\n  }\n}];"
+        "jsCode": "// Branch de la busqueda de paciente (design § D1, task 7.3): 200 = paciente\n// existente, 404 = paciente nuevo. neverError + fullResponse en\n// HTTP - GET Buscar Paciente son obligatorios -- sin ellos el 404 tira\n// excepcion y este nodo nunca corre.\nlet previo = {};\ntry {\n  previo = $('Code - Procesar Captura').first().json || {};\n} catch (e) {}\n\nconst input = ($input.all()[0] && $input.all()[0].json) || {};\nconst statusCode = input.statusCode;\nconst body = input.body || {};\n\nif (statusCode === 200) {\n  // Paciente existente (spec \"Returning patient\"): se completan los datos\n  // guardados SIN volver a pedirselos. Se va derecho a confirmar, asi que\n  // tampoco hace falta persistirlos: el PUT los lleva en el mismo salto.\n  return [{\n    json: {\n      chat_id: previo.chat_id,\n      turno_id: previo.turno_id,\n      encontrado: true,\n      dni: previo.dni,\n      nombre: body.nombre,\n      apellido: body.apellido,\n      telefono: body.telefono,\n      email: previo.email || ''\n    }\n  }];\n}\n\n// Paciente nuevo: hay que preguntar nombre, o sea que HAY un mensaje\n// siguiente -- el DNI recien capturado debe persistirse antes de preguntar.\nreturn [{\n  json: {\n    chat_id: previo.chat_id,\n    turno_id: previo.turno_id,\n    encontrado: false,\n    datos_nuevos: { dni: previo.dni },\n    dni: previo.dni,\n    nombre: '',\n    apellido: '',\n    telefono: '',\n    email: ''\n  }\n}];\n"
       },
       "id": "c27b0005-0001-4000-8000-000000000001",
       "name": "Code - Evaluar Paciente",
@@ -766,11 +766,12 @@
           "conditions": [
             {
               "id": "c27b0006-0001-4000-8000-000000000001",
-              "leftValue": "={{ $json.decision }}",
-              "rightValue": "encontrado",
+              "leftValue": "={{ $json.encontrado }}",
+              "rightValue": "true",
               "operator": {
-                "type": "string",
-                "operation": "equals"
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
               }
             }
           ],
@@ -869,7 +870,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Lee el resultado de HTTP - PUT Confirmar Turno. neverError + fullResponse\n// (design § D4 nota de implementacion, D6): sin esas opciones un 409 tira\n// excepcion y las ramas de abajo (7.9, 7.10) son inalcanzables.\nlet chatId = null;\ntry {\n  chatId = $('Code - Decidir Paso').first().json.chat_id;\n} catch (e) {}\n\nconst input = ($input.all()[0] && $input.all()[0].json) || {};\nconst statusCode = input.statusCode;\nconst body = input.body || {};\nconst detail = String(body.detail || '').toLowerCase();\n\nconst staticData = $getWorkflowStaticData('global');\nconst capturaKey = chatId ? 'captura_' + chatId : null;\nconst captura = capturaKey ? (staticData[capturaKey] || {}) : {};\nconst datos = captura.datos || {};\n\nlet decision = 'error';\nif (typeof statusCode === 'number' && statusCode >= 200 && statusCode < 300) {\n  decision = 'confirmado';\n} else if (statusCode === 409 && detail.includes('expir')) {\n  decision = 'expirado';\n} else if (statusCode === 409 && detail.includes('turno activo')) {\n  decision = 'paciente_turno_activo';\n}\n\n// Limpieza (design § D3, task 7.7): en los 3 desenlaces terminales se\n// borran las 4 claves JUNTAS -- incluye el leak preexistente de ctx_ (y\n// contador_/fecha_ del retry diario) que nunca se limpiaba tras una\n// creacion exitosa. captura_pendiente saldra en false desde Code -\n// Retorno Estado en el mismo round trip, asi que el gate del orquestador\n// se limpia sin un mecanismo aparte.\nif (decision === 'confirmado' || decision === 'expirado' || decision === 'paciente_turno_activo') {\n  if (chatId) {\n    delete staticData['captura_' + chatId];\n    delete staticData['ctx_' + chatId];\n    delete staticData['contador_' + chatId];\n    delete staticData['fecha_' + chatId];\n  }\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    decision: decision,\n    nombre: datos.nombre || '',\n    apellido: datos.apellido || '',\n    fecha: body.fecha || '',\n    hora: body.hora_inicio || ''\n  }\n}];"
+        "jsCode": "// Lee el resultado de HTTP - PUT Confirmar Turno. neverError + fullResponse\n// (design § D6) son obligatorios: sin esas opciones un 409 tira excepcion y\n// las ramas de expirado / paciente con turno activo son inalcanzables.\nlet chatId = null;\ntry {\n  chatId = $('Code - Decidir Paso').first().json.chat_id;\n} catch (e) {}\n\n// C-27: el nombre del paciente ya NO se lee de staticData. El PUT se\n// alimenta de dos ramas -- paciente encontrado (Code - Evaluar Paciente) o\n// datos recien capturados (Code - Procesar Captura) -- y se toma el nombre\n// de la que efectivamente corrio. No hace falta limpiar nada: el backend\n// borra reserva_temporal al confirmar, y con ella los datos de la captura.\nlet datos = {};\ntry {\n  datos = $('Code - Evaluar Paciente').first().json || {};\n} catch (e) {}\nif (!datos.nombre) {\n  try {\n    datos = $('Code - Procesar Captura').first().json || {};\n  } catch (e) {}\n}\n\nconst input = ($input.all()[0] && $input.all()[0].json) || {};\nconst statusCode = input.statusCode;\nconst body = input.body || {};\nconst detail = String(body.detail || '').toLowerCase();\n\nlet decision = 'error';\nif (typeof statusCode === 'number' && statusCode >= 200 && statusCode < 300) {\n  decision = 'confirmado';\n} else if (statusCode === 409 && detail.includes('expir')) {\n  decision = 'expirado';\n} else if (statusCode === 409 && detail.includes('turno activo')) {\n  decision = 'paciente_turno_activo';\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    decision: decision,\n    nombre: datos.nombre || '',\n    apellido: datos.apellido || '',\n    fecha: body.fecha || '',\n    hora: body.hora_inicio || ''\n  }\n}];\n"
       },
       "id": "c27b000a-0001-4000-8000-000000000001",
       "name": "Code - Evaluar Confirmacion",
@@ -1065,7 +1066,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Fan-in de TODAS las ramas terminales del sub-flujo (design § D3, task\n// 7.0). Lee su propio store (captura_<chatId>) y devuelve el estado a\n// quien invoco este workflow -- el orquestador (Code - Sync Captura) usa\n// esto para mantener su gate en sincronia con la conversacion real en\n// CADA dispatch, sea o no de creacion de turno.\nlet chatId = null;\ntry {\n  chatId = $('Code - Decidir Paso').first().json.chat_id;\n} catch (e) {}\n\nconst staticData = $getWorkflowStaticData('global');\nconst capturaKey = chatId ? 'captura_' + chatId : null;\nconst captura = capturaKey ? staticData[capturaKey] : null;\nconst capturaPendiente = !!(captura && (!captura.expira_en || Date.now() <= captura.expira_en));\n\n// mostrar_ayuda: true SOLO en la auto-sanacion (design § D4) -- Code -\n// Procesar Captura decidio 'sin_match' porque el gate del orquestador\n// estaba pendiente pero esta captura ya no existe o vencio.\nlet mostrarAyuda = false;\ntry {\n  const decidido = $('Code - Decidir Paso').first().json;\n  if (decidido && decidido.accion === 'captura') {\n    let procesado = null;\n    try { procesado = $('Code - Procesar Captura').first().json; } catch (e) {}\n    if (procesado && procesado.decision === 'sin_match') mostrarAyuda = true;\n  }\n} catch (e) {}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    captura_pendiente: capturaPendiente,\n    expira_en: captura ? captura.expira_en : null,\n    mostrar_ayuda: mostrarAyuda\n  }\n}];"
+        "jsCode": "// Fan-in de TODAS las ramas terminales del sub-flujo (task 7.0).\n//\n// C-27: lo unico que el orquestador necesita saber ya no es si hay una\n// captura pendiente -- eso lo consulta el sub-flujo contra la base en cada\n// mensaje. Queda solo mostrar_ayuda: el texto libre que no correspondia a\n// ninguna captura ni a ningun paso de reserva debe terminar en el menu de\n// ayuda, y ese menu vive en el orquestador.\nlet chatId = null;\ntry {\n  chatId = $('Code - Decidir Paso').first().json.chat_id;\n} catch (e) {}\n\nlet mostrarAyuda = false;\ntry {\n  const decidido = $('Code - Decidir Paso').first().json;\n  // Sin captura viva y sin fecha ni slot, un texto libre solo pudo caer en\n  // pedir_rango: es el \"hola\" de alguien que no esta reservando nada.\n  if (decidido && decidido.accion === 'pedir_rango') {\n    let trigger = {};\n    try { trigger = $('Execute Workflow Trigger').first().json || {}; } catch (e) {}\n    const payload = trigger.payload || {};\n    if (payload.respuesta_captura !== undefined && payload.fresh_start !== true) {\n      mostrarAyuda = true;\n    }\n  }\n} catch (e) {}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    mostrar_ayuda: mostrarAyuda\n  }\n}];\n"
       },
       "id": "c27b0010-0001-4000-8000-000000000001",
       "name": "Code - Retorno Estado",
@@ -1075,6 +1076,159 @@
         1600,
         900
       ]
+    },
+    {
+      "name": "HTTP - GET Captura Pendiente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -160,
+        0
+      ],
+      "parameters": {
+        "url": "http://backend:8000/turnos/captura-pendiente",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "telegram_chat_id",
+              "value": "={{ String($json.chat_id) }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json",
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "profesional-api-key",
+          "name": "Profesional API Key"
+        }
+      },
+      "id": "c27c0001-0001-4000-8000-000000000001"
+    },
+    {
+      "name": "HTTP - PATCH Captura",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        560
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=http://backend:8000/turnos/{{ $json.turno_id }}/captura",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ datos: $json.datos_nuevos }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json",
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "profesional-api-key",
+          "name": "Profesional API Key"
+        }
+      },
+      "id": "c27c0001-0001-4000-8000-000000000002"
+    },
+    {
+      "name": "Code - Paso Siguiente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        560
+      ],
+      "parameters": {
+        "jsCode": "// Lee la respuesta del PATCH y decide que pregunta sigue.\n//\n// El backend deriva el paso de los datos guardados y lo devuelve, asi que\n// el flujo no necesita llevar la cuenta: pregunta lo que el backend dice\n// que falta. Un paso que contradiga los datos no es representable.\nlet chatId = null;\ntry {\n  chatId = $('Code - Decidir Paso').first().json.chat_id;\n} catch (e) {}\n\nconst input = ($input.all()[0] && $input.all()[0].json) || {};\nconst body = input.body || {};\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    paso: body.paso || '',\n    turno_id: body.turno_id || null\n  }\n}];\n"
+      },
+      "id": "c27c0001-0001-4000-8000-000000000003"
+    },
+    {
+      "name": "Switch - Paso Siguiente",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1960,
+        560
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "c27c0002-0001-4000-8000-000000000001",
+                    "leftValue": "={{ $json.paso }}",
+                    "rightValue": "nombre",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "nombre"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "c27c0002-0001-4000-8000-000000000002",
+                    "leftValue": "={{ $json.paso }}",
+                    "rightValue": "telefono",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "telefono"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "c27c0001-0001-4000-8000-000000000004"
     }
   ],
   "pinData": {},
@@ -1083,7 +1237,7 @@
       "main": [
         [
           {
-            "node": "Code - Decidir Paso",
+            "node": "HTTP - GET Captura Pendiente",
             "type": "main",
             "index": 0
           }
@@ -1141,6 +1295,13 @@
         [
           {
             "node": "Code - Procesar Captura",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Retorno Estado",
             "type": "main",
             "index": 0
           }
@@ -1256,7 +1417,7 @@
         ],
         [
           {
-            "node": "Telegram - Pedir Telefono",
+            "node": "HTTP - PATCH Captura",
             "type": "main",
             "index": 0
           }
@@ -1310,7 +1471,7 @@
         ],
         [
           {
-            "node": "Telegram - Pedir Nombre",
+            "node": "HTTP - PATCH Captura",
             "type": "main",
             "index": 0
           }
@@ -1505,6 +1666,64 @@
     },
     "Telegram - Error Confirmacion": {
       "main": [
+        [
+          {
+            "node": "Code - Retorno Estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - GET Captura Pendiente": {
+      "main": [
+        [
+          {
+            "node": "Code - Decidir Paso",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - PATCH Captura": {
+      "main": [
+        [
+          {
+            "node": "Code - Paso Siguiente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Paso Siguiente": {
+      "main": [
+        [
+          {
+            "node": "Switch - Paso Siguiente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch - Paso Siguiente": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Pedir Nombre",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram - Pedir Telefono",
+            "type": "main",
+            "index": 0
+          }
+        ],
         [
           {
             "node": "Code - Retorno Estado",
