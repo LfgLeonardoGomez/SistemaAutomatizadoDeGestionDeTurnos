@@ -243,12 +243,23 @@ class TestEnvExampleCompleteness:
             ".env.example must exist at the repo root"
         )
 
+    #: Variables que consume docker-compose, no el backend, y que por lo
+    #: tanto no existen en ``Settings``. Sin este allowlist el test asumía
+    #: que ``.env`` solo alimenta al backend, y esa suposición dejaba a
+    #: ``.env.example`` sin las variables necesarias para levantar el stack:
+    #: quien clonaba el repo no tenía forma de saber que existían.
+    #: Es un allowlist explícito y no un filtro genérico a propósito —
+    #: agregar una variable de infraestructura debe ser una decisión, no un
+    #: descuido que el test deje pasar.
+    INFRA_VARS = {"NGROK_DOMAIN", "NGROK_AUTHTOKEN"}
+
     def test_root_env_example_matches_settings_fields(self):
         """Spec: .env.example contains every variable declared in config.py.
 
         We compare the set of variable names in .env.example against the
-        declared fields on `Settings`. Names are uppercased to match the
-        env-var convention. Fields with uppercase-only chars are taken as-is.
+        declared fields on `Settings`, plus the infrastructure variables that
+        docker-compose needs. Names are uppercased to match the env-var
+        convention. Fields with uppercase-only chars are taken as-is.
         """
         from app.config import Settings
         declared = set()
@@ -258,13 +269,27 @@ class TestEnvExampleCompleteness:
 
         declared_in_example = self._parse_env_example(self._root_env_example())
         missing = declared - declared_in_example
-        extra = declared_in_example - declared
+        extra = declared_in_example - declared - self.INFRA_VARS
 
         assert not missing, (
             f"Variables declared in config.py but missing from .env.example: {sorted(missing)}"
         )
         assert not extra, (
-            f"Variables in .env.example but not declared in config.py: {sorted(extra)}"
+            f"Variables in .env.example but not declared in config.py "
+            f"nor listed in INFRA_VARS: {sorted(extra)}"
+        )
+
+    def test_env_example_declara_las_variables_de_infraestructura(self):
+        """Las variables de infraestructura también deben estar documentadas.
+
+        No basta con tolerarlas: si faltan, quien clona el repo no puede
+        levantar el túnel y el bot queda sin webhook. El allowlist permite
+        que existan; este test exige que existan.
+        """
+        declared_in_example = self._parse_env_example(self._root_env_example())
+        faltantes = self.INFRA_VARS - declared_in_example
+        assert not faltantes, (
+            f"Variables de infraestructura ausentes de .env.example: {sorted(faltantes)}"
         )
 
 
