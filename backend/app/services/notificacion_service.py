@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.turno import Turno
 from app.models.paciente import Paciente
 from app.models.turno_destinatario import TurnoDestinatario
+from app.tiempo import ahora_local
 from app.services.telegram_service import enviar_mensaje, format_recordatorio_mensaje, format_recordatorio_keyboard
 
 logger = logging.getLogger(__name__)
@@ -19,7 +20,7 @@ async def obtener_turnos_para_recordar(db: AsyncSession, profesional_id: int, ho
     Filtra por estado, recordatorio_enviado y rango de fecha/hora.
     Usa SELECT FOR UPDATE para prevenir race conditions.
     """
-    ahora = datetime.now()
+    ahora = ahora_local()
     limite = ahora + timedelta(hours=horas_antes)
 
     stmt = (

@@ -10,6 +10,7 @@ from app.dependencies import get_db, CurrentProfesionalDep, require_https
 from app.models.paciente import Paciente
 from app.models.profesional import Profesional
 from app.models.turno import Turno
+from app.tiempo import hoy_local
 from app.schemas.profesional import (
     DisponibilidadResponse,
     ProfesionalConfigResponse,
@@ -103,7 +104,7 @@ async def get_turnos_hoy(
     db: DbDep,
     profesional: CurrentProfesionalDep,
 ) -> list[ProfesionalTurnoHoyResponse]:
-    hoy = date.today()
+    hoy = hoy_local()
     result = await db.execute(
         select(Turno)
         .where(
@@ -122,7 +123,7 @@ async def get_metricas(
     db: DbDep,
     profesional: CurrentProfesionalDep,
 ) -> ProfesionalMetricasResponse:
-    hoy = date.today()
+    hoy = hoy_local()
     inicio_30d = hoy - timedelta(days=30)
 
     # turnos_hoy

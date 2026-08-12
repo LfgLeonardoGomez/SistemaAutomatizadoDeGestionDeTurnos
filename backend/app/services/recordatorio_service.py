@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.profesional import Profesional
+from app.tiempo import hoy_local
 from app.schemas.recordatorio import RecordatorioError, RecordatorioRunResponse
 from app.services.notificacion_service import (
     enviar_recordatorio_telegram,
@@ -42,7 +43,7 @@ def _calcular_horas_antes(fecha: date) -> int:
     actual, lo cual excluye los turnos pasados por construcción en
     ``obtener_turnos_para_recordar``).
     """
-    delta_dias = (fecha - date.today()).days
+    delta_dias = (fecha - hoy_local()).days
     return max(0, delta_dias * 24 + 12)
 
 

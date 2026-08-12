@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     recordatorio_horas_antes: int = 24
     recordatorio_job_interval_minutos: int = 60
     completado_job_interval_minutos: int = 5
+    # Zona horaria de las columnas "de agenda" (turno.fecha, turno.hora_inicio).
+    # NO afecta a creado_en ni a reserva_temporal.expiracion, que son UTC.
+    # Se llama TIMEZONE y no TZ para no pisar la variable estándar del
+    # contenedor: el proceso sigue corriendo en UTC a propósito.
+    timezone: str = "America/Argentina/Buenos_Aires"
     env: str = "development"
     secret_key: str
     algorithm: str = "HS256"

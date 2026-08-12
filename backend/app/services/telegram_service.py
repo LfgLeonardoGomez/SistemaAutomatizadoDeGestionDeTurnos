@@ -5,6 +5,7 @@ import logging
 from collections import defaultdict
 from datetime import date, time, timedelta
 from typing import Any, Optional
+from app.tiempo import hoy_local
 
 from sqlalchemy import and_, func, select
 
@@ -311,7 +312,7 @@ def format_config_confirm_keyboard() -> InlineKeyboardMarkup:
 async def accion_turnos_hoy(db, chat_id: int, profesional_id: int) -> str:
     """Query today's confirmed appointments and format response."""
     from app.models.turno import Turno
-    hoy = date.today()
+    hoy = hoy_local()
     result = await db.execute(
         select(Turno)
         .where(Turno.fecha == hoy, Turno.estado == "CONFIRMADO", Turno.profesional_id == profesional_id)
@@ -334,7 +335,7 @@ async def accion_turnos_hoy(db, chat_id: int, profesional_id: int) -> str:
 async def accion_metricas(db, chat_id: int, profesional_id: int) -> str:
     """Query metrics and format response."""
     from app.models.turno import Turno
-    hoy = date.today()
+    hoy = hoy_local()
     inicio_30d = hoy - timedelta(days=30)
 
     result_hoy = await db.execute(
@@ -459,7 +460,7 @@ async def mostrar_disponibilidad(
 
     if fecha is None:
         # For v1, show a few upcoming dates
-        hoy = date.today()
+        hoy = hoy_local()
         fechas = [(hoy + __import__("datetime").timedelta(days=i)).isoformat() for i in range(1, 8)]
         texto = "*Seleccioná una fecha:*"
         keyboard = format_fechas_keyboard(fechas)

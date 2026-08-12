@@ -11,6 +11,7 @@ Decisión 8 del design: el endpoint se autentica con cualquier
 activos — el caller es solo el invocador, no el destinatario.
 """
 from datetime import date, timedelta
+from app.tiempo import hoy_local
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
@@ -61,7 +62,7 @@ async def run_recordatorios(
         ``telegram_bot_token``, etc.).
     """
     if fecha is None:
-        fecha = date.today() + timedelta(days=1)
+        fecha = hoy_local() + timedelta(days=1)
 
     # El parámetro ``profesional_caller`` solo se usa para que FastAPI
     # valide la auth. El service itera sobre todos los profesionales
