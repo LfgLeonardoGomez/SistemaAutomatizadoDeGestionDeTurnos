@@ -64,6 +64,14 @@
       "sessions": 4,
       "memories": 43,
       "prompts": 117
+    },
+    {
+      "id": "a726d823",
+      "created_by": "pc",
+      "created_at": "2026-08-12T12:29:49Z",
+      "sessions": 0,
+      "memories": 3,
+      "prompts": 0
     }
   ]
 }
