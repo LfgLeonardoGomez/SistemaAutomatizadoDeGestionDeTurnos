@@ -346,7 +346,7 @@
       ]
     },
     {
-      "name": "Telegram - Gracias Confirmacion",
+      "name": "Telegram - Respuesta Asistencia",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
@@ -356,7 +356,7 @@
       "id": "c27d0001-0001-4000-8000-000000000001",
       "parameters": {
         "chatId": "={{ $json.chat_id }}",
-        "text": "✅ ¡Gracias por confirmar! Te esperamos.",
+        "text": "={{ $json.mensaje }}",
         "additionalFields": {}
       },
       "credentials": {
@@ -364,6 +364,50 @@
           "id": "telegram-bot-credentials",
           "name": "Telegram account"
         }
+      }
+    },
+    {
+      "name": "HTTP - PUT Confirmar Asistencia",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1150,
+        760
+      ],
+      "id": "c29d0001-0001-4000-8000-000000000001",
+      "parameters": {
+        "method": "PUT",
+        "url": "=http://backend:8000/turnos/{{ $json.payload.turno_id }}/confirmar-asistencia",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json",
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "profesional-api-key",
+          "name": "Profesional API Key"
+        }
+      }
+    },
+    {
+      "name": "Code - Evaluar Asistencia",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1000,
+        760
+      ],
+      "id": "c29d0001-0001-4000-8000-000000000002",
+      "parameters": {
+        "jsCode": "// Lee el resultado de PUT /turnos/{id}/confirmar-asistencia y arma la\n// respuesta al paciente.\n//\n// chat_id por nodo nombrado: la respuesta HTTP reemplaza el item y no trae\n// chat_id. Es la misma regla que rompio a sub-flujo-cancelar-turno, donde\n// Code - Formatear Respuesta lo leia de $json y recibia undefined.\nlet chatId = null;\ntry {\n  chatId = $('Normalizar Comando').first().json.chat_id;\n} catch (e) {}\n\n// neverError + fullResponse son obligatorios en el nodo HTTP: sin ellos un\n// 404 o un 409 tiran excepcion y este nodo nunca corre, dejando al paciente\n// sin ninguna respuesta.\nconst input = ($input.all()[0] && $input.all()[0].json) || {};\nconst statusCode = input.statusCode;\nconst body = input.body || {};\nconst ok = typeof statusCode === 'number' && statusCode >= 200 && statusCode < 300;\n\nlet mensaje;\nif (ok) {\n  mensaje = '✅ ¡Gracias por confirmar! Te esperamos.';\n} else if (statusCode === 404) {\n  mensaje = 'No encontramos ese turno. Puede que ya no exista.';\n} else if (statusCode === 409) {\n  // El backend responde 409 cuando el turno no esta CONFIRMADO: cancelado,\n  // completado o todavia en reserva temporal.\n  mensaje = 'Ese turno ya no esta vigente, asi que no pudimos registrar tu confirmacion.';\n} else {\n  mensaje = 'No pudimos registrar tu confirmacion. Intentalo de nuevo en un rato.';\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    exito: ok,\n    mensaje: mensaje,\n    detalle: body.detail || null\n  }\n}];\n"
       }
     }
   ],
@@ -416,7 +460,7 @@
         ],
         [
           {
-            "node": "Telegram - Gracias Confirmacion",
+            "node": "HTTP - PUT Confirmar Asistencia",
             "type": "main",
             "index": 0
           }
@@ -458,6 +502,28 @@
         [
           {
             "node": "IF - Mostrar Ayuda",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - PUT Confirmar Asistencia": {
+      "main": [
+        [
+          {
+            "node": "Code - Evaluar Asistencia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Evaluar Asistencia": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Respuesta Asistencia",
             "type": "main",
             "index": 0
           }

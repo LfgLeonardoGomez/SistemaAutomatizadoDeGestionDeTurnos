@@ -536,6 +536,10 @@ async def confirmar_asistencia_turno(
     - Busca el turno por ID y valida ownership.
     - Valida que esté en estado CONFIRMADO.
     - No modifica el estado (permanece CONFIRMADO).
+    - C-29: sella ``asistencia_confirmada_en`` la PRIMERA vez, dejando
+      constancia de que el paciente respondió el recordatorio. Es lo que le
+      permite al job de escalado no reenviarle el aviso ni cancelarle el
+      turno a quien ya contestó.
     - Retorna el turno actualizado.
     - **Patrón A**: no hace commit. El caller (router) es responsable.
     """
@@ -549,6 +553,13 @@ async def confirmar_asistencia_turno(
         raise TurnoNoEncontradoError()
     if turno.estado != "CONFIRMADO":
         raise TurnoYaCanceladoError("El turno no puede confirmar asistencia porque no está confirmado")
+
+    # Idempotente: Telegram reentrega updates y el paciente puede tocar el
+    # botón dos veces. Se conserva la PRIMERA marca — pisarla correría la
+    # ventana del escalado hacia adelante en cada toque.
+    if turno.asistencia_confirmada_en is None:
+        turno.asistencia_confirmada_en = _utcnow_naive()
+        await db.flush()
     return turno
 
 

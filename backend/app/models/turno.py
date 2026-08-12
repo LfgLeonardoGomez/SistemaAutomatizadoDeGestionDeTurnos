@@ -50,6 +50,16 @@ class Turno(Base):
     recordatorio_enviado: Mapped[bool] = mapped_column(
         default=False, nullable=False
     )
+    # C-29: momento en que el PACIENTE respondió "confirmar" al recordatorio.
+    # No es un estado del turno — ``estado`` sigue siendo CONFIRMADO antes y
+    # después, y el profesional no ve nada distinto. Es el dato que le permite
+    # al job de escalado distinguir a quien respondió de quien ignoró el
+    # mensaje, para no reenviarle el aviso ni cancelarle el turno.
+    # Timestamp y no booleano: NULL ya significa "no respondió", y el escalado
+    # necesita saber CUÁNDO para calcular la ventana del segundo aviso.
+    asistencia_confirmada_en: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(), nullable=True
+    )
     creado_en: Mapped[datetime] = mapped_column(
         DateTime(), default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
     )
