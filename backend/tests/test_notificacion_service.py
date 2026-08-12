@@ -230,6 +230,45 @@ class TestEnviarRecordatorioTelegram:
                 mock_pool.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_mensaje_incluye_nombre_y_especialidad_del_profesional(
+        self, db_session
+    ):
+        """El recordatorio debe decir con QUIÉN es el turno.
+
+        Se asierta sobre el texto que realmente se manda a ``enviar_mensaje``,
+        no sobre el formateador: lo que estaba roto no era el formato sino que
+        el dato nunca llegaba hasta él.
+        """
+        profesional = await _seed_profesional(db_session)
+        paciente = await _seed_paciente(db_session, profesional.id)
+
+        turno = Turno(
+            fecha=date(2026, 6, 15),
+            hora_inicio=time(9, 0),
+            hora_fin=time(9, 30),
+            estado="CONFIRMADO",
+            profesional_id=profesional.id,
+            paciente_id=paciente.id,
+        )
+        db_session.add(turno)
+        await db_session.commit()
+        await db_session.refresh(turno)
+        await _add_destinatario_telegram(db_session, turno.id, "555001")
+        await db_session.refresh(
+            turno, attribute_names=["destinatarios", "profesional"]
+        )
+
+        with patch(
+            "app.services.notificacion_service.enviar_mensaje", new=AsyncMock()
+        ) as mock_enviar:
+            await enviar_recordatorio_telegram(turno, bot_token="test_token")
+
+        mock_enviar.assert_awaited_once()
+        mensaje = mock_enviar.await_args.args[1]
+        assert profesional.nombre.replace(".", "\\.") in mensaje
+        assert profesional.especialidad in mensaje
+
+    @pytest.mark.asyncio
     async def test_envio_falla_retorna_false(self, db_session):
         """Scenario: Turno con destinatario TELEGRAM + envío que falla → retorna False."""
         profesional = await _seed_profesional(db_session)

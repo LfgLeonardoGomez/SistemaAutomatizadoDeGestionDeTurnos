@@ -4,7 +4,7 @@ import asyncio
 import logging
 from collections import defaultdict
 from datetime import date, time, timedelta
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy import and_, func, select
 
@@ -563,16 +563,35 @@ async def notificar_expiracion(chat_id: int, turno_id: int) -> str:
     return f"⚠️ Tu reserva temporal \(turno {turno_id}\) ha expirado\. Volvé a intentar con /start"
 
 
-def format_recordatorio_mensaje(turno: dict, paciente: dict) -> str:
-    """Format reminder message with MarkdownV2."""
+def format_recordatorio_mensaje(
+    turno: dict, paciente: dict, profesional: Optional[dict] = None
+) -> str:
+    """Format reminder message with MarkdownV2.
+
+    ``profesional`` is optional: a turno whose professional could not be
+    loaded still deserves its reminder — losing the message is worse than
+    losing a line of it.
+    """
     fecha = escape_markdown_v2(str(turno.get("fecha", "")))
     hora = escape_markdown_v2(str(turno.get("hora_inicio", "")))
     nombre = escape_markdown_v2(paciente.get("nombre", ""))
     apellido = escape_markdown_v2(paciente.get("apellido", ""))
+
+    linea_profesional = ""
+    if profesional:
+        prof_nombre = escape_markdown_v2(profesional.get("nombre", ""))
+        prof_especialidad = escape_markdown_v2(profesional.get("especialidad", ""))
+        if prof_nombre:
+            # The speciality is appended only when present, so an empty one
+            # cannot leave a dangling "()" in the message.
+            detalle = f" \\({prof_especialidad}\\)" if prof_especialidad else ""
+            linea_profesional = f"*Profesional:* {prof_nombre}{detalle}\n"
+
     return (
         f"📅 *Recordatorio de turno*\n\n"
         f"*Fecha:* {fecha}\n"
         f"*Hora:* {hora}\n"
+        f"{linea_profesional}"
         f"*Paciente:* {nombre} {apellido}\n\n"
         f"¿Confirmás tu asistencia?"
     )

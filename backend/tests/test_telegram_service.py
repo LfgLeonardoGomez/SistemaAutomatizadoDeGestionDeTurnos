@@ -355,6 +355,46 @@ class TestRecordatorioFormatting:
         # Dots should be escaped for MarkdownV2
         assert "Juan\\.Perez" in texto
 
+    def test_format_recordatorio_incluye_nombre_del_profesional(self):
+        turno = {"fecha": date(2026, 6, 15), "hora_inicio": time(9, 0)}
+        paciente = {"nombre": "Juan", "apellido": "Perez"}
+        profesional = {"nombre": "Dr Lopez", "especialidad": "Odontología general"}
+        texto = format_recordatorio_mensaje(turno, paciente, profesional)
+        assert "Dr Lopez" in texto
+
+    def test_format_recordatorio_incluye_especialidad(self):
+        turno = {"fecha": date(2026, 6, 15), "hora_inicio": time(9, 0)}
+        paciente = {"nombre": "Juan", "apellido": "Perez"}
+        profesional = {"nombre": "Dr Lopez", "especialidad": "Odontología general"}
+        texto = format_recordatorio_mensaje(turno, paciente, profesional)
+        assert "Odontología general" in texto
+
+    def test_format_recordatorio_escapa_markdown_del_profesional(self):
+        """``Dr. Lopez`` trae un punto, que en MarkdownV2 rompe el envío si
+        no se escapa — el mismo defecto que ya cubrimos para el paciente."""
+        turno = {"fecha": date(2026, 6, 15), "hora_inicio": time(9, 0)}
+        paciente = {"nombre": "Juan", "apellido": "Perez"}
+        profesional = {"nombre": "Dr. Lopez", "especialidad": "Odontología"}
+        texto = format_recordatorio_mensaje(turno, paciente, profesional)
+        assert "Dr\\. Lopez" in texto
+
+    def test_format_recordatorio_sin_especialidad_no_deja_parentesis_vacio(self):
+        turno = {"fecha": date(2026, 6, 15), "hora_inicio": time(9, 0)}
+        paciente = {"nombre": "Juan", "apellido": "Perez"}
+        profesional = {"nombre": "Dr Lopez", "especialidad": ""}
+        texto = format_recordatorio_mensaje(turno, paciente, profesional)
+        assert "Dr Lopez" in texto
+        assert "()" not in texto
+
+    def test_format_recordatorio_sin_profesional_sigue_siendo_valido(self):
+        """El recordatorio de un turno sin profesional cargado debe salir
+        igual: perder el recordatorio es peor que perder una línea."""
+        turno = {"fecha": date(2026, 6, 15), "hora_inicio": time(9, 0)}
+        paciente = {"nombre": "Juan", "apellido": "Perez"}
+        texto = format_recordatorio_mensaje(turno, paciente, None)
+        assert "Juan" in texto
+        assert "09:00" in texto
+
     def test_format_recordatorio_keyboard_tres_botones(self):
         kb = format_recordatorio_keyboard(42)
         assert len(kb.inline_keyboard) == 3

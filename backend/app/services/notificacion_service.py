@@ -80,6 +80,20 @@ async def enviar_recordatorio_telegram(turno: Turno, bot_token: str) -> bool:
     paciente_nombre = paciente.nombre if paciente is not None else ""
     paciente_apellido = paciente.apellido if paciente is not None else ""
 
+    # El recordatorio debe decir con QUIÉN es el turno. ``turno.profesional``
+    # es lazy="selectin", así que ya viene cargado y no cuesta una query
+    # extra. Se pasa como None si faltara: perder el recordatorio entero por
+    # una línea sería peor que mandarlo incompleto.
+    profesional = turno.profesional
+    profesional_data = (
+        {
+            "nombre": profesional.nombre,
+            "especialidad": profesional.especialidad,
+        }
+        if profesional is not None
+        else None
+    )
+
     mensaje = format_recordatorio_mensaje(
         turno={
             "fecha": turno.fecha,
@@ -89,6 +103,7 @@ async def enviar_recordatorio_telegram(turno: Turno, bot_token: str) -> bool:
             "nombre": paciente_nombre,
             "apellido": paciente_apellido,
         },
+        profesional=profesional_data,
     )
     keyboard = format_recordatorio_keyboard(turno.id)
     ok = await enviar_mensaje(int(chat_id), mensaje, bot_token, keyboard)
