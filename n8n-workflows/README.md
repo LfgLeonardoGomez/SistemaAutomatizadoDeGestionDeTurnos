@@ -32,7 +32,7 @@ Workflows independientes (no dispatch-ados por el orquestador):
 | `orquestador.json` | Single entry point del bot; switch por comando | `Telegram Trigger` | ✅ Completo |
 | `sub-flujo-crear-turno.json` | Crea reserva temporal (fecha → hora); captura y confirmación en progreso | `Execute Workflow Trigger` (invocado por orquestador) | 🔄 Parcial (C-27) |
 | `sub-flujo-cancelar-turno.json` | Lista los turnos activos del chat, el paciente elige y confirma | `Execute Workflow Trigger` (invocado por orquestador) | ✅ Completo |
-| `sub-flujo-reprogramar-turno.json` | Wizard de reprogramación (nueva fecha → nueva hora) | `Execute Workflow Trigger` (invocado por orquestador) | ✅ Completo |
+| `sub-flujo-reprogramar-turno.json` | Wizard de reprogramación (nueva fecha → nueva hora) | `Execute Workflow Trigger` (invocado por orquestador) | ❌ No funcional — reescritura pendiente |
 | `flujo-recordatorio.json` | Cron diario → `POST /api/v1/recordatorios/run` | `Schedule Trigger` (cron `0 10 * * *`) | ✅ Completo |
 | `flujo-lista-espera.json` | Notificación de lista de espera (placeholder C-11) | `Webhook Trigger` | ⏳ Placeholder (C-11) |
 
@@ -65,6 +65,50 @@ El botón de cancelar del recordatorio (que arma el **backend**, en
 toque accidental no debe costarle el turno al paciente.
 
 Si los necesitás para rollback, están en el historial de git: `git log -- n8n-workflows/flujo-reserva.json`.
+
+### ⚠️ Teclados inline: el nodo Telegram no puede emitir listas dinámicas
+
+El nodo `n8n-nodes-base.telegram` arma su teclado con una **fixedCollection**
+(`replyMarkup: "inlineKeyboard"` + `inlineKeyboard.rows[].row.buttons[]`), o sea
+filas **literales** escritas a mano. Sirve para menús fijos —el mensaje de ayuda
+del orquestador, el "Pedir Rango" de crear-turno— y no sirve cuando la cantidad
+de botones depende de los datos: N turnos activos, N slots libres, N fechas.
+
+**El atajo que parece funcionar y no funciona:** meter la forma cruda de la API
+de Telegram dentro de `options`:
+
+```jsonc
+// ❌ NO: `reply_markup` no es un parámetro del nodo Telegram.
+//        Lo descarta en silencio. El texto llega, los botones no existen.
+"options": { "reply_markup": { "inline_keyboard": "={{ $json.inline_keyboard }}" } }
+```
+
+No hay error, no hay warning, y la ejecución figura en verde en n8n. El síntoma
+es un mensaje con el texto correcto y sin un solo botón. Así estuvieron rotos
+`sub-flujo-cancelar-turno`, `sub-flujo-reprogramar-turno` y `flujo-lista-espera`.
+
+**El patrón correcto** es bajar a la API con un nodo `httpRequest`:
+
+```jsonc
+{
+  "method": "POST",
+  "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+  "sendBody": true,
+  "specifyBody": "json",
+  "jsonBody": "={{ JSON.stringify({ chat_id: ($json.chat_id), text: ($json.mensaje), reply_markup: { inline_keyboard: ($json.inline_keyboard) } }) }}"
+}
+```
+
+Requiere `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` en el servicio n8n (ya está en
+`docker-compose.yml`), porque la imagen bloquea `$env` en expresiones por
+default. Al escribir la expresión, cuidado con que el payload no contenga la
+secuencia `}}`: cierra el bloque antes de tiempo y trunca el mensaje. Separá las
+llaves con un espacio (`} }`).
+
+> Deuda conocida: este patrón usa `$env.TELEGRAM_BOT_TOKEN`, que es **un token
+> por instancia**, mientras que la credencial `Telegram account` apunta al mismo
+> bot único. Los dos son single-tenant hoy; cuando entre un bot por profesional
+> (v2.0) hay que resolver ambos, no solo este.
 
 ## Prerrequisitos
 
@@ -209,7 +253,7 @@ Ambos motores llaman a la **misma lógica** de `notificacion_service` (`obtener_
 ```bash
 # Todos los JSON parsean
 for f in n8n-workflows/*.json; do
-  python -c "import json; json.load(open('$f'))" || echo "FAIL: $f"
+  python -c "import json; json.load(open('$f', encoding='utf-8'))" || echo "FAIL: $f"
 done
 
 # Estructura: cada HTTP Request usa Generic Credential Type → httpHeaderAuth
@@ -220,14 +264,26 @@ done
 # y el request sale SIN el header → 401. Es silencioso: n8n no se queja al importar.
 for f in n8n-workflows/sub-flujo-*.json n8n-workflows/flujo-lista-espera.json n8n-workflows/flujo-recordatorio.json; do
   echo "=== $f ==="
-  python -c "import json; d=json.load(open('$f')); nodes=[n for n in d['nodes'] if n['type']=='n8n-nodes-base.httpRequest']; [print(n['name'], '→', n['parameters'].get('authentication','MISSING'), '/', n['parameters'].get('genericAuthType','MISSING')) for n in nodes]"
+  python -c "import json; d=json.load(open('$f', encoding='utf-8')); nodes=[n for n in d['nodes'] if n['type']=='n8n-nodes-base.httpRequest']; [print(n['name'], '→', n['parameters'].get('authentication','MISSING'), '/', n['parameters'].get('genericAuthType','MISSING')) for n in nodes]"
 done
 
 # Lo mismo para el body de un POST/PUT: sendBody + specifyBody:"json" + jsonBody.
 # Un campo `body` suelto no es schema válido y el request sale con el body vacío.
 
+# Ningún nodo declara `options.reply_markup`: no es un parámetro del nodo Telegram,
+# se descarta en silencio y el mensaje sale sin botones. Ver la sección de teclados
+# inline más arriba. Debe imprimir 0.
+python -c "
+import json, glob
+malos = [(f, n['name']) for f in glob.glob('n8n-workflows/*.json')
+         for n in json.load(open(f, encoding='utf-8'))['nodes']
+         if 'reply_markup' in (n.get('parameters') or {}).get('options', {})]
+print(len(malos), 'nodos con reply_markup en options')
+[print('  FAIL:', f, '::', name) for f, name in malos]
+"
+
 # Orquestador referencia los 3 sub-workflows
-python -c "import json; d=json.load(open('n8n-workflows/orquestador.json')); nodes=[n for n in d['nodes'] if n['type']=='n8n-nodes-base.executeWorkflow']; [print(n['name'], '→', n['parameters'].get('workflowId',{}).get('value','MISSING')) for n in nodes]"
+python -c "import json; d=json.load(open('n8n-workflows/orquestador.json', encoding='utf-8')); nodes=[n for n in d['nodes'] if n['type']=='n8n-nodes-base.executeWorkflow']; [print(n['name'], '→', n['parameters'].get('workflowId',{}).get('value','MISSING')) for n in nodes]"
 ```
 
 ### Tests manuales (E2E con backend + bot real)

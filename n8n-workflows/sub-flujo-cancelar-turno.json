@@ -204,56 +204,40 @@
     {
       "id": "c1c2c3d4-cnc1-4000-8000-000000000024",
       "name": "Telegram - Lista Turnos",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         1640,
         40
       ],
       "parameters": {
-        "operation": "sendMessage",
-        "chatId": "={{ $json.chat_id }}",
-        "text": "={{ $json.mensaje }}",
-        "options": {
-          "reply_markup": {
-            "inline_keyboard": "={{ $json.inline_keyboard }}"
-          }
-        }
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: ($json.chat_id), text: ($json.mensaje), reply_markup: { inline_keyboard: ($json.inline_keyboard) } }) }}",
+        "options": {}
       },
-      "credentials": {
-        "telegramApi": {
-          "id": "telegram-bot-credentials",
-          "name": "Telegram account"
-        }
-      },
-      "notes": "Credencial por NOMBRE, no por id. Los ids de credenciales son locales a cada instancia de n8n, asi que nunca coinciden entre entornos. n8n resuelve por nombre cuando el id no matchea: mientras el nombre sea exactamente \"Telegram account\", el workflow reconecta solo al importarse. No reemplazar este nombre por el id de tu instancia. Ver n8n-workflows/README.md"
+      "notes": "Llamada HTTP cruda a sendMessage, NO el nodo Telegram. El nodo Telegram arma el teclado con una fixedCollection de filas literales, asi que no puede emitir un teclado de largo variable. Meter reply_markup dentro de \"options\" del nodo Telegram no es alternativa: no es un parametro suyo, lo descarta en silencio y el mensaje sale sin botones (asi estuvo roto este flujo). El token va por $env.TELEGRAM_BOT_TOKEN, que docker-compose.yml define en el servicio n8n junto con N8N_BLOCK_ENV_ACCESS_IN_NODE=false, necesario para leer $env en expresiones. Mismo patron que \"Telegram - Pedir Slot\" en sub-flujo-crear-turno."
     },
     {
       "id": "c1c2c3d4-cnc1-4000-8000-000000000025",
       "name": "Telegram - Sin Turnos",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         1640,
         200
       ],
       "parameters": {
-        "operation": "sendMessage",
-        "chatId": "={{ $json.chat_id }}",
-        "text": "={{ $json.mensaje }}",
-        "options": {
-          "reply_markup": {
-            "inline_keyboard": "={{ [[{ text: 'Volver al menú', callback_data: 'cmd:menu' }]] }}"
-          }
-        }
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: ($json.chat_id), text: ($json.mensaje), reply_markup: { inline_keyboard: ([[{ text: 'Volver al menú', callback_data: 'cmd:menu' }]]) } }) }}",
+        "options": {}
       },
-      "credentials": {
-        "telegramApi": {
-          "id": "telegram-bot-credentials",
-          "name": "Telegram account"
-        }
-      },
-      "notes": "Credencial por NOMBRE, no por id. Los ids de credenciales son locales a cada instancia de n8n, asi que nunca coinciden entre entornos. n8n resuelve por nombre cuando el id no matchea: mientras el nombre sea exactamente \"Telegram account\", el workflow reconecta solo al importarse. No reemplazar este nombre por el id de tu instancia. Ver n8n-workflows/README.md"
+      "notes": "Llamada HTTP cruda a sendMessage, NO el nodo Telegram. El nodo Telegram arma el teclado con una fixedCollection de filas literales, asi que no puede emitir un teclado de largo variable. Meter reply_markup dentro de \"options\" del nodo Telegram no es alternativa: no es un parametro suyo, lo descarta en silencio y el mensaje sale sin botones (asi estuvo roto este flujo). El token va por $env.TELEGRAM_BOT_TOKEN, que docker-compose.yml define en el servicio n8n junto con N8N_BLOCK_ENV_ACCESS_IN_NODE=false, necesario para leer $env en expresiones. Mismo patron que \"Telegram - Pedir Slot\" en sub-flujo-crear-turno."
     },
     {
       "id": "c1c2c3d4-cnc1-4000-8000-000000000030",
@@ -344,56 +328,40 @@
     {
       "id": "c1c2c3d4-cnc1-4000-8000-000000000034",
       "name": "Telegram - Confirmar Cancelacion",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         1640,
         400
       ],
       "parameters": {
-        "operation": "sendMessage",
-        "chatId": "={{ $json.chat_id }}",
-        "text": "=¿Confirmás cancelar el turno del {{ $json.fecha_hora_legible }}?",
-        "options": {
-          "reply_markup": {
-            "inline_keyboard": "={{ [[{ text: 'Sí, cancelar', callback_data: 'cmd:cancelar:confirmado:' + $json.turno_id }], [{ text: 'No', callback_data: 'cmd:menu' }]] }}"
-          }
-        }
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: ($json.chat_id), text: \"¿Confirmás cancelar el turno del \" + ($json.fecha_hora_legible) + \"?\", reply_markup: { inline_keyboard: ([[{ text: 'Sí, cancelar', callback_data: 'cmd:cancelar:confirmado:' + $json.turno_id }], [{ text: 'No', callback_data: 'cmd:menu' }]]) } }) }}",
+        "options": {}
       },
-      "credentials": {
-        "telegramApi": {
-          "id": "telegram-bot-credentials",
-          "name": "Telegram account"
-        }
-      },
-      "notes": "Credencial por NOMBRE, no por id. Los ids de credenciales son locales a cada instancia de n8n, asi que nunca coinciden entre entornos. n8n resuelve por nombre cuando el id no matchea: mientras el nombre sea exactamente \"Telegram account\", el workflow reconecta solo al importarse. No reemplazar este nombre por el id de tu instancia. Ver n8n-workflows/README.md El botón \"No\" no cancela nada: emite cmd:menu, que el orquestador ya resuelve mostrando el menú de ayuda por su fallback."
+      "notes": "Llamada HTTP cruda a sendMessage, NO el nodo Telegram. El nodo Telegram arma el teclado con una fixedCollection de filas literales, asi que no puede emitir un teclado de largo variable. Meter reply_markup dentro de \"options\" del nodo Telegram no es alternativa: no es un parametro suyo, lo descarta en silencio y el mensaje sale sin botones (asi estuvo roto este flujo). El token va por $env.TELEGRAM_BOT_TOKEN, que docker-compose.yml define en el servicio n8n junto con N8N_BLOCK_ENV_ACCESS_IN_NODE=false, necesario para leer $env en expresiones. Mismo patron que \"Telegram - Pedir Slot\" en sub-flujo-crear-turno."
     },
     {
       "id": "c1c2c3d4-cnc1-4000-8000-000000000035",
       "name": "Telegram - Turno No Encontrado",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         1640,
         560
       ],
       "parameters": {
-        "operation": "sendMessage",
-        "chatId": "={{ $json.chat_id }}",
-        "text": "Ese turno ya no está en tu lista de turnos activos (puede que ya lo hayan cancelado). Volvé a pedir la lista.",
-        "options": {
-          "reply_markup": {
-            "inline_keyboard": "={{ [[{ text: 'Ver mis turnos', callback_data: 'cmd:cancelar' }]] }}"
-          }
-        }
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: ($json.chat_id), text: \"Ese turno ya no está en tu lista de turnos activos (puede que ya lo hayan cancelado). Volvé a pedir la lista.\", reply_markup: { inline_keyboard: ([[{ text: 'Ver mis turnos', callback_data: 'cmd:cancelar' }]]) } }) }}",
+        "options": {}
       },
-      "credentials": {
-        "telegramApi": {
-          "id": "telegram-bot-credentials",
-          "name": "Telegram account"
-        }
-      },
-      "notes": "Credencial por NOMBRE, no por id. Los ids de credenciales son locales a cada instancia de n8n, asi que nunca coinciden entre entornos. n8n resuelve por nombre cuando el id no matchea: mientras el nombre sea exactamente \"Telegram account\", el workflow reconecta solo al importarse. No reemplazar este nombre por el id de tu instancia. Ver n8n-workflows/README.md"
+      "notes": "Llamada HTTP cruda a sendMessage, NO el nodo Telegram. El nodo Telegram arma el teclado con una fixedCollection de filas literales, asi que no puede emitir un teclado de largo variable. Meter reply_markup dentro de \"options\" del nodo Telegram no es alternativa: no es un parametro suyo, lo descarta en silencio y el mensaje sale sin botones (asi estuvo roto este flujo). El token va por $env.TELEGRAM_BOT_TOKEN, que docker-compose.yml define en el servicio n8n junto con N8N_BLOCK_ENV_ACCESS_IN_NODE=false, necesario para leer $env en expresiones. Mismo patron que \"Telegram - Pedir Slot\" en sub-flujo-crear-turno."
     },
     {
       "id": "c1c2c3d4-cnc1-4000-8000-000000000040",
@@ -442,29 +410,21 @@
     {
       "id": "c1c2c3d4-cnc1-4000-8000-000000000042",
       "name": "Telegram - Cancelar Confirmado",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         1400,
         760
       ],
       "parameters": {
-        "operation": "sendMessage",
-        "chatId": "={{ $json.chat_id }}",
-        "text": "={{ $json.mensaje }}",
-        "options": {
-          "reply_markup": {
-            "inline_keyboard": "={{ $json.exito ? [[{ text: 'Reprogramar este turno', callback_data: 'cmd:reprogramar:turno_id:' + $json.turno_id }], [{ text: 'Volver al menú', callback_data: 'cmd:menu' }]] : [[{ text: 'Volver a intentar', callback_data: 'cmd:cancelar' }]] }}"
-          }
-        }
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: ($json.chat_id), text: ($json.mensaje), reply_markup: { inline_keyboard: ($json.exito ? [[{ text: 'Reprogramar este turno', callback_data: 'cmd:reprogramar:turno_id:' + $json.turno_id }], [{ text: 'Volver al menú', callback_data: 'cmd:menu' }]] : [[{ text: 'Volver a intentar', callback_data: 'cmd:cancelar' }]]) } }) }}",
+        "options": {}
       },
-      "credentials": {
-        "telegramApi": {
-          "id": "telegram-bot-credentials",
-          "name": "Telegram account"
-        }
-      },
-      "notes": "Credencial por NOMBRE, no por id. Los ids de credenciales son locales a cada instancia de n8n, asi que nunca coinciden entre entornos. n8n resuelve por nombre cuando el id no matchea: mientras el nombre sea exactamente \"Telegram account\", el workflow reconecta solo al importarse. No reemplazar este nombre por el id de tu instancia. Ver n8n-workflows/README.md"
+      "notes": "Llamada HTTP cruda a sendMessage, NO el nodo Telegram. El nodo Telegram arma el teclado con una fixedCollection de filas literales, asi que no puede emitir un teclado de largo variable. Meter reply_markup dentro de \"options\" del nodo Telegram no es alternativa: no es un parametro suyo, lo descarta en silencio y el mensaje sale sin botones (asi estuvo roto este flujo). El token va por $env.TELEGRAM_BOT_TOKEN, que docker-compose.yml define en el servicio n8n junto con N8N_BLOCK_ENV_ACCESS_IN_NODE=false, necesario para leer $env en expresiones. Mismo patron que \"Telegram - Pedir Slot\" en sub-flujo-crear-turno."
     }
   ],
   "connections": {
