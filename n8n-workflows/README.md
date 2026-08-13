@@ -57,12 +57,36 @@ conocer el ID de su turno.
 | `cmd:cancelar` | Listar los turnos activos del chat |
 | `cmd:cancelar:turno_id:<id>` | Mostrar el paso de confirmación de ese turno |
 | `cmd:cancelar:confirmado:<id>` | Ejecutar la cancelación |
-| `cmd:menu` | Volver al menú (lo resuelve el orquestador por su fallback) |
+| `cmd:menu` | Volver al menú principal y abandonar cualquier captura pendiente |
 
 El botón de cancelar del recordatorio (que arma el **backend**, en
 `telegram_service.format_recordatorio_keyboard`) emite
 `cmd:cancelar:turno_id:<id>`, así que también pasa por la confirmación: un
 toque accidental no debe costarle el turno al paciente.
+
+### El escape hatch: `fresh_start`
+
+`Normalizar Comando` marca `payload.fresh_start = true` en **todo** comando
+reconocido, y `Code - Decidir Paso` de crear-turno lo usa para abandonar una
+captura pendiente. Sin eso, quien deja una reserva a mitad de pregunta queda
+atrapado hasta que la reserva expire: cualquier mensaje suyo se leería como
+respuesta a una pregunta que ya olvidó.
+
+**Un callback que no está en la lista de reconocidos no marca `fresh_start`**, y
+peor: cae en la rama de texto libre, que lo despacha a crear-turno como
+`respuesta_captura`. Es decir, se manda como si fuera el DNI que el bot estaba
+esperando. Así estuvo `cmd:menu` —emitido por tres botones de cancelar y
+reconocido por nadie— hasta que se lo agregó a la lista.
+
+`cmd:menu` es el único comando reconocido que **no** asigna `comando`: se queda
+en `'desconocido'` a propósito y cae en el fallback del Switch, que es
+`Telegram - Mensaje de Ayuda`. No le agregues una rama — la ausencia ES el
+ruteo.
+
+> Al agregar un `callback_data` nuevo: si es un comando (algo que interrumpe lo
+> que el paciente estaba haciendo), va en `esCallbackReconocido`. Si es un paso
+> dentro de un flujo, no. Un botón cuyo callback no cae en ninguna de las dos
+> categorías es un botón que rompe la conversación en silencio.
 
 Si los necesitás para rollback, están en el historial de git: `git log -- n8n-workflows/flujo-reserva.json`.
 
