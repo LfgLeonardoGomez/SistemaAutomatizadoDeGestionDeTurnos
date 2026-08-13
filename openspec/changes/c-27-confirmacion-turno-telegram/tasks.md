@@ -87,7 +87,7 @@
 
 ## 9. Close the c-26 follow-up
 
-- [ ] 9.1 With a `CONFIRMADO` turno now reachable, run the smoke test that c-26 task 8.3 could not: trigger `sub-flujo-cancelar-turno` once and confirm a `200` with `X-API-Key` auth.
+- [x] 9.1 With a `CONFIRMADO` turno now reachable, run the smoke test that c-26 task 8.3 could not: trigger `sub-flujo-cancelar-turno` once and confirm a `200` with `X-API-Key` auth. **Run 2026-08-12 against the live instance. `X-API-Key` auth resolved correctly — the `HTTP - PUT Cancelar` node reached the backend through credential `Profesional API Key` (`T9DkbhELoxyryvzg`), so the c-26 auth path is discharged. The flow itself failed for reasons unrelated to auth, and only a runtime run could surface them: the bot advertised `/cancelar <ID>` while its own parser accepted only `cancelar:<id>`, so following the instruction looped; `chat_id` was read from `$json`, which the HTTP response replaces, so the reply had no destination; `turno_id` was read from the root instead of `id`, yielding "Turno #undefined cancelado"; and the error branch keyed on `statusCode` with `fullResponse: false`, so 404/409 were unreachable and failures reported as success. Repaired in `bfa8610`; the typed-ID entry was then replaced by a button list backed by the new `GET /turnos/activos` (`2a781bb`, `6e34f73`).**
 - [ ] 9.2 Same for `sub-flujo-reprogramar-turno`. Note these nodes were repaired in commit `066a98a` and have never been exercised at runtime — expect defects.
 - [ ] 9.3 Update c-26's `tasks.md` 8.3 from partial to complete, recording the evidence, and note in this change that the follow-up is discharged.
 
