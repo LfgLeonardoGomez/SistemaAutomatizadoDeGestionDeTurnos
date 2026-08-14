@@ -11,6 +11,7 @@ from app.models.profesional import Profesional
 from app.models.paciente import Paciente
 from app.models.turno import Turno
 from app.models.reserva_temporal import ReservaTemporal
+from app.models.turno_destinatario import TurnoDestinatario
 from app.services.availability_service import calcular_disponibilidad
 from app.services.paciente_service import crear_o_obtener_paciente
 from app.services.calendar_service import CalendarService
@@ -512,6 +513,29 @@ async def reprogramar_turno(
         paciente_id=turno_viejo.paciente_id,
         settings=settings,
     )
+
+    # Los destinatarios cuelgan del ``turno_id``, no del paciente, así que el
+    # turno nuevo nace sin ninguno. Arrastrarlos no es cosmético: sin la fila
+    # TELEGRAM, ``captura_service.obtener_turnos_activos`` —que resuelve
+    # chat → turnos joineando por ``canal='TELEGRAM'``— deja de ver el turno.
+    # El paciente queda con uno que existe (le bloquea reservar otro por
+    # RN-TU-01), que no puede cancelar ni reprogramar desde el bot, y para el
+    # que ``notificacion_service`` nunca va a mandar un recordatorio.
+    #
+    # Se copian ANTES de confirmar a propósito: si el caller pasó datos de
+    # contacto explícitos en ``paciente_data``, el upsert de
+    # ``confirmar_turno`` los pisa, y ese es el orden correcto — un dato nuevo
+    # y explícito gana sobre uno heredado.
+    result = await db.execute(
+        select(TurnoDestinatario).where(TurnoDestinatario.turno_id == turno_viejo.id)
+    )
+    for heredado in result.scalars().all():
+        await upsert_destinatario(
+            db,
+            turno_id=nuevo_turno.id,
+            canal=heredado.canal,
+            destinatario=heredado.destinatario,
+        )
 
     # Confirmar nuevo turno
     confirmado = await confirmar_turno(

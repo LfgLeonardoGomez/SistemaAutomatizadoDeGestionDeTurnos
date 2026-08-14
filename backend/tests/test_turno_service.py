@@ -1404,6 +1404,132 @@ class TestReprogramarTurno:
         assert nuevo.estado == "CONFIRMADO"
         mock_service.delete_event.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_reprogramar_turno_arrastra_destinatarios(
+        self, db_session, profesional, test_settings
+    ):
+        """El turno nuevo hereda los destinatarios del viejo.
+
+        ``reprogramar_turno`` cancela el turno viejo y crea uno nuevo. Los
+        destinatarios viven en ``turno_destinatario`` colgando del ``turno_id``,
+        así que sin arrastrarlos el turno nuevo nace sin ninguno — y entonces
+        ``obtener_turnos_activos``, que resuelve chat → turnos joineando por
+        ``canal='TELEGRAM'``, deja de verlo. El paciente queda con un turno que
+        existe (le bloquea reservar otro por RN-TU-01), que no puede cancelar ni
+        reprogramar desde el bot, y para el que nunca va a llegar un recordatorio.
+        """
+        from app.services.turno_service import (
+            reservar_turno,
+            confirmar_turno,
+            reprogramar_turno,
+        )
+
+        CHAT = "5150361036"
+
+        turno = await reservar_turno(
+            db_session,
+            profesional_id=profesional.id,
+            fecha=date(2026, 6, 15),
+            hora_inicio=time(9, 0),
+            paciente_id=None,
+            telegram_chat_id=CHAT,
+            settings=test_settings,
+        )
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_new"
+            mock_calendar_cls.return_value = mock_service
+            confirmado = await confirmar_turno(
+                db_session,
+                profesional_id=profesional.id,
+                turno_id=turno.id,
+                paciente_data={
+                    "nombre": "Juan",
+                    "apellido": "Perez",
+                    "dni": "12345678",
+                    "telefono": "555-1234",
+                },
+            )
+        await db_session.commit()
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_new"
+            mock_calendar_cls.return_value = mock_service
+            nuevo = await reprogramar_turno(
+                db_session,
+                profesional_id=profesional.id,
+                turno_id=confirmado.id,
+                nueva_fecha=date(2026, 6, 16),
+                nueva_hora_inicio=time(10, 0),
+                settings=test_settings,
+            )
+        await db_session.commit()
+
+        result = await db_session.execute(
+            select(TurnoDestinatario).where(TurnoDestinatario.turno_id == nuevo.id)
+        )
+        destinatarios = list(result.scalars().all())
+
+        assert destinatarios, "el turno reprogramado quedó sin destinatarios"
+        telegram = [d for d in destinatarios if d.canal == "TELEGRAM"]
+        assert len(telegram) == 1
+        assert telegram[0].destinatario == CHAT
+
+    @pytest.mark.asyncio
+    async def test_reprogramar_turno_arrastra_email_ademas_de_telegram(
+        self, db_session, profesional, test_settings
+    ):
+        """No solo el canal TELEGRAM: se arrastra todo destinatario del turno.
+
+        Triangula el caso anterior. Un turno puede tener TELEGRAM y EMAIL a la
+        vez (C-23), y quedarse solo con uno al reprogramar sería perder el canal
+        que el paciente eligió sin decírselo.
+        """
+        from app.services.turno_service import reprogramar_turno
+        from app.services.destinatario_service import upsert_destinatario
+
+        turno = Turno(
+            fecha=date(2026, 6, 15),
+            hora_inicio=time(9, 0),
+            hora_fin=time(9, 30),
+            estado="CONFIRMADO",
+            profesional_id=profesional.id,
+        )
+        db_session.add(turno)
+        await db_session.flush()
+
+        paciente = await _seed_paciente(db_session, profesional.id)
+        turno.paciente_id = paciente.id
+        await upsert_destinatario(
+            db_session, turno_id=turno.id, canal="TELEGRAM", destinatario="999"
+        )
+        await upsert_destinatario(
+            db_session, turno_id=turno.id, canal="EMAIL", destinatario="a@b.com"
+        )
+        await db_session.commit()
+
+        with patch("app.services.turno_service.CalendarService") as mock_calendar_cls:
+            mock_service = MagicMock()
+            mock_service.create_event.return_value = "event_new"
+            mock_calendar_cls.return_value = mock_service
+            nuevo = await reprogramar_turno(
+                db_session,
+                profesional_id=profesional.id,
+                turno_id=turno.id,
+                nueva_fecha=date(2026, 6, 16),
+                nueva_hora_inicio=time(10, 0),
+                settings=test_settings,
+            )
+        await db_session.commit()
+
+        result = await db_session.execute(
+            select(TurnoDestinatario).where(TurnoDestinatario.turno_id == nuevo.id)
+        )
+        canales = {d.canal: d.destinatario for d in result.scalars().all()}
+
+        assert canales == {"TELEGRAM": "999", "EMAIL": "a@b.com"}
+
 
 class TestCancelarTurno:
     @pytest.mark.asyncio
