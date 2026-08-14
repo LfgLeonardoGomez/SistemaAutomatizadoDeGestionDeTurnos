@@ -100,8 +100,8 @@
 - [ ] 11.6 Confirmar → el turno se movió en la base, el slot viejo quedó libre y el nuevo ocupado.
 - [ ] 11.7 Camino 409: dos chats tomando el mismo slot, o tomar el slot por otra vía entre el botón y la confirmación. El paciente recibe el mensaje de horario ocupado y **no** un falso éxito.
 - [ ] 11.8 Camino 404: cancelar el turno entre que se muestra el botón y se confirma. Verificar que 7.2 lo detecta antes del PUT.
-- [ ] 11.9 Entrar desde el botón "Reprogramar" del recordatorio (`cmd:reprogramar:turno_id:<id>`, emitido por el backend) y confirmar que cae en el paso de fechas (D3b).
-- [ ] 11.10 Escribir `/reprogramar 42` y confirmar que muestra la lista en vez de entrar en un bucle (defecto 6).
+- [ ] 11.9 **Entrar desde el recordatorio, no desde el menú.** El recordatorio que llega el día anterior trae tres botones, y el de "Reprogramar" **lo arma el backend**, no n8n: emite `cmd:reprogramar:turno_id:<id>`, el vocabulario largo, mientras el menú emite `cmd:reprogramar` y el flujo usa internamente `:t:<id>`. Son dos puertas de entrada distintas al mismo flujo. Verificar que la del recordatorio cae en el paso de fechas (D3b). Si esto falla, ese botón queda muerto **sin que nada falle visiblemente**, y por ahí entra la mayoría de las reprogramaciones.
+- [ ] 11.10 **Escribir `/reprogramar 42` — precisamente porque ya no se soporta.** No es un camino que ofrezcamos: es la comprobación de que se murió bien. Ese formato lo indicaba el propio bot en sus mensajes viejos, que siguen vivos en el historial de cualquier chat, y su parser lo rechazaba: seguir la instrucción devolvía el mismo mensaje en bucle. La prueba es que hoy caiga en la lista de turnos. Es un test de regresión sobre una conducta eliminada, no sobre una soportada.
 - [ ] 11.11 Correr el flujo entre las 21:00 y medianoche hora local, o con el reloj movido, y confirmar que las fechas ofrecidas no se corren un día (defecto 8).
 
 ## 12. Documentación y cierre
@@ -110,4 +110,4 @@
 - [ ] 12.2 Actualizar la tabla de workflows: `sub-flujo-reprogramar-turno` sale de "❌ No funcional" al estado que corresponda **según el grupo 11**, no según el 9.
 - [ ] 12.3 Tildar la task **9.2 de c-27** con la evidencia de este change, y anotar en c-27 que el follow-up quedó descargado.
 - [x] 12.4 Anotar la deuda de D3b: unificar el `callback_data` del recordatorio del backend con el vocabulario corto.
-- [ ] 12.5 Registrar en engram los defectos que aparezcan en el grupo 11 y no estén en los ocho de `proposal.md`.
+- [x] 12.5 Registrar en engram los defectos que aparezcan en el grupo 11 y no estén en los ocho de `proposal.md`.
