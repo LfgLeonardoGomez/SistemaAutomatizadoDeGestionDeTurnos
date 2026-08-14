@@ -103,7 +103,7 @@ const listaOk = run(
   ]),
   DEC
 );
-check('lista con turnos: un boton por turno', listaOk.cantidad === 2 && listaOk.inline_keyboard.length === 2);
+check('lista con turnos: un boton por turno mas la salida', listaOk.cantidad === 2 && listaOk.inline_keyboard.length === 3);
 check('lista: el chat_id sale del nodo nombrado', listaOk.chat_id === 555);
 check('lista: no muestra el id en el texto', !/\b7\b/.test(listaOk.inline_keyboard[0][0].text), listaOk.inline_keyboard[0][0].text);
 
@@ -271,6 +271,37 @@ for (const cb of new Set(EMITIDOS)) {
   }
 }
 check('los ' + new Set(EMITIDOS).size + ' callbacks emitidos son entendidos por el parser', roundTripBad === 0);
+
+// ---------------------------------------------------------------------------
+// Un paso sin salida obliga al paciente a elegir algo que no quiere para poder
+// salir. Es lo que paso con la lista de turnos: los unicos botones a la vista
+// avanzaban, y retractarse no era una opcion ofrecida.
+section('Toda pantalla ofrece una salida');
+
+const SALIDAS = ['cmd:menu', 'cmd:reprogramar', 'cmd:crear'];
+const PANTALLAS = [
+  ['lista con turnos', listaOk],
+  ['lista vacia', listaVacia],
+  ['error al listar', listaError],
+  ['eleccion de fecha', fechas],
+  ['eleccion de horario', slotsOk],
+  ['sin horarios', slotsVacio],
+  ['error de disponibilidad', slotsError],
+  ['confirmacion', confVigente],
+  ['turno ya no vigente', confCancelado],
+  ['resultado ok', r200],
+  ['resultado 404', r404],
+  ['resultado 409', r409],
+  ['resultado desconocido', rSinStatus],
+];
+
+for (const [nombre, pantalla] of PANTALLAS) {
+  const callbacks = pantalla.inline_keyboard.map((row) => row[0].callback_data);
+  const tieneSalida = callbacks.some(
+    (cb) => SALIDAS.includes(cb) || /^cmd:reprogramar:t:\d+$/.test(cb)
+  );
+  check('"' + nombre + '" ofrece una salida', tieneSalida, callbacks.join(' | '));
+}
 
 console.log('\nchecks: ' + checks + '  failures: ' + failures);
 process.exit(failures ? 1 : 0);
