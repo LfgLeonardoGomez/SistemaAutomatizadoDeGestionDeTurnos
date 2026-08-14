@@ -2,37 +2,37 @@
   "name": "sub-flujo-reprogramar-turno",
   "nodes": [
     {
-      "id": "e1b2c3d4-0001-4000-8000-000000000001",
+      "id": "execute-workflow-trigger",
       "name": "Execute Workflow Trigger",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1,
       "position": [
-        240,
-        320
+        -40,
+        400
       ],
       "parameters": {}
     },
     {
-      "id": "e1b2c3d4-0001-4000-8000-000000000002",
+      "id": "code-decidir-paso",
       "name": "Code - Decidir Paso",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        460,
-        320
+        180,
+        400
       ],
       "parameters": {
-        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst comando = input.comando || 'reprogramar';\nconst payload = input.payload || {};\nconst text = String(input.text || '');\n\nlet turnoId = payload.turno_id || '';\nlet nuevaFecha = payload.nueva_fecha || payload.fecha || '';\nlet nuevoSlot = payload.nuevo_slot || payload.slot || '';\n\nconst fechaSlotMatch = text.match(/^cmd:reprogramar:turno_id:(\\d+):fecha:([^:]+):slot:(.+)$/);\nconst fechaOnlyMatch = text.match(/^cmd:reprogramar:turno_id:(\\d+):fecha:([^:]+)$/);\nconst idMatch = text.match(/^cmd:reprogramar:turno_id:(\\d+)$/);\nconst simpleIdMatch = text.match(/^reprogramar:(\\d+)$/);\n\nif (fechaSlotMatch) {\n  turnoId = fechaSlotMatch[1];\n  nuevaFecha = fechaSlotMatch[2];\n  nuevoSlot = fechaSlotMatch[3];\n} else if (fechaOnlyMatch) {\n  turnoId = fechaOnlyMatch[1];\n  nuevaFecha = fechaOnlyMatch[2];\n} else if (idMatch) {\n  turnoId = idMatch[1];\n} else if (simpleIdMatch) {\n  turnoId = simpleIdMatch[1];\n}\n\nconst fechas = [];\nconst today = new Date();\nfor (let i = 1; i <= 7; i++) {\n  const d = new Date(today);\n  d.setDate(d.getDate() + i);\n  fechas.push(d.toISOString().slice(0, 10));\n}\n\nlet accion;\nif (!turnoId) {\n  accion = 'pedir_id';\n} else if (!nuevaFecha) {\n  accion = 'pedir_fecha';\n} else if (!nuevoSlot) {\n  accion = 'pedir_slot';\n} else {\n  accion = 'ejecutar';\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    comando: comando,\n    accion: accion,\n    turno_id: turnoId,\n    nueva_fecha: nuevaFecha,\n    nuevo_slot: nuevoSlot,\n    fechas_disponibles: fechas\n  }\n}];"
+        "jsCode": "// Parser PURO del comando de reprogramacion. No lee ni escribe estado: todo lo\n// que el paso siguiente necesita viaja en el callback_data del boton que lo\n// disparo (design D2). Un flujo stateless sobrevive a un reinicio de n8n y a dos\n// pacientes reprogramando en paralelo, y no deja estado colgado cuando alguien\n// abandona a mitad de camino.\n//\n// Vocabulario (design D3). Las claves son cortas porque Telegram corta el\n// callback_data en 64 BYTES y rechaza el boton entero, en silencio:\n//\n//   cmd:reprogramar                              -> listar los turnos del chat\n//   cmd:reprogramar:t:<id>                       -> ofrecer fechas\n//   cmd:reprogramar:t:<id>:f:<fecha>             -> ofrecer horarios\n//   cmd:reprogramar:t:<id>:f:<fecha>:h:<hora>    -> pedir confirmacion\n//   cmd:reprogramar:ok:<id>:<fecha>:<hora>       -> ejecutar\n//\n// Y la forma LARGA, que NO es retrocompatibilidad opcional (design D3b): el\n// boton \"Reprogramar\" del recordatorio lo arma el BACKEND en\n// telegram_service.format_recordatorio_keyboard y emite exactamente\n// 'cmd:reprogramar:turno_id:<id>'. Por ahi entra la mayoria de las\n// reprogramaciones; ignorarla dejaria ese boton muerto sin que nada falle.\n//\n// NO existe ninguna entrada tipeada. Pedirle al paciente el ID de su turno es\n// pedirle un dato que no tiene, y el parser que lo aceptaba produjo un bucle: el\n// bot indicaba '/reprogramar <ID>' con espacio y solo aceptaba dos puntos.\nconst input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst text = String(input.text || '');\n\nlet accion = 'listar';\nlet turnoId = '';\nlet fecha = '';\nlet hora = '';\n\nconst mEjecutar = text.match(/^cmd:reprogramar:ok:(\\d+):(\\d{4}-\\d{2}-\\d{2}):(.+)$/);\nconst mConfirmar = text.match(/^cmd:reprogramar:t:(\\d+):f:(\\d{4}-\\d{2}-\\d{2}):h:(.+)$/);\nconst mHorarios = text.match(/^cmd:reprogramar:t:(\\d+):f:(\\d{4}-\\d{2}-\\d{2})$/);\nconst mFechas = text.match(/^cmd:reprogramar:t:(\\d+)$/);\nconst mLegacy = text.match(/^cmd:reprogramar:turno_id:(\\d+)$/);\n\nif (mEjecutar) {\n  accion = 'ejecutar';\n  turnoId = mEjecutar[1];\n  fecha = mEjecutar[2];\n  hora = mEjecutar[3];\n} else if (mConfirmar) {\n  accion = 'confirmar';\n  turnoId = mConfirmar[1];\n  fecha = mConfirmar[2];\n  hora = mConfirmar[3];\n} else if (mHorarios) {\n  accion = 'horarios';\n  turnoId = mHorarios[1];\n  fecha = mHorarios[2];\n} else if (mFechas) {\n  accion = 'fechas';\n  turnoId = mFechas[1];\n} else if (mLegacy) {\n  accion = 'fechas';\n  turnoId = mLegacy[1];\n}\n\n// Degradacion: un callback incompleto o malformado no puede seguir de largo con\n// un dato vacio -- asi nacio el PUT con nueva_hora_inicio \"none\". Sin los datos\n// que el paso necesita, se muestra la lista y el paciente vuelve a elegir.\nif (accion !== 'listar' && !turnoId) accion = 'listar';\nif ((accion === 'horarios' || accion === 'confirmar' || accion === 'ejecutar') && !fecha) accion = 'listar';\nif ((accion === 'confirmar' || accion === 'ejecutar') && !hora) accion = 'listar';\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    accion: accion,\n    turno_id: turnoId,\n    fecha: fecha,\n    hora: hora\n  }\n}];"
       }
     },
     {
-      "id": "e1b2c3d4-0001-4000-8000-000000000003",
+      "id": "switch-accion",
       "name": "Switch Accion",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.4,
       "position": [
-        680,
-        320
+        400,
+        400
       ],
       "parameters": {
         "rules": {
@@ -47,9 +47,9 @@
                 },
                 "conditions": [
                   {
-                    "id": "e2b2c3d4-0001-4000-8000-000000000001",
+                    "id": "c30-switch-0",
                     "leftValue": "={{ $json.accion }}",
-                    "rightValue": "pedir_id",
+                    "rightValue": "listar",
                     "operator": {
                       "type": "string",
                       "operation": "equals"
@@ -59,7 +59,7 @@
                 "combinator": "and"
               },
               "renameOutput": true,
-              "outputKey": "pedir_id"
+              "outputKey": "listar"
             },
             {
               "conditions": {
@@ -71,9 +71,9 @@
                 },
                 "conditions": [
                   {
-                    "id": "e2b2c3d4-0001-4000-8000-000000000002",
+                    "id": "c30-switch-1",
                     "leftValue": "={{ $json.accion }}",
-                    "rightValue": "pedir_fecha",
+                    "rightValue": "fechas",
                     "operator": {
                       "type": "string",
                       "operation": "equals"
@@ -83,7 +83,7 @@
                 "combinator": "and"
               },
               "renameOutput": true,
-              "outputKey": "pedir_fecha"
+              "outputKey": "fechas"
             },
             {
               "conditions": {
@@ -95,9 +95,9 @@
                 },
                 "conditions": [
                   {
-                    "id": "e2b2c3d4-0001-4000-8000-000000000003",
+                    "id": "c30-switch-2",
                     "leftValue": "={{ $json.accion }}",
-                    "rightValue": "pedir_slot",
+                    "rightValue": "horarios",
                     "operator": {
                       "type": "string",
                       "operation": "equals"
@@ -107,7 +107,7 @@
                 "combinator": "and"
               },
               "renameOutput": true,
-              "outputKey": "pedir_slot"
+              "outputKey": "horarios"
             },
             {
               "conditions": {
@@ -119,7 +119,31 @@
                 },
                 "conditions": [
                   {
-                    "id": "e2b2c3d4-0001-4000-8000-000000000004",
+                    "id": "c30-switch-3",
+                    "leftValue": "={{ $json.accion }}",
+                    "rightValue": "confirmar",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "confirmar"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "c30-switch-4",
                     "leftValue": "={{ $json.accion }}",
                     "rightValue": "ejecutar",
                     "operator": {
@@ -141,48 +165,150 @@
       }
     },
     {
-      "id": "e1b2c3d4-0001-4000-8000-000000000004",
-      "name": "Telegram - Pedir ID",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
+      "id": "http-get-turnos-activos-listar-",
+      "name": "HTTP - GET Turnos Activos (Listar)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
-        920,
+        640,
         60
       ],
       "parameters": {
-        "operation": "sendMessage",
-        "chatId": "={{ $json.chat_id }}",
-        "text": "Para reprogramar un turno necesito que me pases el ID. Escribí el comando así:\n\n/reprogramar <ID>\n\nPor ejemplo: /reprogramar 42",
-        "additionalFields": {}
-      },
-      "credentials": {
-        "telegramApi": {
-          "id": "telegram-bot-credentials",
-          "name": "Telegram account"
+        "method": "GET",
+        "url": "=http://backend:8000/turnos/activos",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json",
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "telegram_chat_id",
+              "value": "={{ String($json.chat_id) }}"
+            }
+          ]
         }
       },
-      "notes": "Credencial por NOMBRE, no por id. Los ids de credenciales son locales a cada instancia de n8n, asi que nunca coinciden entre entornos. n8n resuelve por nombre cuando el id no matchea: mientras el nombre sea exactamente \"Telegram account\", el workflow reconecta solo al importarse. No reemplazar este nombre por el id de tu instancia. Ver n8n-workflows/README.md"
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "profesional-api-key",
+          "name": "Profesional API Key"
+        }
+      },
+      "notes": "Credencial por NOMBRE, no por id. Los ids de credenciales son locales a cada instancia de n8n y nunca coinciden entre entornos; n8n resuelve por nombre cuando el id no matchea. neverError + fullResponse son obligatorios: sin fullResponse no hay statusCode y las ramas de error son codigo muerto, sin neverError un 404 tira excepcion y el paciente recibe silencio."
     },
     {
-      "id": "e1b2c3d4-0001-4000-8000-000000000005",
+      "id": "code-formatear-lista",
+      "name": "Code - Formatear Lista",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        60
+      ],
+      "parameters": {
+        "jsCode": "let decidido = {};\ntry {\n  decidido = $('Code - Decidir Paso').first().json || {};\n} catch (e) {}\nconst chatId = decidido.chat_id;\n\nconst DIAS = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'];\n\n// Se arma con Date.UTC y se lee con getUTCDay() para que el dia de la semana no\n// dependa del timezone del server. Los datos ya vienen en hora local del\n// profesional: esto NO convierte horarios, solo les da forma legible.\nfunction legible(fecha, horaInicio) {\n  const p = String(fecha).split('-').map(Number);\n  const dia = DIAS[new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay()];\n  return dia + ' ' + String(p[2]).padStart(2, '0') + '/' + String(p[1]).padStart(2, '0') +\n    ' · ' + String(horaInicio || '').slice(0, 5);\n}\n\nconst http = ($input.all()[0] && $input.all()[0].json) || {};\nconst status = http.statusCode;\nconst ok = typeof status === 'number' && status >= 200 && status < 300;\nlet turnos = http.body;\nif (!Array.isArray(turnos)) turnos = [];\n\n// Con neverError un 422 tambien llega aca, con un body que no es array. Sin esta\n// distincion el paciente leeria \"no tenes turnos\" ante un fallo del backend, que\n// es indistinguible de una lista vacia legitima -- y por esa ambiguedad se dio\n// por bueno un smoke test que no probaba nada.\nlet mensaje;\nlet teclado;\nif (!ok) {\n  mensaje = 'No pudimos consultar tus turnos ahora. Proba de nuevo en un rato.';\n  teclado = [[{ text: 'Reintentar', callback_data: 'cmd:reprogramar' }]];\n} else if (turnos.length === 0) {\n  mensaje = 'No tenes turnos para reprogramar.';\n  teclado = [[{ text: 'Reservar un turno', callback_data: 'cmd:crear' }]];\n} else {\n  mensaje = 'Cual turno queres reprogramar?';\n  teclado = turnos.map(function (t) {\n    return [{\n      text: legible(t.fecha, t.hora_inicio),\n      callback_data: 'cmd:reprogramar:t:' + t.id\n    }];\n  });\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    cantidad: ok ? turnos.length : 0,\n    mensaje: mensaje,\n    inline_keyboard: teclado\n  }\n}];"
+      }
+    },
+    {
+      "id": "if-hay-turnos",
+      "name": "IF - Hay Turnos",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1120,
+        60
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "c30-if-hay-turnos",
+              "leftValue": "={{ $json.cantidad }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "telegram-lista-turnos",
+      "name": "Telegram - Lista Turnos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1360,
+        -20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: ($json.chat_id), text: ($json.mensaje), reply_markup: { inline_keyboard: ($json.inline_keyboard) } }) }}",
+        "options": {}
+      },
+      "notes": "Llamada HTTP cruda a sendMessage, NO el nodo Telegram. El nodo Telegram arma el teclado con una fixedCollection de filas literales, asi que no puede emitir un teclado de largo variable. Meter reply_markup dentro de \"options\" del nodo Telegram no es alternativa: no es un parametro suyo, lo descarta en silencio y el mensaje sale sin botones. Ver n8n-workflows/README.md."
+    },
+    {
+      "id": "telegram-sin-turnos",
+      "name": "Telegram - Sin Turnos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1360,
+        140
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: ($json.chat_id), text: ($json.mensaje), reply_markup: { inline_keyboard: ($json.inline_keyboard) } }) }}",
+        "options": {}
+      },
+      "notes": "Llamada HTTP cruda a sendMessage, NO el nodo Telegram. El nodo Telegram arma el teclado con una fixedCollection de filas literales, asi que no puede emitir un teclado de largo variable. Meter reply_markup dentro de \"options\" del nodo Telegram no es alternativa: no es un parametro suyo, lo descarta en silencio y el mensaje sale sin botones. Ver n8n-workflows/README.md."
+    },
+    {
+      "id": "code-formatear-fechas",
       "name": "Code - Formatear Fechas",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        920,
+        640,
         240
       ],
       "parameters": {
-        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst turnoId = input.turno_id;\nconst fechas = input.fechas_disponibles || [];\n\nconst nombresCorto = {\n  '0': 'Hoy',\n  '1': 'Mañana',\n  '2': 'Pasado mañana'\n};\n\nconst diasCortos = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];\nconst mesesCortos = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];\n\nconst etiquetas = fechas.map(function (f, i) {\n  const d = new Date(f + 'T00:00:00');\n  const dow = diasCortos[d.getDay()];\n  const day = d.getDate();\n  const mon = mesesCortos[d.getMonth()];\n  const corto = nombresCorto[String(i)] || (dow + ' ' + day + ' ' + mon);\n  return { fecha: f, label: corto + ' (' + f + ')' };\n});\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: turnoId,\n    fechas_etiquetadas: etiquetas\n  }\n}];"
+        "jsCode": "function fmtArgentina(d) {\n  const parts = new Intl.DateTimeFormat('en-CA', {\n    timeZone: 'America/Argentina/Buenos_Aires',\n    year: 'numeric', month: '2-digit', day: '2-digit'\n  }).formatToParts(d);\n  const y = parts.find(p => p.type === 'year').value;\n  const m = parts.find(p => p.type === 'month').value;\n  const dd = parts.find(p => p.type === 'day').value;\n  return y + '-' + m + '-' + dd;\n}\n\nfunction addDays(yyyy_mm_dd, n) {\n  const partes = yyyy_mm_dd.split('-').map(Number);\n  const date = new Date(Date.UTC(partes[0], partes[1] - 1, partes[2]));\n  date.setUTCDate(date.getUTCDate() + n);\n  const yy = date.getUTCFullYear();\n  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');\n  const dd = String(date.getUTCDate()).padStart(2, '0');\n  return yy + '-' + mm + '-' + dd;\n}\n\nfunction hoyArgentina() {\n  return fmtArgentina(new Date());\n}\n\nlet decidido = {};\ntry {\n  decidido = $('Code - Decidir Paso').first().json || {};\n} catch (e) {}\nconst chatId = decidido.chat_id;\nconst turnoId = decidido.turno_id;\n\n// OQ-1 resuelta: 7 dias fijos. calcular_disponibilidad devuelve lista vacia para\n// un dia fuera de dias_atencion, asi que un dia sin agenda cae en la rama de\n// \"elegi otra fecha\" y no hace falta filtrarlo antes de ofrecerlo.\n//\n// OQ-2: reprogramar para HOY deberia poderse, pero el backend todavia no filtra\n// los slots ya pasados -- pedir disponibilidad de hoy a las 18:00 devuelve los\n// de las 09:00. Por eso la ventana arranca manana. DIA_INICIO es una constante\n// nombrada a proposito: el change que habilite hoy la mueve a 0 y no reescribe\n// nada mas.\nconst DIA_INICIO = 1;\nconst DIAS_A_OFRECER = 7;\n\nconst hoy = hoyArgentina();\nconst manana = addDays(hoy, 1);\n\nconst DIAS = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'];\nconst MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];\n\n// La etiqueta se deriva de la FECHA, no del indice del loop. Al reves --que era\n// como estaba-- el primer boton decia \"Hoy\" y era manana.\nfunction etiqueta(fecha) {\n  if (fecha === hoy) return 'Hoy';\n  if (fecha === manana) return 'Manana';\n  const p = fecha.split('-').map(Number);\n  const d = new Date(Date.UTC(p[0], p[1] - 1, p[2]));\n  return DIAS[d.getUTCDay()] + ' ' + p[2] + ' ' + MESES[p[1] - 1];\n}\n\nconst teclado = [];\nfor (let i = 0; i < DIAS_A_OFRECER; i++) {\n  const fecha = addDays(hoy, DIA_INICIO + i);\n  teclado.push([{\n    text: etiqueta(fecha) + ' (' + fecha + ')',\n    callback_data: 'cmd:reprogramar:t:' + turnoId + ':f:' + fecha\n  }]);\n}\nteclado.push([{ text: 'Volver a mis turnos', callback_data: 'cmd:reprogramar' }]);\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: turnoId,\n    mensaje: 'Elegi la nueva fecha:',\n    inline_keyboard: teclado\n  }\n}];"
       }
     },
     {
-      "id": "e1b2c3d4-0001-4000-8000-000000000006",
+      "id": "telegram-pedir-fecha",
       "name": "Telegram - Pedir Fecha",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1160,
+        880,
         240
       ],
       "parameters": {
@@ -190,135 +316,267 @@
         "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ chat_id: ($json.chat_id), text: ('Reprogramando turno #' + $json.turno_id + '. Elegí la nueva fecha:'), reply_markup: { inline_keyboard: ($json.fechas_etiquetadas.map(function(f) { return [{ text: f.label, callback_data: 'cmd:reprogramar:turno_id:' + $json.turno_id + ':fecha:' + f.fecha }]; })) } }) }}",
+        "jsonBody": "={{ JSON.stringify({ chat_id: ($json.chat_id), text: ($json.mensaje), reply_markup: { inline_keyboard: ($json.inline_keyboard) } }) }}",
         "options": {}
       },
-      "notes": "Llamada HTTP cruda a sendMessage, NO el nodo Telegram. El nodo Telegram arma el teclado con una fixedCollection de filas literales, asi que no puede emitir un teclado de largo variable. Meter reply_markup dentro de \"options\" del nodo Telegram no es alternativa: no es un parametro suyo, lo descarta en silencio y el mensaje sale sin botones (asi estuvo roto este flujo). El token va por $env.TELEGRAM_BOT_TOKEN, que docker-compose.yml define en el servicio n8n junto con N8N_BLOCK_ENV_ACCESS_IN_NODE=false, necesario para leer $env en expresiones. Mismo patron que \"Telegram - Pedir Slot\" en sub-flujo-crear-turno."
+      "notes": "Llamada HTTP cruda a sendMessage, NO el nodo Telegram. El nodo Telegram arma el teclado con una fixedCollection de filas literales, asi que no puede emitir un teclado de largo variable. Meter reply_markup dentro de \"options\" del nodo Telegram no es alternativa: no es un parametro suyo, lo descarta en silencio y el mensaje sale sin botones. Ver n8n-workflows/README.md."
     },
     {
-      "id": "e1b2c3d4-0001-4000-8000-000000000007",
+      "id": "http-get-disponibilidad",
       "name": "HTTP - GET Disponibilidad",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.1,
+      "typeVersion": 4.2,
       "position": [
-        920,
-        420
+        640,
+        400
       ],
       "parameters": {
         "method": "GET",
-        "url": "=http://backend:8000/turnos/disponibles?fecha={{ $json.nueva_fecha }}",
+        "url": "=http://backend:8000/turnos/disponibles?fecha={{ $json.fecha }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "options": {
           "response": {
             "response": {
-              "responseFormat": "json"
+              "responseFormat": "json",
+              "neverError": true,
+              "fullResponse": true
             }
           }
-        },
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth"
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
           "id": "profesional-api-key",
           "name": "Profesional API Key"
         }
-      }
+      },
+      "notes": "Credencial por NOMBRE, no por id. Los ids de credenciales son locales a cada instancia de n8n y nunca coinciden entre entornos; n8n resuelve por nombre cuando el id no matchea. neverError + fullResponse son obligatorios: sin fullResponse no hay statusCode y las ramas de error son codigo muerto, sin neverError un 404 tira excepcion y el paciente recibe silencio."
     },
     {
-      "id": "e1b2c3d4-0001-4000-8000-000000000008",
+      "id": "code-formatear-slots",
       "name": "Code - Formatear Slots",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1160,
-        420
+        880,
+        400
       ],
       "parameters": {
-        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst turnoId = input.turno_id;\nconst nuevaFecha = input.nueva_fecha || '';\n\nlet slots = [];\nif (Array.isArray(input)) {\n  slots = input;\n} else if (Array.isArray(input.slots)) {\n  slots = input.slots;\n}\n\nconst disponibles = slots.filter(function (s) { return s.disponible !== false; });\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: turnoId,\n    nueva_fecha: nuevaFecha,\n    slots: disponibles,\n    cantidad: disponibles.length\n  }\n}];"
+        "jsCode": "let decidido = {};\ntry {\n  decidido = $('Code - Decidir Paso').first().json || {};\n} catch (e) {}\nconst chatId = decidido.chat_id;\nconst turnoId = decidido.turno_id;\nconst fecha = decidido.fecha;\n\n// GET /turnos/disponibles devuelve list[SlotResponse]: un array JSON PELADO. Con\n// fullResponse el array queda bajo .body. La version anterior buscaba\n// Array.isArray(input) o input.slots sobre el primer objeto slot -- ninguna de\n// las dos da true nunca, asi que la lista salia vacia SIEMPRE y el paciente veia\n// \"no hay horarios\" con la agenda entera libre.\nconst http = ($input.all()[0] && $input.all()[0].json) || {};\nconst status = http.statusCode;\nconst ok = typeof status === 'number' && status >= 200 && status < 300;\nlet slots = http.body;\nif (!Array.isArray(slots)) slots = [];\n\nconst libres = ok ? slots.filter(function (s) { return s && s.disponible !== false; }) : [];\n\nlet mensaje;\nlet teclado;\nif (!ok) {\n  mensaje = 'No pudimos consultar los horarios de esa fecha. Proba de nuevo.';\n  teclado = [[{ text: 'Elegir otra fecha', callback_data: 'cmd:reprogramar:t:' + turnoId }]];\n} else if (libres.length === 0) {\n  // Sin horarios se ofrece CAMBIAR DE FECHA. La version anterior emitia un boton\n  // con ':slot:none', que el parser leia como un horario elegido y terminaba en\n  // un PUT con nueva_hora_inicio \"none\". Ningun boton emite un callback_data que\n  // el flujo no sepa procesar (design D7).\n  mensaje = 'No quedan horarios libres para el ' + fecha + '.';\n  teclado = [[{ text: 'Elegir otra fecha', callback_data: 'cmd:reprogramar:t:' + turnoId }]];\n} else {\n  mensaje = 'Elegi el nuevo horario para el ' + fecha + ':';\n  teclado = libres.map(function (s) {\n    const hasta = s.hora_fin ? (' - ' + s.hora_fin) : '';\n    return [{\n      text: s.hora_inicio + hasta,\n      callback_data: 'cmd:reprogramar:t:' + turnoId + ':f:' + fecha + ':h:' + s.hora_inicio\n    }];\n  });\n  teclado.push([{ text: 'Elegir otra fecha', callback_data: 'cmd:reprogramar:t:' + turnoId }]);\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    cantidad: libres.length,\n    mensaje: mensaje,\n    inline_keyboard: teclado\n  }\n}];"
       }
     },
     {
-      "id": "e1b2c3d4-0001-4000-8000-000000000009",
+      "id": "telegram-pedir-slot",
       "name": "Telegram - Pedir Slot",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1400,
-        420
+        1120,
+        400
       ],
       "parameters": {
         "method": "POST",
         "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ chat_id: ($json.chat_id), text: ('Elegí el nuevo horario para el ' + $json.nueva_fecha + ':'), reply_markup: { inline_keyboard: ($json.slots.length > 0 ? $json.slots.map(function(s) { return [{ text: s.hora_inicio + (s.hora_fin ? (' - ' + s.hora_fin) : ''), callback_data: 'cmd:reprogramar:turno_id:' + $json.turno_id + ':fecha:' + $json.nueva_fecha + ':slot:' + s.hora_inicio }]; }) : [[{ text: 'No hay horarios', callback_data: 'cmd:reprogramar:turno_id:' + $json.turno_id + ':fecha:' + $json.nueva_fecha + ':slot:none' }]]) } }) }}",
+        "jsonBody": "={{ JSON.stringify({ chat_id: ($json.chat_id), text: ($json.mensaje), reply_markup: { inline_keyboard: ($json.inline_keyboard) } }) }}",
         "options": {}
       },
-      "notes": "Llamada HTTP cruda a sendMessage, NO el nodo Telegram. El nodo Telegram arma el teclado con una fixedCollection de filas literales, asi que no puede emitir un teclado de largo variable. Meter reply_markup dentro de \"options\" del nodo Telegram no es alternativa: no es un parametro suyo, lo descarta en silencio y el mensaje sale sin botones (asi estuvo roto este flujo). El token va por $env.TELEGRAM_BOT_TOKEN, que docker-compose.yml define en el servicio n8n junto con N8N_BLOCK_ENV_ACCESS_IN_NODE=false, necesario para leer $env en expresiones. Mismo patron que \"Telegram - Pedir Slot\" en sub-flujo-crear-turno."
+      "notes": "Llamada HTTP cruda a sendMessage, NO el nodo Telegram. El nodo Telegram arma el teclado con una fixedCollection de filas literales, asi que no puede emitir un teclado de largo variable. Meter reply_markup dentro de \"options\" del nodo Telegram no es alternativa: no es un parametro suyo, lo descarta en silencio y el mensaje sale sin botones. Ver n8n-workflows/README.md."
     },
     {
-      "id": "e1b2c3d4-0001-4000-8000-000000000010",
-      "name": "HTTP - PUT Reprogramar",
+      "id": "http-get-turnos-activos-confirmar-",
+      "name": "HTTP - GET Turnos Activos (Confirmar)",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.1,
+      "typeVersion": 4.2,
       "position": [
-        920,
-        600
+        640,
+        580
       ],
       "parameters": {
-        "method": "PUT",
-        "url": "=http://backend:8000/turnos/{{ $json.turno_id }}/reprogramar",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ nueva_fecha: $json.nueva_fecha, nueva_hora_inicio: $json.nuevo_slot }) }}",
+        "method": "GET",
+        "url": "=http://backend:8000/turnos/activos",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "options": {
           "response": {
             "response": {
-              "responseFormat": "json"
+              "responseFormat": "json",
+              "neverError": true,
+              "fullResponse": true
             }
           }
         },
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth"
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "telegram_chat_id",
+              "value": "={{ String($json.chat_id) }}"
+            }
+          ]
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
           "id": "profesional-api-key",
           "name": "Profesional API Key"
         }
-      }
+      },
+      "notes": "Credencial por NOMBRE, no por id. Los ids de credenciales son locales a cada instancia de n8n y nunca coinciden entre entornos; n8n resuelve por nombre cuando el id no matchea. neverError + fullResponse son obligatorios: sin fullResponse no hay statusCode y las ramas de error son codigo muerto, sin neverError un 404 tira excepcion y el paciente recibe silencio."
     },
     {
-      "id": "e1b2c3d4-0001-4000-8000-000000000011",
-      "name": "Code - Formatear Resultado",
+      "id": "code-preparar-confirmacion",
+      "name": "Code - Preparar Confirmacion",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1160,
-        600
+        880,
+        580
       ],
       "parameters": {
-        "jsCode": "const input = ($input.all()[0] && $input.all()[0].json) || {};\nconst chatId = input.chat_id;\nconst turnoId = input.turno_id;\nconst nuevaFecha = input.fecha || input.nueva_fecha;\nconst nuevoSlot = input.hora_inicio || input.nuevo_slot;\nconst errorStatus = input.statusCode && input.statusCode >= 400;\nconst errorDetail = input.detail || (errorStatus ? 'Error HTTP ' + input.statusCode : null);\n\nlet mensaje = '';\nlet exito = false;\nif (errorStatus) {\n  if (input.statusCode === 404) {\n    mensaje = 'Turno no encontrado.';\n  } else if (input.statusCode === 409) {\n    mensaje = 'No se puede reprogramar el turno en su estado actual o el horario ya está ocupado.';\n  } else {\n    mensaje = 'Error al reprogramar: ' + (input.detail || ('HTTP ' + input.statusCode));\n  }\n  exito = false;\n} else {\n  mensaje = 'Turno #' + turnoId + ' reprogramado.\\n\\nNueva fecha: ' + nuevaFecha + '\\nNueva hora: ' + nuevoSlot + '\\n\\nTe enviaremos un recordatorio el día anterior.';\n  exito = true;\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: turnoId,\n    nueva_fecha: nuevaFecha,\n    nuevo_slot: nuevoSlot,\n    exito: exito,\n    mensaje: mensaje\n  }\n}];"
+        "jsCode": "let decidido = {};\ntry {\n  decidido = $('Code - Decidir Paso').first().json || {};\n} catch (e) {}\nconst chatId = decidido.chat_id;\nconst turnoId = decidido.turno_id;\nconst fecha = decidido.fecha;\nconst hora = decidido.hora;\n\nconst DIAS = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'];\nfunction legible(f, h) {\n  const p = String(f).split('-').map(Number);\n  const dia = DIAS[new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay()];\n  return dia + ' ' + String(p[2]).padStart(2, '0') + '/' + String(p[1]).padStart(2, '0') +\n    ' · ' + String(h || '').slice(0, 5);\n}\n\n// Se relee la lista para detectar turnos cancelados o vencidos entre que se\n// mostro el boton y se toco. Un boton de Telegram queda vivo en el historial del\n// chat indefinidamente (design D9).\nconst http = ($input.all()[0] && $input.all()[0].json) || {};\nconst status = http.statusCode;\nconst ok = typeof status === 'number' && status >= 200 && status < 300;\nlet turnos = http.body;\nif (!Array.isArray(turnos)) turnos = [];\n\nconst turno = turnos.filter(function (t) { return String(t.id) === String(turnoId); })[0];\nconst vigente = ok && !!turno;\n\nlet mensaje;\nlet teclado;\nif (!vigente) {\n  mensaje = 'Ese turno ya no esta en tu lista. Puede que lo hayan cancelado o que ya haya pasado.';\n  teclado = [[{ text: 'Ver mis turnos', callback_data: 'cmd:reprogramar' }]];\n} else {\n  mensaje = 'Confirmas mover tu turno?\\n\\nDe: ' + legible(turno.fecha, turno.hora_inicio) +\n    '\\nA: ' + legible(fecha, hora);\n  teclado = [\n    [{ text: 'Si, mover el turno', callback_data: 'cmd:reprogramar:ok:' + turnoId + ':' + fecha + ':' + hora }],\n    [{ text: 'No', callback_data: 'cmd:menu' }]\n  ];\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    vigente: vigente,\n    mensaje: mensaje,\n    inline_keyboard: teclado\n  }\n}];"
       }
     },
     {
-      "id": "e1b2c3d4-0001-4000-8000-000000000012",
-      "name": "Telegram - Reprogramar Confirmado",
+      "id": "if-turno-vigente",
+      "name": "IF - Turno Vigente",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1120,
+        580
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "c30-if-turno-vigente",
+              "leftValue": "={{ $json.vigente }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "telegram-confirmar-reprogramacion",
+      "name": "Telegram - Confirmar Reprogramacion",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1400,
-        600
+        1360,
+        500
       ],
       "parameters": {
         "method": "POST",
         "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ chat_id: ($json.chat_id), text: ($json.mensaje), reply_markup: { inline_keyboard: ($json.exito ? [[{ text: 'Cancelar este turno', callback_data: 'cmd:cancelar:turno_id:' + $json.turno_id }]] : [[{ text: 'Volver a intentar', callback_data: 'cmd:reprogramar' }]]) } }) }}",
+        "jsonBody": "={{ JSON.stringify({ chat_id: ($json.chat_id), text: ($json.mensaje), reply_markup: { inline_keyboard: ($json.inline_keyboard) } }) }}",
         "options": {}
       },
-      "notes": "Llamada HTTP cruda a sendMessage, NO el nodo Telegram. El nodo Telegram arma el teclado con una fixedCollection de filas literales, asi que no puede emitir un teclado de largo variable. Meter reply_markup dentro de \"options\" del nodo Telegram no es alternativa: no es un parametro suyo, lo descarta en silencio y el mensaje sale sin botones (asi estuvo roto este flujo). El token va por $env.TELEGRAM_BOT_TOKEN, que docker-compose.yml define en el servicio n8n junto con N8N_BLOCK_ENV_ACCESS_IN_NODE=false, necesario para leer $env en expresiones. Mismo patron que \"Telegram - Pedir Slot\" en sub-flujo-crear-turno."
+      "notes": "Llamada HTTP cruda a sendMessage, NO el nodo Telegram. El nodo Telegram arma el teclado con una fixedCollection de filas literales, asi que no puede emitir un teclado de largo variable. Meter reply_markup dentro de \"options\" del nodo Telegram no es alternativa: no es un parametro suyo, lo descarta en silencio y el mensaje sale sin botones. Ver n8n-workflows/README.md."
+    },
+    {
+      "id": "telegram-turno-no-vigente",
+      "name": "Telegram - Turno No Vigente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1360,
+        660
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: ($json.chat_id), text: ($json.mensaje), reply_markup: { inline_keyboard: ($json.inline_keyboard) } }) }}",
+        "options": {}
+      },
+      "notes": "Llamada HTTP cruda a sendMessage, NO el nodo Telegram. El nodo Telegram arma el teclado con una fixedCollection de filas literales, asi que no puede emitir un teclado de largo variable. Meter reply_markup dentro de \"options\" del nodo Telegram no es alternativa: no es un parametro suyo, lo descarta en silencio y el mensaje sale sin botones. Ver n8n-workflows/README.md."
+    },
+    {
+      "id": "http-put-reprogramar",
+      "name": "HTTP - PUT Reprogramar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        760
+      ],
+      "parameters": {
+        "method": "PUT",
+        "url": "=http://backend:8000/turnos/{{ $json.turno_id }}/reprogramar",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json",
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ nueva_fecha: $json.fecha, nueva_hora_inicio: $json.hora }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "profesional-api-key",
+          "name": "Profesional API Key"
+        }
+      },
+      "notes": "Credencial por NOMBRE, no por id. Los ids de credenciales son locales a cada instancia de n8n y nunca coinciden entre entornos; n8n resuelve por nombre cuando el id no matchea. neverError + fullResponse son obligatorios: sin fullResponse no hay statusCode y las ramas de error son codigo muerto, sin neverError un 404 tira excepcion y el paciente recibe silencio."
+    },
+    {
+      "id": "code-formatear-resultado",
+      "name": "Code - Formatear Resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        760
+      ],
+      "parameters": {
+        "jsCode": "let decidido = {};\ntry {\n  decidido = $('Code - Decidir Paso').first().json || {};\n} catch (e) {}\nconst chatId = decidido.chat_id;\nconst turnoSolicitado = decidido.turno_id;\n\nconst http = ($input.all()[0] && $input.all()[0].json) || {};\nconst status = http.statusCode;\nconst body = http.body || {};\n\n// El exito se DERIVA del status. Un status ausente o no reconocido es un FALLO,\n// no un exito por defecto: con neverError tambien llegan aca los errores de red\n// y los 5xx, y asumir exito ante lo desconocido es como el flujo terminaba\n// diciendo \"turno reprogramado\" sobre un 422.\nconst ok = typeof status === 'number' && status >= 200 && status < 300;\n\n// TurnoResponse expone 'id', no 'turno_id'. Leerlo mal producia\n// \"Turno #undefined reprogramado\".\nconst turnoId = body.id || turnoSolicitado;\n\nlet mensaje;\nlet teclado;\nif (ok) {\n  mensaje = 'Listo, tu turno quedo para el ' + body.fecha + ' a las ' +\n    String(body.hora_inicio || '').slice(0, 5) + '.\\n\\nTe vamos a recordar antes.';\n  teclado = [[{ text: 'Volver al menu', callback_data: 'cmd:menu' }]];\n} else if (status === 404) {\n  mensaje = 'No encontramos ese turno. Puede que ya lo hayan cancelado.';\n  teclado = [[{ text: 'Ver mis turnos', callback_data: 'cmd:reprogramar' }]];\n} else if (status === 409) {\n  mensaje = 'Ese horario ya fue tomado, o el turno no se puede mover en su estado actual.';\n  teclado = [[{ text: 'Elegir otro horario', callback_data: 'cmd:reprogramar:t:' + turnoSolicitado }]];\n} else {\n  const detalle = body.detail ? (' (' + body.detail + ')') : '';\n  mensaje = 'No pudimos mover el turno' + detalle + '. Tu turno original sigue vigente.';\n  teclado = [[{ text: 'Ver mis turnos', callback_data: 'cmd:reprogramar' }]];\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: turnoId,\n    exito: ok,\n    mensaje: mensaje,\n    inline_keyboard: teclado\n  }\n}];"
+      }
+    },
+    {
+      "id": "telegram-resultado",
+      "name": "Telegram - Resultado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        760
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: ($json.chat_id), text: ($json.mensaje), reply_markup: { inline_keyboard: ($json.inline_keyboard) } }) }}",
+        "options": {}
+      },
+      "notes": "Llamada HTTP cruda a sendMessage, NO el nodo Telegram. El nodo Telegram arma el teclado con una fixedCollection de filas literales, asi que no puede emitir un teclado de largo variable. Meter reply_markup dentro de \"options\" del nodo Telegram no es alternativa: no es un parametro suyo, lo descarta en silencio y el mensaje sale sin botones. Ver n8n-workflows/README.md."
     }
   ],
   "connections": {
@@ -348,7 +606,7 @@
       "main": [
         [
           {
-            "node": "Telegram - Pedir ID",
+            "node": "HTTP - GET Turnos Activos (Listar)",
             "type": "main",
             "index": 0
           }
@@ -369,6 +627,13 @@
         ],
         [
           {
+            "node": "HTTP - GET Turnos Activos (Confirmar)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "HTTP - PUT Reprogramar",
             "type": "main",
             "index": 0
@@ -376,7 +641,47 @@
         ],
         [
           {
-            "node": "Telegram - Pedir ID",
+            "node": "HTTP - GET Turnos Activos (Listar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - GET Turnos Activos (Listar)": {
+      "main": [
+        [
+          {
+            "node": "Code - Formatear Lista",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Formatear Lista": {
+      "main": [
+        [
+          {
+            "node": "IF - Hay Turnos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Hay Turnos": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Lista Turnos",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram - Sin Turnos",
             "type": "main",
             "index": 0
           }
@@ -416,6 +721,46 @@
         ]
       ]
     },
+    "HTTP - GET Turnos Activos (Confirmar)": {
+      "main": [
+        [
+          {
+            "node": "Code - Preparar Confirmacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Preparar Confirmacion": {
+      "main": [
+        [
+          {
+            "node": "IF - Turno Vigente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Turno Vigente": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Confirmar Reprogramacion",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram - Turno No Vigente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "HTTP - PUT Reprogramar": {
       "main": [
         [
@@ -431,7 +776,7 @@
       "main": [
         [
           {
-            "node": "Telegram - Reprogramar Confirmado",
+            "node": "Telegram - Resultado",
             "type": "main",
             "index": 0
           }
@@ -441,9 +786,5 @@
   },
   "settings": {
     "executionOrder": "v1"
-  },
-  "staticData": null,
-  "pinData": {},
-  "active": false,
-  "id": "NKLiszZeopCTc7iNBx9XY"
+  }
 }

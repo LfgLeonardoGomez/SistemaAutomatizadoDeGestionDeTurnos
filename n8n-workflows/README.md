@@ -32,7 +32,7 @@ Workflows independientes (no dispatch-ados por el orquestador):
 | `orquestador.json` | Single entry point del bot; switch por comando | `Telegram Trigger` | ✅ Completo |
 | `sub-flujo-crear-turno.json` | Crea reserva temporal (fecha → hora); captura y confirmación en progreso | `Execute Workflow Trigger` (invocado por orquestador) | 🔄 Parcial (C-27) |
 | `sub-flujo-cancelar-turno.json` | Lista los turnos activos del chat, el paciente elige y confirma | `Execute Workflow Trigger` (invocado por orquestador) | ✅ Completo |
-| `sub-flujo-reprogramar-turno.json` | Wizard de reprogramación (nueva fecha → nueva hora) | `Execute Workflow Trigger` (invocado por orquestador) | ❌ No funcional — reescritura pendiente |
+| `sub-flujo-reprogramar-turno.json` | Lista los turnos activos, el paciente elige turno, fecha y horario, y confirma | `Execute Workflow Trigger` (invocado por orquestador) | 🔄 Reescrito (C-30) — falta E2E |
 | `flujo-recordatorio.json` | Cron diario → `POST /api/v1/recordatorios/run` | `Schedule Trigger` (cron `0 10 * * *`) | ✅ Completo |
 | `flujo-lista-espera.json` | Notificación de lista de espera (placeholder C-11) | `Webhook Trigger` | ⏳ Placeholder (C-11) |
 
@@ -63,6 +63,33 @@ El botón de cancelar del recordatorio (que arma el **backend**, en
 `telegram_service.format_recordatorio_keyboard`) emite
 `cmd:cancelar:turno_id:<id>`, así que también pasa por la confirmación: un
 toque accidental no debe costarle el turno al paciente.
+
+### Vocabulario de callbacks de reprogramar
+
+Mismo criterio que cancelar: **ninguna entrada tipeada**. Las claves son cortas
+porque Telegram corta el `callback_data` en **64 bytes** y rechaza el botón
+entero, en silencio.
+
+| `callback_data` | Significado |
+|---|---|
+| `cmd:reprogramar` | Listar los turnos activos del chat |
+| `cmd:reprogramar:t:<id>` | Ofrecer las fechas para ese turno |
+| `cmd:reprogramar:t:<id>:f:<fecha>` | Ofrecer los horarios de esa fecha |
+| `cmd:reprogramar:t:<id>:f:<fecha>:h:<hora>` | Pedir confirmación |
+| `cmd:reprogramar:ok:<id>:<fecha>:<hora>` | Ejecutar la reprogramación |
+| `cmd:reprogramar:turno_id:<id>` | **Forma larga.** La emite el BACKEND |
+
+Esa última no es retrocompatibilidad opcional: el botón "Reprogramar" del
+recordatorio lo arma `telegram_service.format_recordatorio_keyboard`, y por ahí
+entra la mayoría de las reprogramaciones. Si el sub-flujo deja de aceptarla, ese
+botón queda muerto **sin que nada falle visiblemente**.
+
+> Regla que este flujo aprendió por las malas: **ningún botón emite un
+> `callback_data` que el propio flujo no sepa procesar.** La versión anterior
+> ofrecía `...:slot:none` cuando no había horarios; el parser lo leía como un
+> horario elegido y terminaba en un `PUT` con `nueva_hora_inicio: "none"`, que el
+> backend rechazaba con 422 y que —por no tener `fullResponse`— se le informaba
+> al paciente como turno reprogramado.
 
 ### El escape hatch: `fresh_start`
 
@@ -271,6 +298,26 @@ Ambos motores llaman a la **misma lógica** de `notificacion_service` (`obtener_
 > ⚠️ **Email: almacenado pero no enviado**: Cuando un paciente proporciona un email en la confirmación del turno, se crea un registro de destinatario en la base de datos (canal `EMAIL`), pero **no existe un motor de envío de emails en el backend**. Los recordatorios se envían solo por Telegram en v1.0.
 
 ## Testing
+
+### Harness de chequeos (`n8n-workflows/tests/`)
+
+```bash
+# Reglas estaticas sobre todos los workflows. Cada una existe porque el defecto
+# que detecta YA se rompio en produccion, y n8n reporta ejecucion verde en todos.
+node n8n-workflows/tests/check-workflows.js
+node n8n-workflows/tests/check-workflows.js reprogramar   # filtro por substring
+
+# Comportamiento: ejecuta los Code nodes de reprogramar con datos simulados,
+# incluyendo el round trip -- todo callback_data que el flujo emite se le
+# devuelve a su propio parser y tiene que resolver al paso que pretendia.
+node n8n-workflows/tests/check-reprogramar-behavior.js
+```
+
+> `check-workflows.js` falla hoy en `sub-flujo-crear-turno :: HTTP - GET
+> Disponibilidad`, que no declara `neverError`: un 500 del backend tira excepción
+> y el paciente recibe silencio. Es un defecto real y **no es un one-liner**:
+> agregar el flag sin distinguir error de lista vacía haría que un 500 se lea
+> como "no hay horarios disponibles". Pendiente de su propio change.
 
 ### Tests de parseo estático (TDD para n8n)
 
