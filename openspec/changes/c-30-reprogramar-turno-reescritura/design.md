@@ -227,12 +227,32 @@ No hay migración de datos: el change es enteramente de workflow n8n.
 
 ## Open Questions — RESUELTAS (2026-08-14)
 
-- **OQ-1 — ¿Cuántas fechas se ofrecen y desde cuándo?** → **7 días fijos.**
-  Verificado que es seguro: `calcular_disponibilidad`
+- **OQ-1 — ¿Cuántas fechas se ofrecen y desde cuándo?** → **7 días hábiles.**
+
+  *Primera resolución (descartada por el E2E):* 7 días **corridos**, sin filtrar.
+  El argumento era que `calcular_disponibilidad`
   (`backend/app/services/availability_service.py:53-55`) devuelve `[]` para un
-  día que no está en `dias_atencion`, así que un día sin agenda produce una lista
-  vacía y el flujo lo trata con la rama de D7 (ofrecer cambiar de fecha). No
-  hace falta filtrar las fechas antes de ofrecerlas.
+  día fuera de `dias_atencion`, así que un día sin agenda caía en la rama de D7
+  y no rompía nada.
+
+  *Lo que mostró el E2E (2026-08-14):* **seguro no es lo mismo que usable.** El
+  flujo ofrecía sábados y domingos a un profesional que atiende de lunes a
+  viernes. No fallaba: le hacía gastar un paso al paciente para descubrir que ese
+  día no existía, y encima ocupaba dos de las siete opciones con ruido.
+
+  *Resolución final:* el paso de fechas consulta
+  `GET /profesional/configuracion` y ofrece los próximos **7 días que el
+  profesional efectivamente atiende**, barriendo el calendario hacia adelante con
+  una cota (`MAX_BARRIDO = 70`) para que una configuración de un solo día por
+  semana no cuelgue el loop.
+
+  **Degradación deliberada:** si esa consulta falla, se ofrecen los 7 días
+  corridos igual. Un día de más cuesta un paso; cero días es un flujo muerto.
+
+  **Comparación tolerante:** `dias_atencion` es JSON libre con nombres en español
+  y acentos (`"Miércoles"`, `"Sábado"`). Se compara normalizando acentos y
+  mayúsculas: una configuración cargada como `"Miercoles"` no debe borrar los
+  miércoles del calendario.
 
 - **OQ-2 — ¿Se permite reprogramar a un horario del mismo día?** → **Sí, debería
   poderse — pero NO entra en este change.** Habilitarlo hoy ofrecería turnos en

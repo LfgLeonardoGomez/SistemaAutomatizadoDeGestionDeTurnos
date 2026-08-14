@@ -290,16 +290,48 @@
       "notes": "Llamada HTTP cruda a sendMessage, NO el nodo Telegram. El nodo Telegram arma el teclado con una fixedCollection de filas literales, asi que no puede emitir un teclado de largo variable. Meter reply_markup dentro de \"options\" del nodo Telegram no es alternativa: no es un parametro suyo, lo descarta en silencio y el mensaje sale sin botones. Ver n8n-workflows/README.md."
     },
     {
-      "id": "code-formatear-fechas",
-      "name": "Code - Formatear Fechas",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "id": "http-get-configuracion",
+      "name": "HTTP - GET Configuracion",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         640,
         240
       ],
       "parameters": {
-        "jsCode": "function fmtArgentina(d) {\n  const parts = new Intl.DateTimeFormat('en-CA', {\n    timeZone: 'America/Argentina/Buenos_Aires',\n    year: 'numeric', month: '2-digit', day: '2-digit'\n  }).formatToParts(d);\n  const y = parts.find(p => p.type === 'year').value;\n  const m = parts.find(p => p.type === 'month').value;\n  const dd = parts.find(p => p.type === 'day').value;\n  return y + '-' + m + '-' + dd;\n}\n\nfunction addDays(yyyy_mm_dd, n) {\n  const partes = yyyy_mm_dd.split('-').map(Number);\n  const date = new Date(Date.UTC(partes[0], partes[1] - 1, partes[2]));\n  date.setUTCDate(date.getUTCDate() + n);\n  const yy = date.getUTCFullYear();\n  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');\n  const dd = String(date.getUTCDate()).padStart(2, '0');\n  return yy + '-' + mm + '-' + dd;\n}\n\nfunction hoyArgentina() {\n  return fmtArgentina(new Date());\n}\n\nlet decidido = {};\ntry {\n  decidido = $('Code - Decidir Paso').first().json || {};\n} catch (e) {}\nconst chatId = decidido.chat_id;\nconst turnoId = decidido.turno_id;\n\n// OQ-1 resuelta: 7 dias fijos. calcular_disponibilidad devuelve lista vacia para\n// un dia fuera de dias_atencion, asi que un dia sin agenda cae en la rama de\n// \"elegi otra fecha\" y no hace falta filtrarlo antes de ofrecerlo.\n//\n// OQ-2: reprogramar para HOY deberia poderse, pero el backend todavia no filtra\n// los slots ya pasados -- pedir disponibilidad de hoy a las 18:00 devuelve los\n// de las 09:00. Por eso la ventana arranca manana. DIA_INICIO es una constante\n// nombrada a proposito: el change que habilite hoy la mueve a 0 y no reescribe\n// nada mas.\nconst DIA_INICIO = 1;\nconst DIAS_A_OFRECER = 7;\n\nconst hoy = hoyArgentina();\nconst manana = addDays(hoy, 1);\n\nconst DIAS = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'];\nconst MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];\n\n// La etiqueta se deriva de la FECHA, no del indice del loop. Al reves --que era\n// como estaba-- el primer boton decia \"Hoy\" y era manana.\nfunction etiqueta(fecha) {\n  if (fecha === hoy) return 'Hoy';\n  if (fecha === manana) return 'Manana';\n  const p = fecha.split('-').map(Number);\n  const d = new Date(Date.UTC(p[0], p[1] - 1, p[2]));\n  return DIAS[d.getUTCDay()] + ' ' + p[2] + ' ' + MESES[p[1] - 1];\n}\n\nconst teclado = [];\nfor (let i = 0; i < DIAS_A_OFRECER; i++) {\n  const fecha = addDays(hoy, DIA_INICIO + i);\n  teclado.push([{\n    text: etiqueta(fecha) + ' (' + fecha + ')',\n    callback_data: 'cmd:reprogramar:t:' + turnoId + ':f:' + fecha\n  }]);\n}\nteclado.push([{ text: 'Volver a mis turnos', callback_data: 'cmd:reprogramar' }]);\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: turnoId,\n    mensaje: 'Elegi la nueva fecha:',\n    inline_keyboard: teclado\n  }\n}];"
+        "method": "GET",
+        "url": "=http://backend:8000/profesional/configuracion",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json",
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "profesional-api-key",
+          "name": "Profesional API Key"
+        }
+      },
+      "notes": "Credencial por NOMBRE, no por id. Los ids de credenciales son locales a cada instancia de n8n y nunca coinciden entre entornos; n8n resuelve por nombre cuando el id no matchea. neverError + fullResponse son obligatorios: sin fullResponse no hay statusCode y las ramas de error son codigo muerto, sin neverError un 404 tira excepcion y el paciente recibe silencio."
+    },
+    {
+      "id": "code-formatear-fechas",
+      "name": "Code - Formatear Fechas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        240
+      ],
+      "parameters": {
+        "jsCode": "function fmtArgentina(d) {\n  const parts = new Intl.DateTimeFormat('en-CA', {\n    timeZone: 'America/Argentina/Buenos_Aires',\n    year: 'numeric', month: '2-digit', day: '2-digit'\n  }).formatToParts(d);\n  const y = parts.find(p => p.type === 'year').value;\n  const m = parts.find(p => p.type === 'month').value;\n  const dd = parts.find(p => p.type === 'day').value;\n  return y + '-' + m + '-' + dd;\n}\n\nfunction addDays(yyyy_mm_dd, n) {\n  const partes = yyyy_mm_dd.split('-').map(Number);\n  const date = new Date(Date.UTC(partes[0], partes[1] - 1, partes[2]));\n  date.setUTCDate(date.getUTCDate() + n);\n  const yy = date.getUTCFullYear();\n  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');\n  const dd = String(date.getUTCDate()).padStart(2, '0');\n  return yy + '-' + mm + '-' + dd;\n}\n\nfunction hoyArgentina() {\n  return fmtArgentina(new Date());\n}\n\nlet decidido = {};\ntry {\n  decidido = $('Code - Decidir Paso').first().json || {};\n} catch (e) {}\nconst chatId = decidido.chat_id;\nconst turnoId = decidido.turno_id;\n\n// OQ-2: reprogramar para HOY deberia poderse, pero el backend todavia no filtra\n// los slots ya pasados -- pedir disponibilidad de hoy a las 18:00 devuelve los\n// de las 09:00. Por eso la ventana arranca manana. DIA_INICIO es una constante\n// nombrada a proposito: el change que habilite hoy la mueve a 0 y no reescribe\n// nada mas.\nconst DIA_INICIO = 1;\nconst DIAS_A_OFRECER = 7;\n// Cota del barrido. Con dias_atencion de un solo dia por semana, juntar 7 dias\n// habiles toma 7 semanas; sin cota, una configuracion rara colgaria el loop.\nconst MAX_BARRIDO = 70;\n\n// Se ofrecen 7 dias HABILES, no 7 dias de calendario. Ofrecer un dia que el\n// profesional no atiende no es inofensivo aunque el backend devuelva lista\n// vacia: el paciente gasta un paso para descubrir que ese dia no existia.\n// dias_atencion son los nombres que usa availability_service.DIAS_SEMANA\n// ('Lunes'..'Domingo'), indexados por el weekday() de Python (0=lunes), mientras\n// getUTCDay() de JS es 0=domingo. De ahi el orden de este array.\nconst NOMBRE_DIA = ['Domingo', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado'];\n\n// Se comparan sin acentos ni mayusculas: el valor viaja como JSON libre y una\n// configuracion con 'Miercoles' sin tilde no deberia borrar los miercoles.\nfunction normalizar(s) {\n  return String(s || '')\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '')\n    .toLowerCase()\n    .trim();\n}\n\nconst http = ($input.all()[0] && $input.all()[0].json) || {};\nconst status = http.statusCode;\nconst configOk = typeof status === 'number' && status >= 200 && status < 300;\nconst body = http.body || {};\nconst dias = Array.isArray(body.dias_atencion) ? body.dias_atencion.map(normalizar) : [];\n\n// Si la configuracion no se pudo leer, se ofrecen los dias corridos igual. Un\n// dia de mas es un paso perdido; no ofrecer ninguno es un flujo muerto.\nconst filtrar = configOk && dias.length > 0;\n\nfunction atiende(fecha) {\n  if (!filtrar) return true;\n  const p = fecha.split('-').map(Number);\n  const d = new Date(Date.UTC(p[0], p[1] - 1, p[2]));\n  return dias.indexOf(normalizar(NOMBRE_DIA[d.getUTCDay()])) !== -1;\n}\n\nconst hoy = hoyArgentina();\nconst manana = addDays(hoy, 1);\n\nconst DIAS_CORTOS = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'];\nconst MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];\n\n// La etiqueta se deriva de la FECHA, no del indice del loop. Al reves --que era\n// como estaba-- el primer boton decia \"Hoy\" y era manana.\nfunction etiqueta(fecha) {\n  if (fecha === hoy) return 'Hoy';\n  if (fecha === manana) return 'Manana';\n  const p = fecha.split('-').map(Number);\n  const d = new Date(Date.UTC(p[0], p[1] - 1, p[2]));\n  return DIAS_CORTOS[d.getUTCDay()] + ' ' + p[2] + ' ' + MESES[p[1] - 1];\n}\n\nconst teclado = [];\nlet offset = DIA_INICIO;\nwhile (teclado.length < DIAS_A_OFRECER && offset < MAX_BARRIDO) {\n  const fecha = addDays(hoy, offset);\n  offset += 1;\n  if (!atiende(fecha)) continue;\n  teclado.push([{\n    text: etiqueta(fecha) + ' (' + fecha + ')',\n    callback_data: 'cmd:reprogramar:t:' + turnoId + ':f:' + fecha\n  }]);\n}\n\nlet mensaje;\nif (teclado.length === 0) {\n  mensaje = 'No encontramos dias de atencion proximos. Escribinos para coordinar.';\n} else {\n  mensaje = 'Elegi la nueva fecha:';\n}\nteclado.push([{ text: 'Volver a mis turnos', callback_data: 'cmd:reprogramar' }]);\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    turno_id: turnoId,\n    cantidad: teclado.length - 1,\n    mensaje: mensaje,\n    inline_keyboard: teclado\n  }\n}];"
       }
     },
     {
@@ -308,7 +340,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        880,
+        1120,
         240
       ],
       "parameters": {
@@ -613,7 +645,7 @@
         ],
         [
           {
-            "node": "Code - Formatear Fechas",
+            "node": "HTTP - GET Configuracion",
             "type": "main",
             "index": 0
           }
@@ -682,6 +714,17 @@
         [
           {
             "node": "Telegram - Sin Turnos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - GET Configuracion": {
+      "main": [
+        [
+          {
+            "node": "Code - Formatear Fechas",
             "type": "main",
             "index": 0
           }

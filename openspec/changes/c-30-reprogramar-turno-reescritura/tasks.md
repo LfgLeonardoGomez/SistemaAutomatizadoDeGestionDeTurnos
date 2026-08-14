@@ -49,7 +49,8 @@
 - [x] 5.2 RED: chequeo de que cada etiqueta relativa coincide con la fecha que el botón envía (defecto 7).
 - [x] 5.3 GREEN: generador de 7 fechas en hora local del profesional. **El día de arranque va como constante nombrada, no como `1` literal**: el change que habilite "hoy" tiene que poder moverlo sin reescribir el generador.
 - [x] 5.4 Botones con `cmd:reprogramar:t:<id>:f:<fecha>`.
-- [x] 5.5 Una fecha sin `dias_atencion` cae en la rama de D7 (ofrecer cambiar de fecha), no en un mensaje de error. Es la consecuencia aceptada de ofrecer 7 días fijos.
+- [x] 5.5 ~~Una fecha sin `dias_atencion` cae en la rama de D7.~~ **Revertido por el E2E: ya no se ofrecen días que el profesional no atiende.** El paso consulta `GET /profesional/configuracion` y junta 7 días hábiles, con degradación a días corridos si esa consulta falla.
+- [x] 5.6 Los 7 días ofrecidos son hábiles, no corridos. Comparación de `dias_atencion` tolerante a acentos y mayúsculas.
 
 ## 6. Paso de horarios
 

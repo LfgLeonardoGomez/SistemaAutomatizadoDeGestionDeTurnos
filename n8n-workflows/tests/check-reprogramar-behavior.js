@@ -121,9 +121,48 @@ check(
 // ---------------------------------------------------------------------------
 section('Fechas');
 
-const fechas = run('Code - Formatear Fechas', [{ json: {} }], DEC);
-const botonesFecha = fechas.inline_keyboard.filter((r) => /:f:/.test(r[0].callback_data));
+const LUN_A_VIE = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
+const config = (dias, status) => httpItem(status || 200, { dias_atencion: dias });
+const soloFechas = (out) => out.inline_keyboard.filter((r) => /:f:/.test(r[0].callback_data));
+
+const fechas = run('Code - Formatear Fechas', config(LUN_A_VIE), DEC);
+const botonesFecha = soloFechas(fechas);
 check('ofrece 7 fechas', botonesFecha.length === 7, 'fueron ' + botonesFecha.length);
+
+// Ofrecer un dia que el profesional no atiende no es inofensivo: el paciente
+// gasta un paso para descubrir que ese dia no existia.
+function diaSemana(f) {
+  const p = f.split('-').map(Number);
+  return ['Domingo', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado'][
+    new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay()
+  ];
+}
+const diasOfrecidos = botonesFecha.map((r) => diaSemana(r[0].callback_data.split(':f:')[1]));
+check(
+  'no ofrece dias que el profesional no atiende',
+  !diasOfrecidos.some((d) => d === 'Sabado' || d === 'Domingo'),
+  diasOfrecidos.join(', ')
+);
+check('los 7 son dias habiles, no 7 dias corridos', botonesFecha.length === 7 && new Set(diasOfrecidos).size <= 5);
+
+// dias_atencion viaja como JSON libre; una config sin tildes no debe borrar dias.
+const sinTildes = run('Code - Formatear Fechas', config(['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes']), DEC);
+check(
+  'la comparacion ignora acentos',
+  soloFechas(sinTildes).length === 7 && !soloFechas(sinTildes).map((r) => diaSemana(r[0].callback_data.split(':f:')[1])).includes('Sabado')
+);
+
+const unSoloDia = run('Code - Formatear Fechas', config(['Miércoles']), DEC);
+const diasUnico = soloFechas(unSoloDia).map((r) => diaSemana(r[0].callback_data.split(':f:')[1]));
+check('con un solo dia de atencion junta 7 miercoles', diasUnico.length === 7 && diasUnico.every((d) => d === 'Miercoles'), diasUnico.join(', '));
+
+// Si la config no se puede leer, ofrecer dias corridos es peor que no ofrecer
+// ninguno: un dia de mas cuesta un paso, cero dias es un flujo muerto.
+const configCaida = run('Code - Formatear Fechas', httpItem(500, {}), DEC);
+check('config caida: degrada a dias corridos en vez de quedarse vacio', soloFechas(configCaida).length === 7);
+
+const sinDias = run('Code - Formatear Fechas', config([]), DEC);
+check('dias_atencion vacio: tambien degrada', soloFechas(sinDias).length === 7);
 
 function hoyAr() {
   const p = new Intl.DateTimeFormat('en-CA', {
@@ -141,12 +180,25 @@ function addDays(s, n) {
 
 const hoy = hoyAr();
 const primera = botonesFecha[0][0].callback_data.split(':f:')[1];
-check('la ventana arranca manana (hora local AR)', primera === addDays(hoy, 1), primera + ' vs ' + addDays(hoy, 1));
+check('la ventana nunca arranca antes de manana', primera >= addDays(hoy, 1), primera + ' < ' + addDays(hoy, 1));
 check('no ofrece hoy', !botonesFecha.some((r) => r[0].callback_data.endsWith(hoy)));
 
-// Defecto 7: la etiqueta se deriva de la fecha, no del indice.
-const etiquetaPrimera = botonesFecha[0][0].text;
-check('la etiqueta del primer boton dice Manana, no Hoy', /Manana/.test(etiquetaPrimera), etiquetaPrimera);
+// Defecto 7: la etiqueta se deriva de la FECHA, no del indice del loop. Se prueba
+// con una config que incluya el dia de manana, para que el primer boton sea
+// manana sin importar que dia se corra el test.
+const manana = addDays(hoy, 1);
+const configConManana = run('Code - Formatear Fechas', config([diaSemana(manana)]), DEC);
+const primerBotonManana = soloFechas(configConManana)[0][0];
+check(
+  'cuando el primer dia ofrecido ES manana, la etiqueta lo dice',
+  primerBotonManana.callback_data.endsWith(manana) && /Manana/.test(primerBotonManana.text),
+  primerBotonManana.text
+);
+check(
+  'cuando NO es manana, la etiqueta no miente',
+  !/Manana|Hoy/.test(botonesFecha[0][0].text) || botonesFecha[0][0].callback_data.endsWith(manana),
+  botonesFecha[0][0].text + ' -> ' + botonesFecha[0][0].callback_data
+);
 for (const row of botonesFecha) {
   const fechaEnCallback = row[0].callback_data.split(':f:')[1];
   if (/\(/.test(row[0].text)) {
