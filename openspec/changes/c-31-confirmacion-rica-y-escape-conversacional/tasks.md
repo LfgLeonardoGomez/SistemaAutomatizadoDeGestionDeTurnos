@@ -13,9 +13,10 @@
 ## 1. Baseline y decisiones
 
 - [ ] 1.1 Safety net: correr la suite completa y registrar el baseline de tests en verde. Un fallo posterior tiene que ser atribuible a este trabajo.
-- [ ] 1.2 Resolver **OQ-1** (`/start` entra o no como escape) con el usuario. Bloquea el grupo 4.
-- [ ] 1.3 Resolver **OQ-2** (si la confirmación repite nombre y apellido del paciente) con el usuario. Bloquea el grupo 2, porque cambia los tests del formatter.
+- [x] 1.2 Resolver **OQ-1** (`/start` entra o no como escape) con el usuario. **Resuelta 2026-08-14: SÍ. Son cinco comandos (`/menu`, `/salir`, `/esc`, `/volver`, `/start`). Ver D5b.**
+- [x] 1.3 Resolver **OQ-2** (si la confirmación repite nombre y apellido del paciente) con el usuario. **Resuelta 2026-08-14: el mensaje espeja al del recordatorio — paciente Y profesional. Supuesto declarado en el design.**
 - [ ] 1.4 Backup de `orquestador.json` y `sub-flujo-crear-turno.json` vivos vía `n8n-cli workflows get --json`.
+- [ ] 1.5 Resolver **OQ-3**: qué comando se nombra en el menú y con qué redacción exacta. Es copy que ve todo paciente en cada vuelta al menú. Bloquea 4.8.
 
 ## 2. Formatter — `format_confirmacion_mensaje`
 
@@ -41,15 +42,17 @@
 
 ## 4. Escapes en el orquestador
 
-> Bloqueado por 1.2.
+> Desbloqueado por 1.2. Son **cinco** comandos: `/menu`, `/salir`, `/esc`, `/volver`, `/start`.
 
-- [ ] 4.1 RED: extender el harness de `d186408` con los cuatro comandos, afirmando `comando === 'desconocido'` y `fresh_start === true`. Falla contra el JSON actual.
-- [ ] 4.2 RED: afirmar que ninguno de los cuatro viaja con `respuesta_captura`. Falla contra el JSON actual.
+- [ ] 4.1 RED: extender el harness de `d186408` con los cinco comandos, afirmando `comando === 'desconocido'` y `fresh_start === true`. Falla contra el JSON actual.
+- [ ] 4.2 RED: afirmar que ninguno de los cinco viaja con `respuesta_captura`. Falla contra el JSON actual. **Incluir `/start` explícitamente: hoy pasa por texto libre y con una captura viva se manda como respuesta.**
 - [ ] 4.3 GREEN: agregarlos a `esComandoTexto` con **igualdad exacta** sobre el texto trimmeado y en minúsculas (D5). No asignar `comando` — la ausencia es el ruteo, igual que `cmd:menu`.
 - [ ] 4.4 RED + GREEN: una frase larga que contenga un comando de escape **no** escapa.
 - [ ] 4.5 RED + GREEN: una palabra sin barra que contenga "salir" o "volver" sigue siendo respuesta de captura. Cubrir el apellido "Volver", que es real.
 - [ ] 4.6 Regresión: los 11 casos de ruteo de `d186408` siguen pasando.
-- [ ] 4.7 Documentar los cuatro comandos en la tabla de callbacks del README, en la sección del escape hatch.
+- [ ] 4.7 Documentar los cinco comandos en el README, en la sección del escape hatch.
+- [ ] 4.8 **Redactar el nuevo texto de `Telegram - Mensaje de Ayuda`** con la línea que enseña la salida (D7). Bloqueado por 1.5. Hoy dice solo `"Hola 👋 ¿Qué querés hacer?"`; pasa a tener dos trabajos y la segunda línea no debe competir con los botones.
+- [ ] 4.9 Verificar que el mensaje de ayuda sigue siendo el mismo nodo al que llegan **las dos** entradas (fallback del Switch y `IF - Mostrar Ayuda`), para que el texto nuevo se vea por ambos caminos.
 
 ## 5. n8n — transporte del mensaje
 
@@ -67,7 +70,9 @@
 - [ ] 6.1 Reservar un turno de punta a punta y confirmar que el mensaje final **nombra al profesional**.
 - [ ] 6.2 Confirmar que el mensaje se ve **formateado**, sin barras de escape visibles. Es el modo de falla de "sin `parse_mode`".
 - [ ] 6.3 Reservar con un paciente cuyo apellido tenga un guión o un punto, y confirmar que el mensaje **llega**. Es el modo de falla de "escapado incompleto": Telegram devuelve 400 y no llega nada.
-- [ ] 6.4 Los cuatro escapes, uno por uno, a mitad de una captura: cada uno devuelve el menú y abandona la captura.
+- [ ] 6.4 Los cinco escapes, uno por uno, a mitad de una captura: cada uno devuelve el menú y abandona la captura.
+- [ ] 6.4b Abandonar una reserva, cerrar el chat y volver a abrirlo: el /start automático del cliente devuelve el menú y no se registra como respuesta a la pregunta pendiente (D5b).
+- [ ] 6.4c Leer el menú como paciente nuevo y confirmar que la línea de escape se entiende sin explicación previa. Después usar el comando que nombra y verificar que funciona (D7).
 - [ ] 6.5 Después de escapar, empezar una reserva nueva y confirmar que no arrastra nada de la anterior.
 - [ ] 6.6 Responder una frase que contenga "salir" a una pregunta de captura y confirmar que **no** escapa.
 - [ ] 6.7 Verificar que el turno confirmado en 6.1 quedó `CONFIRMADO` en la base con su `paciente_id`.

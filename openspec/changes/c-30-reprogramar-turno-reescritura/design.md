@@ -225,14 +225,29 @@ No hay migración de datos: el change es enteramente de workflow n8n.
 5. E2E manual contra el bot real.
 6. Rollback: reimportar el backup del paso 3.
 
-## Open Questions
+## Open Questions — RESUELTAS (2026-08-14)
 
-- **OQ-1 — ¿Cuántas fechas se ofrecen y desde cuándo?** Hoy son 7 días
-  arrancando en "mañana", sin consultar si el profesional atiende esos días.
-  Ofrecer un día sin agenda produce una lista de horarios vacía y un paso
-  perdido. Resolver antes del grupo de fechas: mantener los 7 días fijos, o
-  filtrar por días con disponibilidad real.
-- **OQ-2 — ¿Se permite reprogramar a un horario del mismo día?** El loop actual
-  arranca en `i = 1` (mañana), lo que excluye hoy sin decirlo en ningún lado. Si
-  fue deliberado, va documentado como regla de negocio; si no, es un defecto de
-  alcance.
+- **OQ-1 — ¿Cuántas fechas se ofrecen y desde cuándo?** → **7 días fijos.**
+  Verificado que es seguro: `calcular_disponibilidad`
+  (`backend/app/services/availability_service.py:53-55`) devuelve `[]` para un
+  día que no está en `dias_atencion`, así que un día sin agenda produce una lista
+  vacía y el flujo lo trata con la rama de D7 (ofrecer cambiar de fecha). No
+  hace falta filtrar las fechas antes de ofrecerlas.
+
+- **OQ-2 — ¿Se permite reprogramar a un horario del mismo día?** → **Sí, debería
+  poderse — pero NO entra en este change.** Habilitarlo hoy ofrecería turnos en
+  el pasado: `calcular_disponibilidad` **no filtra por hora actual**, solo resta
+  turnos `CONFIRMADO`/`RESERVADO_TEMPORAL`. Pedir disponibilidad de hoy a las
+  18:00 devuelve los slots de las 09:00 en adelante, y el paciente puede
+  reservarlos.
+
+  El filtro correspondiente es backend, tiene que comparar contra la hora local
+  del profesional (no contra el reloj del proceso, que corre en UTC), y lo
+  necesitan **los dos** flujos — reprogramar y crear, cuyo rango "lo antes
+  posible" también arranca mañana (`sub-flujo-crear-turno`,
+  `Code - Decidir Paso:118`). Por eso vive en su propio change y no acá, donde
+  "no se toca el backend" es un Non-Goal declarado.
+
+  **Este change mantiene la ventana arrancando en mañana**, con el generador de
+  fechas escrito de forma que mover el arranque sea un parámetro y no una
+  reescritura.

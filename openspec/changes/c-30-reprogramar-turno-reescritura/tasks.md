@@ -15,7 +15,7 @@
 - [ ] 1.1 Confirmar que `openspec validate --changes --strict` pasa c-30 antes de empezar, para que un fallo posterior sea atribuible a este trabajo.
 - [ ] 1.2 Guardar backup de la versión viva: `n8n-cli workflows get NKLiszZeopCTc7iNBx9XY --json`. Es el único rollback que existe.
 - [ ] 1.3 Registrar el estado de partida: 12 nodos, 8 defectos verificados (ver `proposal.md`), teclados ya convertidos a `sendMessage` por `ad49cb9`.
-- [ ] 1.4 Resolver **OQ-1** y **OQ-2** de `design.md` con el usuario. OQ-1 (cuántas fechas y si se filtran por días con agenda) condiciona el grupo 5; OQ-2 (si se puede reprogramar al mismo día) condiciona el rango. No arrancar el grupo 5 sin respuesta.
+- [x] 1.4 Resolver **OQ-1** y **OQ-2** de `design.md` con el usuario. **Resueltas el 2026-08-14: OQ-1 → 7 días fijos (verificado seguro: `calcular_disponibilidad` devuelve `[]` en días sin `dias_atencion`). OQ-2 → sí debería poderse reprogramar para hoy, pero se difiere: `calcular_disponibilidad` no filtra por hora actual y habilitarlo ofrecería slots ya pasados. El filtro es backend y lo necesitan los dos flujos, así que va en su propio change. Este mantiene la ventana desde mañana.**
 
 ## 2. Harness de verificación estática — RED primero
 
@@ -43,12 +43,13 @@
 
 ## 5. Paso de fechas
 
-> Bloqueado por 1.4 (OQ-1 y OQ-2).
+> Desbloqueado: 7 días fijos, ventana arrancando en mañana (ver OQ-1/OQ-2 resueltas).
 
 - [ ] 5.1 RED: chequeo de que las fechas se calculan en local y no con `toISOString()` (defecto 8).
 - [ ] 5.2 RED: chequeo de que cada etiqueta relativa coincide con la fecha que el botón envía (defecto 7).
-- [ ] 5.3 GREEN: generador de fechas en hora local del profesional, con el rango que resuelva OQ-1/OQ-2.
+- [ ] 5.3 GREEN: generador de 7 fechas en hora local del profesional. **El día de arranque va como constante nombrada, no como `1` literal**: el change que habilite "hoy" tiene que poder moverlo sin reescribir el generador.
 - [ ] 5.4 Botones con `cmd:reprogramar:t:<id>:f:<fecha>`.
+- [ ] 5.5 Una fecha sin `dias_atencion` cae en la rama de D7 (ofrecer cambiar de fecha), no en un mensaje de error. Es la consecuencia aceptada de ofrecer 7 días fijos.
 
 ## 6. Paso de horarios
 

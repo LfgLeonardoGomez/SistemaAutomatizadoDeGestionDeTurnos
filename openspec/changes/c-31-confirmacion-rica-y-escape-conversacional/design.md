@@ -124,12 +124,51 @@ al final no matchee — de ahí el trim.
 con la rama de texto libre que alimenta la captura de nombre y apellido. "Volver"
 es un apellido real. La barra es lo que separa un comando de un dato.
 
+### D5b — `/start` entra, y resuelve la primera interacción de todo paciente
+
+`/start` se suma a los cuatro escapes. No es un quinto sinónimo cualquiera: los
+clientes de Telegram lo emiten **solos** cuando alguien abre un chat con el bot
+por primera vez.
+
+Hoy `/start` cae en la rama de texto libre → `comando = 'crear'` → sin captura
+viva muestra la ayuda. **Funciona por accidente**, y el accidente se rompe en el
+único caso que importa: un paciente que abandonó una reserva, cierra Telegram y
+vuelve a entrar. Su `/start` se manda como respuesta a la pregunta pendiente.
+
+Con `/start` reconocido, la primera interacción de un paciente nuevo y la
+recuperación de uno atrapado son el mismo camino y llevan al menú.
+
 ### D6 — El escape muestra el menú, no un acuse
 
 Al escapar, el paciente recibe el menú principal (`Telegram - Mensaje de Ayuda`),
 no un "conversación cancelada". Un acuse sin opciones lo deja donde estaba, sin
 saber qué hacer, y obliga a un mensaje más. El menú **es** el acuse: si aparece,
 salió.
+
+### D7 — El escape se nombra en el mensaje de ayuda, como texto y no como botón
+
+`Telegram - Mensaje de Ayuda` incorpora una línea que dice explícitamente cómo
+salir. No se agrega un botón.
+
+**Por qué esto es el corazón del pedido y no un adorno:** un escape que el
+paciente no conoce no existe. El problema real no era la falta de mecanismo
+—`fresh_start` ya estaba— sino que **nadie se lo dice al paciente**.
+
+**Por qué texto y no botón:** un botón solo sirve donde hay botón. Quien está
+atrapado está viendo *"¿Cuál es tu nombre?"* — un mensaje sin teclado, porque es
+una pregunta abierta. El botón del menú quedó atrás en el historial. Un comando
+escrito funciona en cualquier punto de la conversación, que es exactamente donde
+hace falta.
+
+**Dónde ponerlo:** en el menú principal, que es el mensaje que el paciente ve al
+empezar y al que vuelve cada vez que escapa. Se nombra **un** comando, no los
+cinco: una lista de sinónimos es ruido y ninguno se recuerda. Los otros cuatro
+siguen funcionando sin estar documentados en el chat.
+
+**Consecuencia sobre el texto del menú:** deja de ser solo `"Hola 👋 ¿Qué querés
+hacer?"`. Ese mensaje pasa a tener dos trabajos —ofrecer las acciones y enseñar
+la salida— y hay que redactarlo para que la segunda línea no compita con los
+botones.
 
 ## Risks / Trade-offs
 
@@ -160,16 +199,21 @@ Sin migración de datos. Sin cambios de esquema de base.
    `/confirmar`, que **agrega** un campo; un cliente viejo lo ignora. Los
    workflows vuelven desde el backup.
 
-## Open Questions
+## Open Questions — RESUELTAS (2026-08-14)
 
-- **OQ-1 — ¿`/start` entra como escape?** No estaba en los cuatro pedidos. Hoy
-  cae en texto libre → `comando = 'crear'` → sin captura viva muestra la ayuda,
-  o sea **funciona por accidente**. Con una captura viva se manda como respuesta.
-  Los clientes de Telegram lo emiten solos al abrir un chat por primera vez, así
-  que la primera interacción de un paciente nuevo pasa por ahí. Resolver antes
-  del grupo de escapes.
-- **OQ-2 — ¿La confirmación repite los datos del paciente?** El recordatorio los
-  incluye porque llega un día después, cuando el paciente ya no recuerda qué
-  cargó. En la confirmación acaba de tipearlos. Mostrarlos sirve para que detecte
-  un error de tipeo; omitirlos acorta el mensaje. Definir antes del grupo del
-  formatter, porque cambia sus tests.
+- **OQ-1 — ¿`/start` entra como escape?** → **Sí.** Ver D5b. Son cinco comandos:
+  `/menu`, `/salir`, `/esc`, `/volver`, `/start`.
+
+- **OQ-2 — ¿La confirmación repite los datos del paciente?** → **Sí: el mensaje
+  espeja al del recordatorio**, que incluye paciente **y** profesional, porque
+  "está bueno" tal como es. La confirmación no inventa un formato propio.
+
+  *Supuesto declarado:* la respuesta habló de los datos del profesional; se
+  interpreta como "que diga lo mismo que el recordatorio", que es el mensaje que
+  se tomó como referencia. Si la intención era omitir los datos del paciente,
+  es un ajuste de una línea en el formatter y sus tests.
+
+- **OQ-3 (nueva) — ¿Qué comando se nombra en el menú?** D7 dice que se nombra
+  uno solo, no los cinco. Cuál —y con qué redacción exacta— se define al escribir
+  el texto, junto con el usuario, porque es copy que ve todo paciente en cada
+  vuelta al menú.

@@ -18,8 +18,9 @@ has nothing to type.
 
 ### Requirement: Comandos de escape conversacional
 
-The system SHALL recognise `/menu`, `/salir`, `/esc` and `/volver` as commands
-that abandon whatever the patient was doing and return them to the main menu.
+The system SHALL recognise `/menu`, `/salir`, `/esc`, `/volver` and `/start` as
+commands that abandon whatever the patient was doing and return them to the main
+menu.
 
 #### Scenario: Escapar de una captura pendiente
 
@@ -42,10 +43,41 @@ that abandon whatever the patient was doing and return them to the main menu.
 - **THEN** recibe el menú principal
 - **AND** no se produce ningún error ni ningún efecto sobre sus turnos
 
-#### Scenario: Los cuatro comandos son equivalentes
+#### Scenario: Todos los comandos de escape son equivalentes
 
-- **WHEN** el paciente escribe cualquiera de los cuatro comandos de escape
+- **WHEN** el paciente escribe cualquiera de los comandos de escape
 - **THEN** el resultado es el mismo en todos los casos
+
+#### Scenario: La primera interacción de un paciente nuevo llega al menú
+
+- **WHEN** un paciente abre el chat con el bot por primera vez y su cliente de
+  Telegram envía `/start`
+- **THEN** recibe el menú principal
+
+#### Scenario: Volver a abrir el chat rescata a quien quedó a mitad de camino
+
+- **WHEN** un paciente con una captura pendiente vuelve a abrir el chat y se
+  envía `/start`
+- **THEN** la captura pendiente se abandona
+- **AND** el texto del comando no se registra como respuesta a la pregunta
+  pendiente
+
+### Requirement: El menú principal enseña cómo salir
+
+The system SHALL state, in the main menu message itself, how the patient can
+leave a conversation in progress, as text rather than as a button.
+
+#### Scenario: El menú nombra el comando de escape
+
+- **WHEN** el paciente recibe el menú principal
+- **THEN** el mensaje menciona explícitamente un comando para volver al menú
+- **AND** lo hace como texto legible, no como un botón
+
+#### Scenario: El comando que el menú nombra funciona
+
+- **WHEN** el paciente escribe el comando que el menú le indicó, en cualquier
+  punto de una conversación
+- **THEN** vuelve al menú principal
 
 #### Scenario: El escape se reconoce sin importar mayúsculas ni espacios sobrantes
 
