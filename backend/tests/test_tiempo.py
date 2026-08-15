@@ -146,3 +146,113 @@ class TestCallSitesUsanHoraLocal:
         fuente = inspect.getsource(ns.obtener_turnos_para_recordar)
         assert "ahora_local()" in fuente
         assert "datetime.now()" not in fuente
+
+
+class TestRelojDeProcesoEnLaSuite:
+    """Impide que la suite vuelva a desfasarse del reloj de la aplicación.
+
+    El bug que motiva esto no fue teórico: varios tests sembraban datos con
+    ``date.today()`` —el reloj del proceso, UTC dentro del container— mientras el
+    código bajo prueba resuelve "hoy" con ``hoy_local()``. Entre las 21:00 y
+    medianoche en UTC-3 esos son días distintos, así que el test sembraba un día
+    y el endpoint consultaba otro. **Los tests estaban mal tres horas por día**,
+    lo que se lee como flakiness pero es perfectamente determinístico: la corrida
+    de la tarde pasaba y la de la noche fallaba.
+
+    Hay un segundo modo, más silencioso: para columnas naive-UTC como
+    ``expiracion``, ``datetime.now()`` da el valor correcto **solo porque el
+    container corre en UTC**. Corriendo la suite fuera del container, en una
+    máquina en Argentina, esas comparaciones se corren tres horas.
+
+    Esta guarda no arregla los usos que ya existen: los congela como línea de
+    base declarada y hace fallar cualquiera NUEVO. Ver ``LINEA_DE_BASE``.
+    """
+
+    # Sitios que ya usaban el reloj del proceso cuando se escribió esta guarda.
+    # NO es una lista de "está bien": es deuda con nombre y apellido. Al tocar
+    # uno de estos archivos, la mejora es migrarlo a ``ahora_local`` /
+    # ``hoy_local`` y bajar el número de acá.
+    LINEA_DE_BASE = {
+        "test_captura_router.py": 1,
+        "test_captura_service.py": 1,
+        "test_confirmacion_asistencia.py": 1,
+        "test_lista_espera_service.py": 1,
+        "test_notificacion_service.py": 1,  # DNI único, no depende del reloj
+        "test_profesional_isolation.py": 1,
+        "test_recordatorio_service.py": 8,
+        "test_relations.py": 1,
+        "test_reserva_temporal.py": 4,
+        "test_scheduler_isolation.py": 1,
+        "test_scheduler_job.py": 4,
+        "test_tiempo.py": 2,  # este archivo prueba el helper: es su tema
+        "test_turno_service.py": 4,
+    }
+
+    @staticmethod
+    def _usos_por_archivo() -> dict:
+        """Cuenta llamadas reales a ``date.today()`` / ``datetime.now()``.
+
+        Se parsea con ``ast`` y no con grep: media docena de menciones viven en
+        comentarios y docstrings que explican justamente este bug, y contarlas
+        haría ruido en vez de señal.
+        """
+        import ast
+        from pathlib import Path
+
+        conteo: dict = {}
+        for archivo in sorted(Path(__file__).resolve().parent.glob("test_*.py")):
+            arbol = ast.parse(archivo.read_text(encoding="utf-8"))
+            usos = 0
+            for nodo in ast.walk(arbol):
+                if not isinstance(nodo, ast.Call):
+                    continue
+                fn = nodo.func
+                if not isinstance(fn, ast.Attribute) or not isinstance(fn.value, ast.Name):
+                    continue
+                if fn.value.id == "date" and fn.attr == "today":
+                    usos += 1
+                elif fn.value.id == "datetime" and fn.attr == "now":
+                    usos += 1
+            if usos:
+                conteo[archivo.name] = usos
+        return conteo
+
+    def test_ningun_archivo_nuevo_usa_el_reloj_del_proceso(self):
+        actual = self._usos_por_archivo()
+        nuevos = sorted(set(actual) - set(self.LINEA_DE_BASE))
+        assert not nuevos, (
+            "Estos archivos de test usan el reloj del proceso "
+            f"(date.today()/datetime.now()): {nuevos}. Usá ahora_local() / "
+            "hoy_local() de app.tiempo, que es lo que usa el código bajo prueba. "
+            "Con el reloj del proceso el test pasa de día y falla de noche."
+        )
+
+    def test_ningun_archivo_suma_usos_nuevos(self):
+        actual = self._usos_por_archivo()
+        crecieron = {
+            nombre: (self.LINEA_DE_BASE[nombre], cantidad)
+            for nombre, cantidad in actual.items()
+            if nombre in self.LINEA_DE_BASE and cantidad > self.LINEA_DE_BASE[nombre]
+        }
+        assert not crecieron, (
+            "Estos archivos sumaron usos del reloj del proceso "
+            f"(base -> actual): {crecieron}. Usá ahora_local() / hoy_local()."
+        )
+
+    def test_la_linea_de_base_no_miente(self):
+        """Si un archivo se arregla, la línea de base tiene que bajar con él.
+
+        Sin esto la lista queda como folklore: nombres que ya no aplican y que
+        nadie se anima a tocar porque no se sabe si siguen siendo ciertos.
+        """
+        actual = self._usos_por_archivo()
+        obsoletos = {
+            nombre: (esperados, actual.get(nombre, 0))
+            for nombre, esperados in self.LINEA_DE_BASE.items()
+            if actual.get(nombre, 0) < esperados
+        }
+        assert not obsoletos, (
+            "Estos archivos tienen MENOS usos que la línea de base "
+            f"(base -> actual): {obsoletos}. Bajá el número en LINEA_DE_BASE: "
+            "la deuda se achicó y el registro tiene que reflejarlo."
+        )
