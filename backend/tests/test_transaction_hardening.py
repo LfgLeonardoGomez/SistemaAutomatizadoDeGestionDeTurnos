@@ -596,3 +596,148 @@ class TestCreatePacienteUnificado:
             body = resp.json()
             assert body["dni"] == dni
             assert "id" in body
+
+
+class TestContratoTransaccionalEsEjecutable:
+    """El chequeo estático que ``service-transaction-contract`` describe y que
+    nunca se había escrito.
+
+    El spec dice: *"se inspecciona el código de un servicio de dominio en
+    app/services/ → ninguna función SHALL contener await db.commit() ni
+    await db.rollback()"*. Eso es un Scenario verificable, pero quedó como prosa
+    y el código derivó en varios lugares sin que nada fallara.
+
+    No es teórico. ``reservar_turno`` hacía ``await db.rollback()`` al capturar
+    el IntegrityError del slot duplicado, y **un rollback expira TODOS los
+    objetos de la sesión**: el caller se quedaba con entidades expiradas y el
+    siguiente acceso a un atributo intentaba ir a la base fuera del contexto
+    async, reventando con ``MissingGreenlet``. Como el rollback solo se dispara
+    cuando salta el IntegrityError, el sintoma era intermitente y se catalogo
+    durante meses como "flaky" en los tests de lista de espera.
+
+    **Excepcion legitima**: una funcion que ABRE su propia sesion
+    (``async with session_maker() as db``) es el caller, no un servicio llamado
+    por uno. Esa maneja su transaccion con todo derecho. Por eso el chequeo mira
+    si el nombre esta ligado por un ``with`` dentro de la propia funcion, en vez
+    de prohibir el metodo a ciegas.
+    """
+
+    @staticmethod
+    def _violaciones() -> list[tuple[str, int, str]]:
+        import ast
+        from pathlib import Path
+
+        servicios = Path(__file__).resolve().parent.parent / "app" / "services"
+        encontradas: list[tuple[str, int, str]] = []
+
+        for archivo in sorted(servicios.glob("*.py")):
+            arbol = ast.parse(archivo.read_text(encoding="utf-8"))
+
+            for funcion in ast.walk(arbol):
+                if not isinstance(funcion, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+
+                # Nombres que la función abre ella misma: son suyos.
+                propios: set[str] = set()
+                for nodo in ast.walk(funcion):
+                    if isinstance(nodo, (ast.With, ast.AsyncWith)):
+                        for item in nodo.items:
+                            if isinstance(item.optional_vars, ast.Name):
+                                propios.add(item.optional_vars.id)
+
+                for nodo in ast.walk(funcion):
+                    if not isinstance(nodo, ast.Call):
+                        continue
+                    fn = nodo.func
+                    if not isinstance(fn, ast.Attribute):
+                        continue
+                    if fn.attr not in {"commit", "rollback"}:
+                        continue
+                    if not isinstance(fn.value, ast.Name):
+                        continue
+                    if fn.value.id in propios:
+                        continue
+                    encontradas.append(
+                        (archivo.name, nodo.lineno, f"{fn.value.id}.{fn.attr}()")
+                    )
+
+        return sorted(set(encontradas))
+
+    # Violaciones que ya existían cuando se escribió el chequeo. NO es una lista
+    # de "está bien": es deuda con nombre y apellido, contada por archivo. Se
+    # arranca en 8 porque la novena --``turno_service.reservar_turno``-- se
+    # arregló al escribir esto: era la que producía el MissingGreenlet.
+    #
+    # Bajar estos números al tocar cada archivo. Cada uno exige verificar que el
+    # caller rollbackee: los routers ya lo hacen en sus ``except``.
+    LINEA_DE_BASE = {
+        "auth_service.py": 1,
+        "recordatorio_service.py": 2,
+        "super_admin_service.py": 4,
+        "telegram_service.py": 1,
+    }
+
+    def _por_archivo(self) -> dict:
+        conteo: dict = {}
+        for archivo, _linea, _que in self._violaciones():
+            conteo[archivo] = conteo.get(archivo, 0) + 1
+        return conteo
+
+    EXPLICACION = (
+        "El caller (router o scheduler) es el dueño de la transacción. Un commit "
+        "prematuro rompe la atomicidad de las operaciones compuestas, y un "
+        "rollback EXPIRA todos los objetos de la sesión del caller: el siguiente "
+        "acceso a un atributo va a la base fuera del contexto async y falla con "
+        "MissingGreenlet, lejos de acá y sin parecerse a su causa. Relanzá la "
+        "excepción y dejá que el caller decida. "
+        "Ver openspec/specs/service-transaction-contract."
+    )
+
+    def test_ningun_servicio_nuevo_maneja_la_transaccion(self):
+        actual = self._por_archivo()
+        nuevos = sorted(set(actual) - set(self.LINEA_DE_BASE))
+        assert not nuevos, (
+            f"Servicios que empezaron a manejar la transacción del caller: {nuevos}.\n"
+            + self.EXPLICACION
+        )
+
+    def test_ningun_servicio_suma_violaciones(self):
+        actual = self._por_archivo()
+        crecieron = {
+            nombre: (self.LINEA_DE_BASE[nombre], cantidad)
+            for nombre, cantidad in actual.items()
+            if nombre in self.LINEA_DE_BASE and cantidad > self.LINEA_DE_BASE[nombre]
+        }
+        assert not crecieron, (
+            f"Estos servicios sumaron violaciones (base -> actual): {crecieron}.\n"
+            + self.EXPLICACION
+        )
+
+    def test_la_linea_de_base_no_miente(self):
+        """Si un servicio se arregla, su número tiene que bajar con él."""
+        actual = self._por_archivo()
+        obsoletos = {
+            nombre: (esperados, actual.get(nombre, 0))
+            for nombre, esperados in self.LINEA_DE_BASE.items()
+            if actual.get(nombre, 0) < esperados
+        }
+        assert not obsoletos, (
+            f"Estos servicios tienen MENOS violaciones que la línea de base "
+            f"(base -> actual): {obsoletos}. Bajá el número en LINEA_DE_BASE: la "
+            "deuda se achicó y el registro tiene que reflejarlo."
+        )
+
+    def test_turno_service_no_rollbackea(self):
+        """Regresión puntual del bug que motivó todo esto.
+
+        ``reservar_turno`` hacía ``await db.rollback()`` al capturar el
+        IntegrityError del slot duplicado. Como el rollback expira todos los
+        objetos de la sesión, el caller se quedaba con entidades expiradas y
+        fallaba después con MissingGreenlet — un síntoma intermitente que se
+        catalogó como "flaky" en los tests de lista de espera.
+        """
+        actual = self._por_archivo()
+        assert "turno_service.py" not in actual, (
+            "turno_service volvió a manejar la transacción del caller. "
+            + self.EXPLICACION
+        )

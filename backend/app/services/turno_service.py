@@ -132,11 +132,22 @@ async def reservar_turno(
     # mismo slot activo, el segundo recibe IntegrityError (pgcode 23505).
     # Lo capturamos y traducimos a TurnoNoDisponibleError (mismo error que ya
     # se lanza cuando el slot no está disponible teóricamente).
+    # NO se hace rollback acá aunque la transacción quede abortada: un rollback
+    # EXPIRA todos los objetos de la sesión, y esa sesión es del caller. El
+    # siguiente acceso a un atributo de cualquier entidad que el caller tenía en
+    # la mano intenta ir a la base fuera del contexto async y revienta con
+    # MissingGreenlet — un fallo que aparece lejos de acá y no se parece a su
+    # causa. Como el rollback solo saltaba con el IntegrityError, el sintoma era
+    # intermitente y quedo catalogado como "flaky" en los tests de lista de
+    # espera durante meses.
+    #
+    # El caller ya rollbackea: ver el except TurnoNoDisponibleError de
+    # ``routers/turnos.py::create_turno`` y el contrato en
+    # ``specs/service-transaction-contract``.
     from sqlalchemy.exc import IntegrityError
     try:
         await db.flush()
     except IntegrityError:
-        await db.rollback()
         raise TurnoNoDisponibleError(
             "El slot ya fue reservado por otro paciente"
         )
