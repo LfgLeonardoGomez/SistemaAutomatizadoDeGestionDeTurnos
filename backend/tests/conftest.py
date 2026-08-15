@@ -173,13 +173,28 @@ def _run_alembic_upgrade(database_url: str) -> None:
     command.upgrade(alembic_cfg, "head")
 
 
+# ``alembic_version`` no es data de test: es el registro de en qué migración
+# quedó la base. Truncarla la deja en cero con las tablas todavía creadas, así
+# que la corrida SIGUIENTE ve una base "sin migrar", reintenta la primera
+# migración y muere con ``DuplicateTable: relation "paciente" already exists``
+# en todos los tests. El síntoma es que la suite anda una vez y hay que borrar
+# la base a mano para volver a correrla.
+_TABLAS_NO_TRUNCABLES = frozenset({"alembic_version"})
+
+
 async def _truncate_all_tables(engine) -> None:
-    """Truncate every public table and reset identity sequences."""
+    """Truncate every public table and reset identity sequences.
+
+    Excluye ``alembic_version`` (ver ``_TABLAS_NO_TRUNCABLES``).
+    """
     async with engine.begin() as conn:
         result = await conn.execute(
             text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
         )
-        tables = [row[0] for row in result.fetchall()]
+        tables = [
+            row[0] for row in result.fetchall()
+            if row[0] not in _TABLAS_NO_TRUNCABLES
+        ]
         if not tables:
             return
         quoted = ", ".join(f'"{t}"' for t in tables)

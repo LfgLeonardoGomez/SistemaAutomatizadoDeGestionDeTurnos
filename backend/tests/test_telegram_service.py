@@ -38,6 +38,7 @@ from app.services.telegram_service import (
     accion_metricas,
     accion_configurar,
 )
+from app.tiempo import hoy_local
 from tests.conftest import make_profesional
 
 
@@ -64,7 +65,7 @@ class TestTelegramServiceIntegration:
         ))
         await db_session.commit()
 
-        hoy = date.today()
+        hoy = hoy_local()
         # Make sure we pick a weekday that is in dias_atencion
         while hoy.strftime("%A") not in {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday"}:
             hoy = date.fromordinal(hoy.toordinal() + 1)
@@ -81,7 +82,7 @@ class TestTelegramServiceIntegration:
         ))
         await db_session.commit()
 
-        hoy = date.today()
+        hoy = hoy_local()
         while hoy.strftime("%A") not in {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday"}:
             hoy = date.fromordinal(hoy.toordinal() + 1)
 
@@ -229,27 +230,43 @@ class TestMessageFormatting:
         texto, keyboard = await accion_reservar_temporal(db_session, 123, "not-a-date", "08:00", profesional_id=1)
         assert "Error" in texto
 
+    # Estos tests probaban que el envío pasara por ``run_in_threadpool``, que es
+    # como se llamaba a un bot SINCRÓNICO. python-telegram-bot v20+ es async
+    # nativo y el servicio hace ``await bot.send_message(...)`` directo (ver el
+    # comentario en ``enviar_mensaje``). El símbolo sigue importado en el módulo
+    # pero no se llama nunca, así que el patch viejo no fallaba: parcheaba algo
+    # inerte, y con eso el test verificaba una implementación que ya no existe.
+    # Ahora se verifica el comportamiento: que se le hable al bot y qué se
+    # devuelve cuando la API falla.
+
     @pytest.mark.asyncio
-    async def test_enviar_mensaje_calls_run_in_threadpool(self):
-        with patch("app.services.telegram_service.run_in_threadpool", new=AsyncMock(return_value=None)) as mock_pool:
-            with patch("app.services.telegram_service._get_bot") as mock_bot:
-                mock_bot_instance = MagicMock()
-                mock_bot.return_value = mock_bot_instance
-                ok = await enviar_mensaje(123, "hola", "test_token")
-                mock_pool.assert_awaited_once()
-                args = mock_pool.call_args[0]
-                assert args[0] == mock_bot_instance.send_message
-                assert ok is True
+    async def test_enviar_mensaje_le_habla_al_bot(self):
+        with patch("app.services.telegram_service._get_bot") as mock_bot:
+            mock_bot_instance = MagicMock()
+            mock_bot_instance.send_message = AsyncMock(return_value=None)
+            mock_bot.return_value = mock_bot_instance
+
+            ok = await enviar_mensaje(123, "hola", "test_token")
+
+            mock_bot_instance.send_message.assert_awaited_once()
+            kwargs = mock_bot_instance.send_message.call_args.kwargs
+            assert kwargs["chat_id"] == 123
+            assert kwargs["text"] == "hola"
+            assert ok is True
 
     @pytest.mark.asyncio
     async def test_enviar_mensaje_retorna_false_cuando_falla(self):
-        with patch("app.services.telegram_service.run_in_threadpool", new=AsyncMock(side_effect=Exception("Telegram API down"))) as mock_pool:
-            with patch("app.services.telegram_service._get_bot") as mock_bot:
-                mock_bot_instance = MagicMock()
-                mock_bot.return_value = mock_bot_instance
-                ok = await enviar_mensaje(123, "hola", "test_token")
-                mock_pool.assert_awaited_once()
-                assert ok is False
+        with patch("app.services.telegram_service._get_bot") as mock_bot:
+            mock_bot_instance = MagicMock()
+            mock_bot_instance.send_message = AsyncMock(
+                side_effect=Exception("Telegram API down")
+            )
+            mock_bot.return_value = mock_bot_instance
+
+            ok = await enviar_mensaje(123, "hola", "test_token")
+
+            mock_bot_instance.send_message.assert_awaited_once()
+            assert ok is False
 
     @pytest.mark.asyncio
     async def test_enviar_mensaje_con_log_loggea_contexto_al_fallar(self):
@@ -266,15 +283,15 @@ class TestMessageFormatting:
                 assert "Fallo envío de mensaje a chat_id 123 (contexto: test_contexto)" in call_args[0][0]
 
     @pytest.mark.asyncio
-    async def test_responder_callback_query_calls_run_in_threadpool(self):
-        with patch("app.services.telegram_service.run_in_threadpool", new=AsyncMock()) as mock_pool:
-            with patch("app.services.telegram_service._get_bot") as mock_bot:
-                mock_bot_instance = MagicMock()
-                mock_bot.return_value = mock_bot_instance
-                await responder_callback_query("cq1", "test_token")
-                mock_pool.assert_awaited_once()
-                args = mock_pool.call_args[0]
-                assert args[0] == mock_bot_instance.answer_callback_query
+    async def test_responder_callback_query_le_habla_al_bot(self):
+        with patch("app.services.telegram_service._get_bot") as mock_bot:
+            mock_bot_instance = MagicMock()
+            mock_bot_instance.answer_callback_query = AsyncMock()
+            mock_bot.return_value = mock_bot_instance
+
+            await responder_callback_query("cq1", "test_token")
+
+            mock_bot_instance.answer_callback_query.assert_awaited_once_with("cq1")
 
 
 class TestListaEsperaTelegram:
@@ -307,13 +324,13 @@ class TestListaEsperaTelegram:
         turno.id = 1
         turno.fecha = "2026-06-15"
         turno.hora_inicio = "09:00"
-        with patch("app.services.telegram_service.run_in_threadpool", new=AsyncMock()) as mock_pool:
-            with patch("app.services.telegram_service._get_bot") as mock_bot:
-                mock_bot_instance = MagicMock()
-                mock_bot.return_value = mock_bot_instance
-                ok = await enviar_notificacion_lista_espera("12345", turno, "test_token")
-                assert ok is True
-                mock_pool.assert_awaited_once()
+        with patch("app.services.telegram_service._get_bot") as mock_bot:
+            mock_bot_instance = MagicMock()
+            mock_bot_instance.send_message = AsyncMock(return_value=None)
+            mock_bot.return_value = mock_bot_instance
+            ok = await enviar_notificacion_lista_espera("12345", turno, "test_token")
+            assert ok is True
+            mock_bot_instance.send_message.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_enviar_notificacion_lista_espera_falla(self):
@@ -642,7 +659,7 @@ class TestProfesionalCommands:
         db_session.add(paciente)
         await db_session.flush()
 
-        hoy = date.today()
+        hoy = hoy_local()
         turno = Turno(
             fecha=hoy, hora_inicio=time(9, 0), hora_fin=time(9, 30),
             estado="CONFIRMADO", profesional_id=p.id, paciente_id=paciente.id,
@@ -670,7 +687,7 @@ class TestProfesionalCommands:
         db_session.add(p)
         await db_session.flush()
 
-        hoy = date.today()
+        hoy = hoy_local()
         db_session.add(Turno(
             fecha=hoy, hora_inicio=time(9, 0), hora_fin=time(9, 30),
             estado="CONFIRMADO", profesional_id=p.id,

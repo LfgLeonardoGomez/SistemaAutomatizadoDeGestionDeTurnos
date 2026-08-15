@@ -13,6 +13,7 @@ from app.services.notificacion_service import (
     marcar_recordatorio_enviado,
 )
 from tests.conftest import make_profesional
+from app.tiempo import ahora_local, hoy_local
 
 
 async def _seed_profesional(db_session):
@@ -61,7 +62,7 @@ class TestObtenerTurnosParaRecordar:
         paciente = await _seed_paciente(db_session, profesional.id)
 
         from unittest.mock import patch
-        ahora = datetime.now().replace(hour=10, minute=0, second=0, microsecond=0)
+        ahora = ahora_local().replace(hour=10, minute=0, second=0, microsecond=0)
         turno = Turno(
             fecha=ahora.date(),
             hora_inicio=(ahora + timedelta(hours=2)).time(),
@@ -74,10 +75,12 @@ class TestObtenerTurnosParaRecordar:
         db_session.add(turno)
         await db_session.commit()
 
-        with patch("app.services.notificacion_service.datetime") as mock_dt:
-            mock_dt.now.return_value = ahora
-            mock_dt.combine = datetime.combine
-            mock_dt.timedelta = timedelta
+        # Se congela ``ahora_local``, no ``datetime``: el servicio dejó de usar
+        # ``datetime.now()`` cuando migró a hora local (``app/tiempo.py``), así
+        # que el patch viejo era inerte y el test quedaba a merced del reloj
+        # real — pasaba de mañana y fallaba de noche, porque el turno sembrado
+        # a las 12:00 ya era pasado.
+        with patch("app.services.notificacion_service.ahora_local", return_value=ahora):
             turnos = await obtener_turnos_para_recordar(db_session, profesional_id=profesional.id, horas_antes=24)
         assert len(turnos) == 1
         assert turnos[0].id == turno.id
@@ -88,7 +91,7 @@ class TestObtenerTurnosParaRecordar:
         profesional = await _seed_profesional(db_session)
         paciente = await _seed_paciente(db_session, profesional.id)
 
-        futuro = datetime.now() + timedelta(days=2)
+        futuro = ahora_local() + timedelta(days=2)
         turno = Turno(
             fecha=futuro.date(),
             hora_inicio=time(9, 0),
@@ -112,7 +115,7 @@ class TestObtenerTurnosParaRecordar:
 
         # Usar un offset para evitar que la hora cruce medianoche y viole
         # ``ck_turno_horario_valido`` en zonas horarias no-UTC.
-        ahora = datetime.now() - timedelta(hours=4)
+        ahora = ahora_local() - timedelta(hours=4)
         turno = Turno(
             fecha=ahora.date(),
             hora_inicio=(ahora + timedelta(hours=2)).time(),
@@ -136,7 +139,7 @@ class TestObtenerTurnosParaRecordar:
 
         # Usar un offset para evitar que la hora cruce medianoche y viole
         # ``ck_turno_horario_valido`` en zonas horarias no-UTC.
-        ahora = datetime.now() - timedelta(hours=4)
+        ahora = ahora_local() - timedelta(hours=4)
         turno = Turno(
             fecha=ahora.date(),
             hora_inicio=(ahora + timedelta(hours=2)).time(),
@@ -169,7 +172,7 @@ class TestObtenerTurnosParaRecordar:
 
         # Usar un offset para evitar que la hora cruce medianoche y viole
         # ``ck_turno_horario_valido`` en zonas horarias no-UTC.
-        ahora = datetime.now() - timedelta(hours=4)
+        ahora = ahora_local() - timedelta(hours=4)
         turno = Turno(
             fecha=ahora.date(),
             hora_inicio=(ahora + timedelta(hours=2)).time(),
@@ -221,13 +224,13 @@ class TestEnviarRecordatorioTelegram:
         # no carga automáticamente en ``refresh()`` sin attribute_names).
         await db_session.refresh(turno, attribute_names=["destinatarios"])
 
-        with patch("app.services.telegram_service.run_in_threadpool", new=AsyncMock()) as mock_pool:
-            with patch("app.services.telegram_service._get_bot") as mock_bot:
-                mock_bot_instance = MagicMock()
-                mock_bot.return_value = mock_bot_instance
-                ok = await enviar_recordatorio_telegram(turno, bot_token="test_token")
-                assert ok is True
-                mock_pool.assert_awaited_once()
+        with patch("app.services.telegram_service._get_bot") as mock_bot:
+            mock_bot_instance = MagicMock()
+            mock_bot_instance.send_message = AsyncMock(return_value=None)
+            mock_bot.return_value = mock_bot_instance
+            ok = await enviar_recordatorio_telegram(turno, bot_token="test_token")
+            assert ok is True
+            mock_bot_instance.send_message.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_mensaje_incluye_nombre_y_especialidad_del_profesional(
@@ -320,12 +323,14 @@ class TestEnviarRecordatorioTelegram:
         await db_session.refresh(turno, attribute_names=["destinatarios"])
         # NO se agrega destinatario TELEGRAM al turno
 
-        with patch("app.services.telegram_service.run_in_threadpool", new=AsyncMock()) as mock_pool:
-            with patch("app.services.notificacion_service.enviar_mensaje", new=AsyncMock()) as mock_enviar:
-                ok = await enviar_recordatorio_telegram(turno, bot_token="test_token")
-                assert ok is True
-                mock_pool.assert_not_awaited()
-                mock_enviar.assert_not_awaited()
+        # Se eliminó un ``mock_pool.assert_not_awaited()`` sobre
+        # ``run_in_threadpool``: el servicio no lo llama nunca, así que esa
+        # aserción pasaba siempre sin ejercitar nada. La que importa —y la que
+        # queda— es que no se intente enviar un mensaje sin destinatario.
+        with patch("app.services.notificacion_service.enviar_mensaje", new=AsyncMock()) as mock_enviar:
+            ok = await enviar_recordatorio_telegram(turno, bot_token="test_token")
+            assert ok is True
+            mock_enviar.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_envio_dirigido_al_chat_del_turno_no_del_paciente(self, db_session):

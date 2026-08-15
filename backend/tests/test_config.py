@@ -1,6 +1,29 @@
 import os
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
+
+
+def repo_root() -> Path:
+    """Raíz del repositorio, para los tests que verifican archivos de config.
+
+    ``REPO_ROOT`` gana cuando está seteada porque **dentro del container la raíz
+    del repo no existe**: docker-compose monta solo ``./backend:/app``, así que
+    subir dos niveles desde este archivo da ``/``. Estos tests fallaban buscando
+    ``.env.example`` y ``docker-compose.yml``, que sí están en el repo — seis
+    fallos que no eran defectos sino ruido del método de corrida. Y ese ruido es
+    lo que hace que una suite deje de mirarse.
+
+    Vive a nivel módulo y no como ``@staticmethod`` de una clase a propósito: la
+    raíz se calculaba en CUATRO lugares distintos con la misma expresión copiada,
+    y arreglar uno solo dejaba los otros tres rotos.
+    """
+    desde_env = os.environ.get("REPO_ROOT")
+    if desde_env:
+        return Path(desde_env).resolve()
+    # backend/tests/test_config.py -> backend/tests -> backend -> raíz
+    return Path(__file__).resolve().parent.parent.parent
 
 
 class TestSettings:
@@ -186,9 +209,22 @@ class TestEnvExampleCompleteness:
 
     @staticmethod
     def _repo_root() -> str:
-        """Absolute path to the repository root (parent of backend/)."""
+        """Absolute path to the repository root (parent of backend/).
+
+        ``REPO_ROOT`` gana cuando está seteada porque **dentro del container la
+        raíz del repo no existe**: docker-compose monta solo ``./backend:/app``,
+        así que subir dos niveles desde este archivo da ``/``, y estos tests
+        fallaban buscando ``.env.example`` y ``docker-compose.yml`` que sí están
+        en el repo. Seis fallos que no eran defectos sino ruido del método de
+        corrida — y ese ruido es lo que hace que la suite deje de mirarse.
+        """
+        import os
         from pathlib import Path
-        return str(Path(__file__).resolve().parent.parent.parent)
+
+        desde_env = os.environ.get("REPO_ROOT")
+        if desde_env:
+            return str(Path(desde_env).resolve())
+        return str(repo_root())
 
     @classmethod
     def _root_env_example(cls) -> str:
@@ -304,13 +340,13 @@ class TestDockerComposeBackendEnvironment:
     @staticmethod
     def _compose_path() -> str:
         from pathlib import Path
-        return str(Path(__file__).resolve().parent.parent.parent / "docker-compose.yml")
+        return str(repo_root() / "docker-compose.yml")
 
     @staticmethod
     def _load_compose_backend_environment() -> dict:
         import yaml
         from pathlib import Path
-        path = Path(__file__).resolve().parent.parent.parent / "docker-compose.yml"
+        path = repo_root() / "docker-compose.yml"
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
         services = data.get("services", {}) or {}
@@ -364,7 +400,7 @@ class TestEnvExampleLoadsIntoSettings:
         stand-ins so the Settings() constructor doesn't raise.
         """
         from pathlib import Path
-        env_path = Path(__file__).resolve().parent.parent.parent / ".env.example"
+        env_path = repo_root() / ".env.example"
         # Required keys (no default in Settings) get a non-empty placeholder.
         required_placeholders = {
             "DATABASE_URL": "postgresql+asyncpg://user:pass@localhost/db",

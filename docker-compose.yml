@@ -53,6 +53,9 @@ services:
       RECORDATORIO_JOB_INTERVAL_MINUTOS: ${RECORDATORIO_JOB_INTERVAL_MINUTOS:-60}
       COMPLETADO_JOB_INTERVAL_MINUTOS: ${COMPLETADO_JOB_INTERVAL_MINUTOS:-5}
 
+      # Raiz del repo dentro del container, para los tests de configuracion.
+      REPO_ROOT: /repo
+
       # Seed / bootstrap
       SEED_DEFAULT_PASSWORD: ${SEED_DEFAULT_PASSWORD:-}
       SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-}
@@ -62,6 +65,12 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
+      # Solo-lectura y solo para los tests: test_config verifica que
+      # .env.example y este mismo docker-compose.yml declaren todas las
+      # variables de Settings. Montando solo ./backend esos archivos no existen
+      # dentro del container y esos tests fallaban sin que nada estuviera roto.
+      # REPO_ROOT le dice a la suite dónde mirar (ver tests/test_config.py).
+      - .:/repo:ro
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   n8n:

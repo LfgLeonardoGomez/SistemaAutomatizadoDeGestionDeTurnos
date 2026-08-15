@@ -3,6 +3,7 @@ from datetime import date, time
 
 from app.models.turno import Turno
 from app.models.paciente import Paciente
+from app.tiempo import hoy_local
 from tests.conftest import make_profesional
 
 
@@ -153,7 +154,7 @@ class TestProfesionalTurnosHoyEndpoint:
         db_session.add(paciente)
         await db_session.flush()
 
-        hoy = date.today()
+        hoy = hoy_local()
         turno = Turno(
             fecha=hoy,
             hora_inicio=time(9, 0),
@@ -185,7 +186,7 @@ class TestProfesionalTurnosHoyEndpoint:
 
     @pytest.mark.asyncio
     async def test_get_turnos_hoy_excludes_non_confirmed(self, authenticated_client, db_session, profesional):
-        hoy = date.today()
+        hoy = hoy_local()
         turno_cancelado = Turno(
             fecha=hoy,
             hora_inicio=time(10, 0),
@@ -221,7 +222,7 @@ class TestProfesionalTurnosHoyEndpoint:
         await db_session.commit()
         await db_session.refresh(otro_profesional)
 
-        hoy = date.today()
+        hoy = hoy_local()
         turno = Turno(
             fecha=hoy,
             hora_inicio=time(9, 0),
@@ -243,7 +244,7 @@ class TestProfesionalMetricasEndpoint:
     async def test_get_metricas_returns_calculated_values(self, authenticated_client, db_session, profesional):
         from datetime import timedelta
 
-        hoy = date.today()
+        hoy = hoy_local()
         # 2 confirmed today
         for h in [(8, 0), (9, 0)]:
             db_session.add(Turno(
@@ -319,7 +320,7 @@ class TestProfesionalMetricasEndpoint:
         await db_session.commit()
         await db_session.refresh(otro_profesional)
 
-        hoy = date.today()
+        hoy = hoy_local()
         db_session.add(Turno(
             fecha=hoy,
             hora_inicio=time(9, 0),

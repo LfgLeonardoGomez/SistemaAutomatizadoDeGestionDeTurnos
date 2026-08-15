@@ -19,6 +19,7 @@ from app.models.turno import Turno
 from app.models.turno_destinatario import TurnoDestinatario
 from app.services.auth_service import set_profesional_api_key
 from tests.conftest import make_profesional
+from app.tiempo import ahora_local, hoy_local
 
 
 async def _seed_profesional_con_api_key(db_session, **overrides) -> Profesional:
@@ -59,7 +60,7 @@ async def _add_destinatario_telegram(db_session, turno_id: int, chat_id: str) ->
 
 
 def _mañana_iso() -> str:
-    return (date.today() + timedelta(days=1)).isoformat()
+    return (hoy_local() + timedelta(days=1)).isoformat()
 
 
 class TestRecordatoriosRouterAuth:
@@ -114,7 +115,7 @@ class TestRecordatoriosRouterHappyPath:
             db_session, telegram_bot_token="bot_test"
         )
         paciente = await _seed_paciente(db_session, prof.id, dni="12345678")
-        base_dt = datetime.now() + timedelta(hours=2)
+        base_dt = ahora_local() + timedelta(hours=2)
         turno = Turno(
             fecha=base_dt.date(),
             hora_inicio=base_dt.time(),
@@ -229,7 +230,7 @@ class TestRecordatoriosRouterHappyPath:
         paciente_caller = await _seed_paciente(db_session, caller.id, dni="11111111")
         paciente_other = await _seed_paciente(db_session, other.id, dni="22222222")
 
-        base_dt = datetime.now() + timedelta(hours=2)
+        base_dt = ahora_local() + timedelta(hours=2)
         turno_caller = Turno(
             fecha=base_dt.date(),
             hora_inicio=base_dt.time(),
