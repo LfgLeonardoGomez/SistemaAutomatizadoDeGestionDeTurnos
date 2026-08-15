@@ -38,14 +38,6 @@ class TestListaEsperaE2E:
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
         monkeypatch.setenv("SECRET_KEY", "test-secret-key")
 
-    @pytest.mark.xfail(
-        reason=(
-            "Flaky: el slot no se libera correctamente tras cancelar → "
-            "evaluar_lista_espera no encuentra el slot disponible. "
-            "Bug pre-existente de la lógica de lista de espera."
-        ),
-        strict=False,
-    )
     @pytest.mark.asyncio
     async def test_e2e_cancelar_notificar_aceptar(self, db_session):
         """Scenario: cancelar → notificar → aceptar → confirmado → eliminado de lista."""
@@ -111,14 +103,6 @@ class TestListaEsperaE2E:
         )
         assert result.scalar_one_or_none() is None
 
-    @pytest.mark.xfail(
-        reason=(
-            "Flaky: comportamiento de doble cancelación es intermitente. "
-            "Bug pre-existente relacionado con el orden de commits en la "
-            "lista de espera."
-        ),
-        strict=False,
-    )
     @pytest.mark.asyncio
     async def test_race_condition_doble_cancelacion(self, db_session):
         """Scenario: dos cancelaciones simultáneas para la misma fecha con un solo paciente en lista → solo una notificación."""
