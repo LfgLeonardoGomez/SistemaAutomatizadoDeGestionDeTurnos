@@ -5,11 +5,16 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const backendTarget = env.API_PROXY_TARGET || 'http://localhost:18000'
+  // Falls back to process.env explicitly: inside Docker Compose there's no .env
+  // file mounted, only the environment: block, which lands in process.env.
+  const backendTarget = env.API_PROXY_TARGET || process.env.API_PROXY_TARGET || 'http://localhost:18000'
 
   return {
     plugins: [react(), tailwindcss()],
     server: {
+      // host:true binds 0.0.0.0 so the dev server is reachable from outside a
+      // Docker container, not just from inside it. Harmless for local (non-Docker) dev.
+      host: true,
       // Dev-only fix for the backend having no CORS middleware (it's never had a
       // browser-based consumer before this front). Proxies /admin/* same-origin so
       // requests never leave localhost:5173 from the browser's point of view.

@@ -64,6 +64,46 @@ services:
       - ./backend:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
+  front-admin:
+    build:
+      context: ./front-admin
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      # Vacio a proposito: el proxy de Vite (ver vite.config.ts) reenvia /admin/*
+      # same-origin, asi que el navegador nunca hace un request cross-origin
+      # (el backend no tiene CORS configurado).
+      VITE_API_BASE_URL: ""
+      # Por NOMBRE de servicio y puerto INTERNO, igual que hace n8n mas abajo:
+      # dentro de la red de Compose el backend se llama "backend", no localhost.
+      API_PROXY_TARGET: http://backend:8000
+    volumes:
+      - ./front-admin:/app
+      # Named volume aparte para node_modules: si no, el bind mount de arriba
+      # pisaria el node_modules instalado en la imagen con el (probablemente
+      # inexistente) node_modules del host.
+      - front-admin-node-modules:/app/node_modules
+    depends_on:
+      - backend
+
+  front-profesional:
+    build:
+      context: ./front-profesional
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5174:5174"
+    environment:
+      VITE_API_BASE_URL: ""
+      API_PROXY_TARGET: http://backend:8000
+    volumes:
+      - ./front-profesional:/app
+      - front-profesional-node-modules:/app/node_modules
+    depends_on:
+      - backend
+
   n8n:
     image: n8nio/n8n:latest
     restart: unless-stopped
@@ -119,3 +159,5 @@ services:
 volumes:
   postgres_data:
   n8n_data:
+  front-admin-node-modules:
+  front-profesional-node-modules:
