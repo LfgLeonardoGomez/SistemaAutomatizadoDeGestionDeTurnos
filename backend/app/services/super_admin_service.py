@@ -120,7 +120,10 @@ async def deactivate_profesional(
 async def compute_global_metrics(db: AsyncSession) -> GlobalMetricsResponse:
     now_utc = datetime.now(timezone.utc)
     today_utc = now_utc.date()
-    thirty_days_ago = now_utc - timedelta(days=30)
+    # Turno.creado_en is TIMESTAMP WITHOUT TIME ZONE in Postgres; asyncpg rejects
+    # binding a tz-aware datetime against it ("can't subtract offset-naive and
+    # offset-aware datetimes"). Strip tzinfo - the column already stores UTC.
+    thirty_days_ago = (now_utc - timedelta(days=30)).replace(tzinfo=None)
 
     # Total profesionales
     total_profesionales = await db.scalar(select(func.count(Profesional.id))) or 0
