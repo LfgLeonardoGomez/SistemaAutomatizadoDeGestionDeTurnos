@@ -6,7 +6,7 @@ Allow n8n (a 24/7 machine caller) to authenticate against `/turnos/*` endpoints 
 
 **Non-goals** (explicitly deferred): api_key hashing-at-rest, rate limiting, an explicit revoke endpoint (v1 uses overwrite-on-regenerate, already covered by `professional-api-key`), and any change to `pacientes.py`, `lista_espera.py`, `recordatorios.py`, dashboard, Telegram-webhook, or super-admin auth.
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: Turno endpoints accept dual authentication
 
