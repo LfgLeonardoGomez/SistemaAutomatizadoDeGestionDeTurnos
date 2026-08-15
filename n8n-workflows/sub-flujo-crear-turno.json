@@ -309,7 +309,9 @@
         "options": {
           "response": {
             "response": {
-              "responseFormat": "json"
+              "responseFormat": "json",
+              "neverError": true,
+              "fullResponse": true
             }
           }
         }
@@ -332,7 +334,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// ======================================================================\n// HELPERS\n// ======================================================================\nfunction addDays(yyyy_mm_dd, n) {\n  const [y, m, d] = yyyy_mm_dd.split('-').map(Number);\n  const date = new Date(Date.UTC(y, m - 1, d));\n  date.setUTCDate(date.getUTCDate() + n);\n  const yy = date.getUTCFullYear();\n  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');\n  const dd = String(date.getUTCDate()).padStart(2, '0');\n  return `${yy}-${mm}-${dd}`;\n}\n\n// ======================================================================\n// LEER SLOTS DEL HTTP RESPONSE\n// ======================================================================\nconst items = $input.all();\nlet slots = [];\n\nif (items.length > 0) {\n  if (Array.isArray(items[0].json)) {\n    slots = items[0].json;\n  } else {\n    slots = items.map(item => item.json);\n  }\n}\nslots = slots.filter(function (s) { return s && typeof s.hora_inicio === \"string\" && s.disponible !== false; });\n\n// chatId y fecha_inicio los leemos del Code - Decidir Paso (sobrevive al loop)\nlet chatId = '';\nlet fechaInicial = '';\nlet fechaInicio = '';\ntry {\n  const codeData = $('Code - Decidir Paso').first().json;\n  if (codeData) {\n    chatId = codeData.chat_id || '';\n    fechaInicial = codeData.fecha || '';\n    fechaInicio = codeData.fecha_inicio || fechaInicial;\n  }\n} catch (e) {\n  // fallback silencioso\n}\n\n// ======================================================================\n// STATIC DATA: fecha REAL consultada (avanza con cada retry) + contador\n// ======================================================================\nconst staticData = $getWorkflowStaticData('global');\nconst contadorKey = 'contador_' + chatId;\nconst fechaKey = 'fecha_' + chatId;\nconst ctxKey = chatId ? 'ctx_' + chatId : null;\nlet contador = staticData[contadorKey] || 0;\nconst fechaActual = staticData[fechaKey] || fechaInicial;\n\nif (slots.length > 0) {\n  // Guardar slots en staticData para resolver slot_numero después\n  if (ctxKey) {\n    const existing = staticData[ctxKey] || {};\n    existing.slots = slots;\n    staticData[ctxKey] = existing;\n  }\n  delete staticData[contadorKey];\n  delete staticData[fechaKey];\n  return [{\n    json: {\n      chat_id: chatId,\n      fecha: fechaActual,\n      fecha_inicio: fechaInicio,\n      slots: slots,\n      decision: 'found'\n    }\n  }];\n}\n\n// No hay slots. ¿Ya intentamos los 7 días?\nconst MAX_DIAS = 7;\nif (contador >= MAX_DIAS - 1 || !fechaActual) {\n  delete staticData[contadorKey];\n  delete staticData[fechaKey];\n  return [{\n    json: {\n      chat_id: chatId,\n      fecha: fechaActual,\n      fecha_inicio: fechaInicio,\n      slots: [],\n      decision: 'exhausted'\n    }\n  }];\n}\n\n// Retry: +1 día desde la fecha realmente consultada\nstaticData[contadorKey] = contador + 1;\nconst nextFecha = addDays(fechaActual, 1);\nstaticData[fechaKey] = nextFecha;\nreturn [{\n  json: {\n    chat_id: chatId,\n    fecha: nextFecha,\n    fecha_inicio: fechaInicio,\n    slots: [],\n    decision: 'retry'\n  }\n}];"
+        "jsCode": "// ======================================================================\n// HELPERS\n// ======================================================================\nfunction addDays(yyyy_mm_dd, n) {\n  const [y, m, d] = yyyy_mm_dd.split('-').map(Number);\n  const date = new Date(Date.UTC(y, m - 1, d));\n  date.setUTCDate(date.getUTCDate() + n);\n  const yy = date.getUTCFullYear();\n  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');\n  const dd = String(date.getUTCDate()).padStart(2, '0');\n  return `${yy}-${mm}-${dd}`;\n}\n\n// ======================================================================\n// LEER SLOTS DEL HTTP RESPONSE\n// ======================================================================\n// neverError + fullResponse en el nodo HTTP: sin neverError un 500 tira\n// excepcion, este Code no corre y el paciente recibe SILENCIO. Con fullResponse\n// el array pelado de GET /turnos/disponibles queda bajo .body, y ademas hay\n// statusCode -- que es lo unico que permite distinguir \"no hay horarios\" de \"el\n// backend fallo\". Sin esa distincion, un 500 entra en el loop de reintento,\n// prueba 7 dias y termina diciendo \"no encontramos turnos disponibles\".\nconst http = ($input.all()[0] && $input.all()[0].json) || {};\nconst status = http.statusCode;\nconst backendOk = typeof status === 'number' && status >= 200 && status < 300;\n\nlet slots = Array.isArray(http.body) ? http.body : [];\nslots = slots.filter(function (s) { return s && typeof s.hora_inicio === \"string\" && s.disponible !== false; });\n\n// chatId y fecha_inicio los leemos del Code - Decidir Paso (sobrevive al loop)\nlet chatId = '';\nlet fechaInicial = '';\nlet fechaInicio = '';\ntry {\n  const codeData = $('Code - Decidir Paso').first().json;\n  if (codeData) {\n    chatId = codeData.chat_id || '';\n    fechaInicial = codeData.fecha || '';\n    fechaInicio = codeData.fecha_inicio || fechaInicial;\n  }\n} catch (e) {\n  // fallback silencioso\n}\n\n// ======================================================================\n// STATIC DATA: fecha REAL consultada (avanza con cada retry) + contador\n// ======================================================================\n// Backend caido: se corta aca. No se reintenta ni se avanza de fecha.\nif (!backendOk) {\n  let chatIdErr = '';\n  try {\n    const cd = $('Code - Decidir Paso').first().json;\n    if (cd) chatIdErr = cd.chat_id || '';\n  } catch (e) {}\n  return [{\n    json: {\n      chat_id: chatIdErr,\n      slots: [],\n      decision: 'error_backend'\n    }\n  }];\n}\n\nconst staticData = $getWorkflowStaticData('global');\nconst contadorKey = 'contador_' + chatId;\nconst fechaKey = 'fecha_' + chatId;\nconst ctxKey = chatId ? 'ctx_' + chatId : null;\nlet contador = staticData[contadorKey] || 0;\nconst fechaActual = staticData[fechaKey] || fechaInicial;\n\nif (slots.length > 0) {\n  // Guardar slots en staticData para resolver slot_numero después\n  if (ctxKey) {\n    const existing = staticData[ctxKey] || {};\n    existing.slots = slots;\n    staticData[ctxKey] = existing;\n  }\n  delete staticData[contadorKey];\n  delete staticData[fechaKey];\n  return [{\n    json: {\n      chat_id: chatId,\n      fecha: fechaActual,\n      fecha_inicio: fechaInicio,\n      slots: slots,\n      decision: 'found'\n    }\n  }];\n}\n\n// No hay slots. ¿Ya intentamos los 7 días?\nconst MAX_DIAS = 7;\nif (contador >= MAX_DIAS - 1 || !fechaActual) {\n  delete staticData[contadorKey];\n  delete staticData[fechaKey];\n  return [{\n    json: {\n      chat_id: chatId,\n      fecha: fechaActual,\n      fecha_inicio: fechaInicio,\n      slots: [],\n      decision: 'exhausted'\n    }\n  }];\n}\n\n// Retry: +1 día desde la fecha realmente consultada\nstaticData[contadorKey] = contador + 1;\nconst nextFecha = addDays(fechaActual, 1);\nstaticData[fechaKey] = nextFecha;\nreturn [{\n  json: {\n    chat_id: chatId,\n    fecha: nextFecha,\n    fecha_inicio: fechaInicio,\n    slots: [],\n    decision: 'retry'\n  }\n}];"
       },
       "id": "8faa7ee3-8317-427d-a54f-032e401be4d2",
       "name": "Code - Verificar Slots",
@@ -394,6 +396,30 @@
               },
               "renameOutput": true,
               "outputKey": "retry"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "c32-switch-error-backend",
+                    "leftValue": "={{ $json.decision }}",
+                    "rightValue": "error_backend",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "error_backend"
             }
           ]
         },
@@ -1229,6 +1255,45 @@
         }
       },
       "id": "c27c0001-0001-4000-8000-000000000004"
+    },
+    {
+      "id": "telegram-error-disponibilidad",
+      "name": "Telegram - Error Disponibilidad",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        32,
+        1320
+      ],
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "⚠️ No pudimos consultar los horarios en este momento. No es que no haya turnos: es un problema nuestro.\n\nProbá de nuevo en unos minutos.",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "🔄 Reintentar",
+                    "additionalFields": {
+                      "callback_data": "cmd:crear"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {}
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "Rama propia para el backend caido. Sin esto un 500 caia en el fallback del Switch, que es \"No Hay Turnos\": el paciente leia que no hay agenda cuando lo que fallo fue el servidor."
     }
   ],
   "pinData": {},
@@ -1342,6 +1407,13 @@
         [
           {
             "node": "HTTP - GET Disponibilidad",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram - Error Disponibilidad",
             "type": "main",
             "index": 0
           }
@@ -1724,6 +1796,17 @@
             "index": 0
           }
         ],
+        [
+          {
+            "node": "Code - Retorno Estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Error Disponibilidad": {
+      "main": [
         [
           {
             "node": "Code - Retorno Estado",
