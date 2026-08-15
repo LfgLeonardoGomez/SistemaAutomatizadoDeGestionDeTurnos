@@ -18,7 +18,7 @@ from app.exceptions import (
     TurnoNoEncontradoError,
     TurnoYaCanceladoError,
 )
-from tests.conftest import make_profesional
+from tests.conftest import make_profesional, utcnow_naive
 
 
 @pytest.fixture
@@ -84,7 +84,7 @@ class TestReservarTurno:
         )
         reserva = result.scalar_one_or_none()
         assert reserva is not None
-        assert reserva.expiracion > datetime.now()
+        assert reserva.expiracion > utcnow_naive()
 
     @pytest.mark.asyncio
     async def test_reservar_turno_bloqueado_por_turno_activo(self, db_session, profesional, test_settings):
@@ -884,7 +884,7 @@ class TestLiberarReservasVencidas:
             select(ReservaTemporal).where(ReservaTemporal.turno_id == turno.id)
         )
         reserva = result.scalar_one()
-        reserva.expiracion = datetime.now() - timedelta(minutes=1)
+        reserva.expiracion = utcnow_naive() - timedelta(minutes=1)
         await db_session.commit()
 
         liberados = await liberar_reservas_vencidas(db_session, profesional.id)
@@ -934,7 +934,7 @@ class TestLiberarReservasVencidas:
             select(ReservaTemporal).where(ReservaTemporal.turno_id == turno.id)
         )
         reserva = result.scalar_one()
-        reserva.expiracion = datetime.now() - timedelta(minutes=1)
+        reserva.expiracion = utcnow_naive() - timedelta(minutes=1)
         await db_session.commit()
 
         # Simular race condition: el turno fue confirmado antes de que el job corra
@@ -1836,7 +1836,7 @@ class TestHookListaEspera:
             select(ReservaTemporal).where(ReservaTemporal.turno_id == turno.id)
         )
         reserva = result.scalar_one()
-        reserva.expiracion = datetime.now() - timedelta(minutes=1)
+        reserva.expiracion = utcnow_naive() - timedelta(minutes=1)
         await db_session.commit()
 
         with patch("app.services.lista_espera_service.evaluar_lista_espera", new=AsyncMock()) as mock_evaluar:

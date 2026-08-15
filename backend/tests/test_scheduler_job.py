@@ -5,7 +5,8 @@ from unittest.mock import patch, MagicMock, AsyncMock
 from app.models.turno import Turno
 from app.models.reserva_temporal import ReservaTemporal
 from sqlalchemy import select
-from tests.conftest import make_profesional
+from tests.conftest import make_profesional, utcnow_naive
+from app.tiempo import ahora_local
 
 
 async def _seed_profesional(db_session):
@@ -42,7 +43,7 @@ class TestSchedulerJob:
             select(ReservaTemporal).where(ReservaTemporal.turno_id == turno.id)
         )
         reserva = result.scalar_one()
-        reserva.expiracion = datetime.now() - timedelta(minutes=1)
+        reserva.expiracion = utcnow_naive() - timedelta(minutes=1)
         await db_session.commit()
 
         # Ejecutar el job directamente pasando la sesión de test
@@ -216,7 +217,7 @@ class TestSchedulerJob:
         # ``base_dt.date()`` no). El check ``ck_turno_horario_valido`` exige
         # ``hora_fin > hora_inicio`` en el mismo día.
         from unittest.mock import patch
-        base_dt = datetime.now() + timedelta(hours=1)
+        base_dt = ahora_local() + timedelta(hours=1)
         for i in range(2):
             slot_dt = base_dt + timedelta(minutes=i * 10)
             turno = Turno(
@@ -296,7 +297,7 @@ class TestSchedulerJob:
         # cuando el test corre entre 22:30 y 00:00 hora local: el check
         # ``ck_turno_horario_valido`` exige ``hora_fin > hora_inicio`` en
         # el mismo día.
-        base_dt = datetime.now() + timedelta(hours=1)
+        base_dt = ahora_local() + timedelta(hours=1)
         turno = Turno(
             fecha=base_dt.date(),
             hora_inicio=base_dt.time(),
@@ -351,7 +352,7 @@ class TestSchedulerJob:
         # Turno a 1h en el futuro desde AHORA. ``hora_fin`` a +5min para
         # EVITAR cruce de medianoche cuando el test corre entre 22:30 y
         # 00:00 hora local.
-        base_dt = datetime.now() + timedelta(hours=1)
+        base_dt = ahora_local() + timedelta(hours=1)
         turno = Turno(
             fecha=base_dt.date(),
             hora_inicio=base_dt.time(),

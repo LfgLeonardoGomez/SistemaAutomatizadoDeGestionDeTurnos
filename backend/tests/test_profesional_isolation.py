@@ -14,6 +14,7 @@ from app.models.paciente import Paciente
 from app.models.turno import Turno
 from app.services.auth_service import hash_password
 from tests.conftest import make_profesional
+from app.tiempo import hoy_local
 
 
 async def _create_profesional(db_session, email: str, nombre: str = "Dr. Test"):
@@ -102,7 +103,7 @@ class TestCrossProfessionalIsolation:
         other = await _create_profesional(db_session, "other@local.dev", "Dr. Other")
 
         # Create a turno for the other professional today
-        hoy = date.today()
+        hoy = hoy_local()
         turno = Turno(
             fecha=hoy,
             hora_inicio=time(9, 0),

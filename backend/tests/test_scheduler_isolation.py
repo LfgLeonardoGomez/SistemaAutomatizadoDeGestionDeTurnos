@@ -7,7 +7,7 @@ from app.models.turno import Turno
 from app.models.reserva_temporal import ReservaTemporal
 from app.services.turno_service import reservar_turno
 from app.config import Settings
-from tests.conftest import make_profesional
+from tests.conftest import make_profesional, utcnow_naive
 
 
 async def _seed_profesional(db_session, nombre):
@@ -45,7 +45,7 @@ class TestSchedulerIsolation:
                 select(ReservaTemporal).where(ReservaTemporal.turno_id == turno.id)
             )
             reserva = result.scalar_one()
-            reserva.expiracion = datetime.now() - timedelta(minutes=1)
+            reserva.expiracion = utcnow_naive() - timedelta(minutes=1)
         await db_session.commit()
 
         await _liberar_reservas_vencidas_job(session=db_session)

@@ -19,6 +19,7 @@ from app.models.turno_destinatario import TurnoDestinatario
 from app.services.auth_service import set_profesional_api_key
 from app.services.turno_service import _utcnow_naive
 from tests.conftest import make_profesional_persisted
+from app.tiempo import hoy_local
 
 CHAT_ID = "5150361036"
 
@@ -41,7 +42,7 @@ async def _seed_reserva(
     hora_inicio: time = time(9, 0),
 ) -> Turno:
     turno = Turno(
-        fecha=date.today() + timedelta(days=1),
+        fecha=hoy_local() + timedelta(days=1),
         hora_inicio=hora_inicio,
         hora_fin=time(hora_inicio.hour + 1, 0),
         estado="RESERVADO_TEMPORAL",

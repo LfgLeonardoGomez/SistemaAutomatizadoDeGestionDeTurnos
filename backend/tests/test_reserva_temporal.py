@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models.reserva_temporal import ReservaTemporal
 from app.models.turno import Turno
-from tests.conftest import make_profesional
+from tests.conftest import make_profesional, utcnow_naive
 
 
 class TestReservaTemporalModel:
@@ -29,7 +29,7 @@ class TestReservaTemporalModel:
 
         reserva = ReservaTemporal(
             turno_id=turno.id,
-            expiracion=datetime.now() + timedelta(minutes=10),
+            expiracion=utcnow_naive() + timedelta(minutes=10),
         )
         db_session.add(reserva)
         await db_session.commit()
@@ -57,14 +57,14 @@ class TestReservaTemporalModel:
 
         reserva1 = ReservaTemporal(
             turno_id=turno.id,
-            expiracion=datetime.now() + timedelta(minutes=10),
+            expiracion=utcnow_naive() + timedelta(minutes=10),
         )
         db_session.add(reserva1)
         await db_session.commit()
 
         reserva2 = ReservaTemporal(
             turno_id=turno.id,
-            expiracion=datetime.now() + timedelta(minutes=15),
+            expiracion=utcnow_naive() + timedelta(minutes=15),
         )
         db_session.add(reserva2)
         with pytest.raises(IntegrityError):
@@ -87,7 +87,7 @@ class TestReservaTemporalModel:
         db_session.add(turno)
         await db_session.flush()
 
-        expiracion = datetime.now() + timedelta(minutes=2)
+        expiracion = utcnow_naive() + timedelta(minutes=2)
         reserva = ReservaTemporal(turno_id=turno.id, expiracion=expiracion)
         db_session.add(reserva)
         await db_session.commit()

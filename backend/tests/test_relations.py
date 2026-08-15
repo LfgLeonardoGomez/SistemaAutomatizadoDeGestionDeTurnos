@@ -8,7 +8,7 @@ from app.models.profesional import Profesional
 from app.models.turno import Turno
 from app.models.reserva_temporal import ReservaTemporal
 from app.models.lista_de_espera import ListaDeEspera
-from tests.conftest import make_profesional
+from tests.conftest import make_profesional, utcnow_naive
 
 
 class TestModelRelations:
@@ -117,7 +117,7 @@ class TestModelRelations:
 
         reserva = ReservaTemporal(
             turno_id=turno.id,
-            expiracion=datetime.now() + timedelta(minutes=10),
+            expiracion=utcnow_naive() + timedelta(minutes=10),
         )
         db_session.add(reserva)
         await db_session.commit()

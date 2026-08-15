@@ -18,6 +18,7 @@ from app.models.turno_destinatario import TurnoDestinatario
 from app.schemas.recordatorio import RecordatorioRunResponse
 from app.services.recordatorio_service import run_recordatorios_para_todos
 from tests.conftest import make_profesional
+from app.tiempo import ahora_local, hoy_local
 
 
 async def _seed_profesional(db_session, **overrides) -> Profesional:
@@ -55,7 +56,7 @@ async def _add_destinatario_telegram(db_session, turno_id: int, chat_id: str) ->
 
 
 def _mañana() -> date:
-    return date.today() + timedelta(days=1)
+    return hoy_local() + timedelta(days=1)
 
 
 class TestRunRecordatoriosParaTodosVacio:
@@ -86,7 +87,7 @@ class TestRunRecordatoriosParaTodosExito:
         prof = await _seed_profesional(db_session, telegram_bot_token="bot_test")
         paciente = await _seed_paciente(db_session, prof.id, dni="11111111")
 
-        base_dt = datetime.now() + timedelta(hours=2)
+        base_dt = ahora_local() + timedelta(hours=2)
         turno = Turno(
             fecha=base_dt.date(),
             hora_inicio=base_dt.time(),
@@ -126,7 +127,7 @@ class TestRunRecordatoriosParaTodosExito:
         prof = await _seed_profesional(db_session, telegram_bot_token="bot_test")
         paciente = await _seed_paciente(db_session, prof.id, dni="22222222")
 
-        base_dt = datetime.now() + timedelta(hours=2)
+        base_dt = ahora_local() + timedelta(hours=2)
         turno = Turno(
             fecha=base_dt.date(),
             hora_inicio=base_dt.time(),
@@ -166,7 +167,7 @@ class TestRunRecordatoriosParaTodosFalloEnvio:
         prof = await _seed_profesional(db_session, telegram_bot_token="bot_test")
         paciente = await _seed_paciente(db_session, prof.id, dni="33333333")
 
-        base_dt = datetime.now() + timedelta(hours=2)
+        base_dt = ahora_local() + timedelta(hours=2)
         turno = Turno(
             fecha=base_dt.date(),
             hora_inicio=base_dt.time(),
@@ -210,7 +211,7 @@ class TestRunRecordatoriosParaTodosProfesionalSinBotToken:
         prof = await _seed_profesional(db_session, telegram_bot_token=None)
         paciente = await _seed_paciente(db_session, prof.id, dni="44444444")
 
-        base_dt = datetime.now() + timedelta(hours=2)
+        base_dt = ahora_local() + timedelta(hours=2)
         turno = Turno(
             fecha=base_dt.date(),
             hora_inicio=base_dt.time(),
@@ -261,7 +262,7 @@ class TestRunRecordatoriosParaTodosMultiProfesional:
         paciente_a = await _seed_paciente(db_session, prof_a.id, dni="55555555")
         paciente_b = await _seed_paciente(db_session, prof_b.id, dni="66666666")
 
-        base_dt = datetime.now() + timedelta(hours=2)
+        base_dt = ahora_local() + timedelta(hours=2)
         turno_a = Turno(
             fecha=base_dt.date(),
             hora_inicio=base_dt.time(),
@@ -327,7 +328,7 @@ class TestRunRecordatoriosParaTodosMultiProfesional:
         paciente_a = await _seed_paciente(db_session, prof_a.id, dni="77777777")
         paciente_b = await _seed_paciente(db_session, prof_b.id, dni="88888888")
 
-        base_dt = datetime.now() + timedelta(hours=2)
+        base_dt = ahora_local() + timedelta(hours=2)
         turno_a = Turno(
             fecha=base_dt.date(),
             hora_inicio=base_dt.time(),
@@ -384,7 +385,7 @@ class TestRunRecordatoriosParaTodosPersistencia:
         prof = await _seed_profesional(db_session, telegram_bot_token="bot_test")
         paciente = await _seed_paciente(db_session, prof.id, dni="99999999")
 
-        base_dt = datetime.now() + timedelta(hours=2)
+        base_dt = ahora_local() + timedelta(hours=2)
         turno = Turno(
             fecha=base_dt.date(),
             hora_inicio=base_dt.time(),

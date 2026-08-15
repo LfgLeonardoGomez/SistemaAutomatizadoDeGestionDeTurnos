@@ -25,6 +25,7 @@ from app.services.captura_service import (
 from app.services.turno_service import _utcnow_naive
 from app.exceptions import CapturaNoEncontradaError
 from tests.conftest import make_profesional
+from app.tiempo import hoy_local
 
 
 # ---------------------------------------------------------------------------
@@ -53,7 +54,7 @@ async def _seed_reserva(
     """Create a Turno + ReservaTemporal + TELEGRAM destinatario, the exact
     shape ``reservar_turno`` produces for a Telegram booking."""
     turno = Turno(
-        fecha=date.today() + timedelta(days=1),
+        fecha=hoy_local() + timedelta(days=1),
         hora_inicio=hora_inicio,
         hora_fin=time(hora_inicio.hour, 30) if hora_inicio.minute == 0 else time(hora_inicio.hour + 1, 0),
         estado=estado,

@@ -168,33 +168,35 @@ class TestRelojDeProcesoEnLaSuite:
     base declarada y hace fallar cualquiera NUEVO. Ver ``LINEA_DE_BASE``.
     """
 
-    # Sitios que ya usaban el reloj del proceso cuando se escribió esta guarda.
-    # NO es una lista de "está bien": es deuda con nombre y apellido. Al tocar
-    # uno de estos archivos, la mejora es migrarlo a ``ahora_local`` /
-    # ``hoy_local`` y bajar el número de acá.
+    # Deuda restante. Arrancó en 29 sitios repartidos en 13 archivos; se
+    # migraron 26 clasificándolos por CONTRA QUÉ se compara cada valor:
+    #
+    #   fecha / hora_inicio    -> columnas de hora local -> hoy_local / ahora_local
+    #   expiracion / creado_en -> columnas naive-UTC     -> conftest.utcnow_naive
+    #
+    # Esa clasificación es la razón por la que no se podía resolver con un
+    # reemplazo global: pasar un ``expiracion`` a hora local lo corre tres horas
+    # y rompe tests que pasan.
     LINEA_DE_BASE = {
-        "test_captura_router.py": 1,
-        "test_captura_service.py": 1,
-        "test_confirmacion_asistencia.py": 1,
-        "test_lista_espera_service.py": 1,
-        "test_notificacion_service.py": 1,  # DNI único, no depende del reloj
-        "test_profesional_isolation.py": 1,
-        "test_recordatorio_service.py": 8,
-        "test_relations.py": 1,
-        "test_reserva_temporal.py": 4,
-        "test_scheduler_isolation.py": 1,
-        "test_scheduler_job.py": 4,
-        "test_tiempo.py": 2,  # este archivo prueba el helper: es su tema
-        "test_turno_service.py": 4,
+        # El valor alimenta un DNI, no una comparación de fechas: acá el reloj
+        # da igual y migrarlo sería ruido.
+        "test_notificacion_service.py": 1,
     }
 
     @staticmethod
     def _usos_por_archivo() -> dict:
         """Cuenta llamadas reales a ``date.today()`` / ``datetime.now()``.
 
-        Se parsea con ``ast`` y no con grep: media docena de menciones viven en
-        comentarios y docstrings que explican justamente este bug, y contarlas
-        haría ruido en vez de señal.
+        Se parsea con ``ast`` y no con grep por dos razones. Una: media docena de
+        menciones viven en comentarios y docstrings que explican justamente este
+        bug, y contarlas sería ruido en vez de señal. Dos: hay que distinguir
+        ``datetime.now()`` de ``datetime.now(timezone.utc)``, y eso un grep no lo
+        ve.
+
+        Solo cuenta el reloj **ambiguo**: ``date.today()`` y ``datetime.now()``
+        sin argumentos, que devuelven la hora del proceso. ``datetime.now(tz)``
+        es explícito sobre su zona y es la forma correcta de pedir un instante
+        absoluto — marcarlo sería un falso positivo.
         """
         import ast
         from pathlib import Path
@@ -211,7 +213,12 @@ class TestRelojDeProcesoEnLaSuite:
                     continue
                 if fn.value.id == "date" and fn.attr == "today":
                     usos += 1
-                elif fn.value.id == "datetime" and fn.attr == "now":
+                elif (
+                    fn.value.id == "datetime"
+                    and fn.attr == "now"
+                    and not nodo.args
+                    and not nodo.keywords
+                ):
                     usos += 1
             if usos:
                 conteo[archivo.name] = usos

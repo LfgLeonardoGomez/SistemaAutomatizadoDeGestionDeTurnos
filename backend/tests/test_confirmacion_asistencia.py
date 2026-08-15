@@ -25,6 +25,7 @@ from app.exceptions import TurnoNoEncontradoError, TurnoYaCanceladoError
 from app.models.turno import Turno
 from app.services.turno_service import confirmar_asistencia_turno, _utcnow_naive
 from tests.conftest import make_profesional
+from app.tiempo import hoy_local
 
 
 async def _seed_profesional(db_session: AsyncSession):
@@ -43,7 +44,7 @@ async def _seed_turno(
     hora_inicio: time = time(9, 0),
 ) -> Turno:
     turno = Turno(
-        fecha=date.today() + timedelta(days=1),
+        fecha=hoy_local() + timedelta(days=1),
         hora_inicio=hora_inicio,
         hora_fin=time(hora_inicio.hour + 1, 0),
         estado=estado,
