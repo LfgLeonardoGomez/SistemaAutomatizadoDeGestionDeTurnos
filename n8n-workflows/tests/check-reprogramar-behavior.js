@@ -98,14 +98,38 @@ const DEC = { 'Code - Decidir Paso': { chat_id: 555, turno_id: '7', fecha: '2026
 const listaOk = run(
   'Code - Formatear Lista',
   httpItem(200, [
-    { id: 7, fecha: '2026-08-20', hora_inicio: '10:00:00' },
-    { id: 9, fecha: '2026-08-22', hora_inicio: '09:30:00' },
+    { id: 7, fecha: '2026-08-20', hora_inicio: '10:00:00', paciente: { nombre: 'leonardo', apellido: 'gomez' } },
+    { id: 9, fecha: '2026-08-22', hora_inicio: '09:30:00', paciente: { nombre: 'nahir', apellido: 'jurado' } },
   ]),
   DEC
 );
 check('lista con turnos: un boton por turno mas la salida', listaOk.cantidad === 2 && listaOk.inline_keyboard.length === 3);
 check('lista: el chat_id sale del nodo nombrado', listaOk.chat_id === 555);
 check('lista: no muestra el id en el texto', !/\b7\b/.test(listaOk.inline_keyboard[0][0].text), listaOk.inline_keyboard[0][0].text);
+
+// Un chat puede tener turnos de personas distintas. Sin el nombre, dos turnos
+// son indistinguibles y el paciente no sabe cual esta por mover.
+const textosLista = listaOk.inline_keyboard.slice(0, 2).map((r) => r[0].text);
+check(
+  'lista: cada boton nombra a su paciente',
+  /Leonardo Gomez/.test(textosLista[0]) && /Nahir Jurado/.test(textosLista[1]),
+  textosLista.join(' | ')
+);
+check(
+  'lista: dos turnos del mismo chat son distinguibles entre si',
+  textosLista[0] !== textosLista[1]
+);
+
+const listaSinPaciente = run(
+  'Code - Formatear Lista',
+  httpItem(200, [{ id: 7, fecha: '2026-08-20', hora_inicio: '10:00:00', paciente: null }]),
+  DEC
+);
+check(
+  'lista: un turno sin paciente no rompe ni deja texto colgando',
+  listaSinPaciente.cantidad === 1 && !/·\s*$|undefined|null/.test(listaSinPaciente.inline_keyboard[0][0].text),
+  listaSinPaciente.inline_keyboard[0][0].text
+);
 
 const listaVacia = run('Code - Formatear Lista', httpItem(200, []), DEC);
 check('lista vacia: mensaje propio', /no tenes turnos/i.test(listaVacia.mensaje), listaVacia.mensaje);
@@ -261,11 +285,27 @@ section('Confirmacion');
 
 const confVigente = run(
   'Code - Preparar Confirmacion',
-  httpItem(200, [{ id: 7, fecha: '2026-08-18', hora_inicio: '09:00:00' }]),
+  httpItem(200, [{ id: 7, fecha: '2026-08-18', hora_inicio: '09:00:00', paciente: { nombre: 'leonardo', apellido: 'gomez' } }]),
   DEC
 );
 check('turno vigente: pide confirmacion', confVigente.vigente === true);
 check('muestra el turno viejo y el nuevo', /De: /.test(confVigente.mensaje) && /A: /.test(confVigente.mensaje), confVigente.mensaje);
+check(
+  'la confirmacion dice de QUIEN es el turno',
+  /Leonardo Gomez/.test(confVigente.mensaje),
+  confVigente.mensaje
+);
+
+const confSinPaciente = run(
+  'Code - Preparar Confirmacion',
+  httpItem(200, [{ id: 7, fecha: '2026-08-18', hora_inicio: '09:00:00', paciente: null }]),
+  DEC
+);
+check(
+  'sin paciente la confirmacion sigue siendo legible',
+  confSinPaciente.vigente === true && !/undefined|null/.test(confSinPaciente.mensaje),
+  confSinPaciente.mensaje
+);
 check('el boton de confirmar emite ok:', /^cmd:reprogramar:ok:7:2026-08-20:10:00$/.test(confVigente.inline_keyboard[0][0].callback_data), confVigente.inline_keyboard[0][0].callback_data);
 
 const confCancelado = run('Code - Preparar Confirmacion', httpItem(200, [{ id: 99, fecha: '2026-08-18', hora_inicio: '09:00:00' }]), DEC);

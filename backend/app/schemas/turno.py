@@ -81,12 +81,38 @@ class TurnoDestinatarioRead(BaseModel):
         return v
 
 
+class PacienteEnTurnoResponse(BaseModel):
+    """Quién es el turno, para que el chat pueda distinguir uno de otro.
+
+    Solo nombre y apellido: es lo mínimo que resuelve la ambigüedad. El DNI y
+    el teléfono no entran — no hacen falta para elegir un botón y son datos
+    más sensibles que un nombre de pila.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    nombre: str
+    apellido: str
+
+
 class TurnoActivoResponse(BaseModel):
     """Un turno que un chat de Telegram puede gestionar (ver GET /turnos/activos).
 
     Subconjunto deliberado de ``TurnoResponse``: el bot solo necesita lo que
-    va a mostrarle al paciente para elegir cuál turno cancelar, no los campos
+    va a mostrarle al paciente para elegir cuál turno gestionar, no los campos
     internos (``profesional_id``, ``paciente_id``, ``google_event_id``).
+
+    Incluye el paciente porque **un chat puede tener turnos de personas
+    distintas** — el caso que el dominio contempla explícitamente, una madre
+    reservando para ella y para su hijo desde el mismo Telegram. Sin el nombre,
+    dos turnos del mismo día son indistinguibles y el paciente no puede saber
+    cuál está por cancelar o reprogramar. No expone datos nuevos: son los
+    pacientes que ese mismo chat registró.
+
+    ``paciente`` es opcional porque ``turno.paciente_id`` es nullable. Un
+    CONFIRMADO sin paciente no debería existir, pero la lista es la única salida
+    que le queda al paciente ante un estado raro, y romperla con un 500 lo
+    dejaría sin ninguna.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -96,6 +122,7 @@ class TurnoActivoResponse(BaseModel):
     hora_inicio: time
     hora_fin: time
     estado: str
+    paciente: Optional[PacienteEnTurnoResponse] = None
 
 
 class TurnoResponse(BaseModel):

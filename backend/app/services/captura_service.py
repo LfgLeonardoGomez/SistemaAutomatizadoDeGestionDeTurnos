@@ -15,6 +15,7 @@ from typing import Optional
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.exceptions import CapturaNoEncontradaError
 from app.models.reserva_temporal import ReservaTemporal
@@ -162,6 +163,11 @@ async def obtener_turnos_activos(
 
     stmt = (
         select(Turno)
+        # El paciente se carga acá y no al serializar: ``Turno.paciente`` es
+        # lazy, y tocarlo después de que la sesión async devolvió el resultado
+        # levanta ``MissingGreenlet``. El endpoint lo necesita para que un chat
+        # con turnos de personas distintas pueda distinguirlos.
+        .options(selectinload(Turno.paciente))
         .join(TurnoDestinatario, TurnoDestinatario.turno_id == Turno.id)
         .where(
             Turno.profesional_id == profesional_id,

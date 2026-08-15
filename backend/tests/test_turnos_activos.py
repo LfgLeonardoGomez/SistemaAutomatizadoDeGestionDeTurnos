@@ -303,3 +303,91 @@ class TestGetTurnosActivosRouter:
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == []
+
+
+class TestPacienteEnLaLista:
+    """Un chat puede tener turnos de pacientes DISTINTOS.
+
+    El schema nacía asumiendo un chat = un paciente ("el bot solo necesita lo
+    que va a mostrarle al paciente para elegir cuál turno cancelar"). Esa
+    suposición se rompe en el caso que el propio dominio contempla: una madre
+    que reserva para ella y para su hijo desde el mismo Telegram. Sin el nombre,
+    la lista muestra dos turnos indistinguibles y el paciente no puede saber
+    cuál está por cancelar o reprogramar.
+
+    No expone datos nuevos: son los pacientes que ese mismo chat registró.
+    """
+
+    @pytest.mark.asyncio
+    async def test_dos_pacientes_del_mismo_chat_se_distinguen(self, client, db_session):
+        from app.models.paciente import Paciente
+
+        prof = await _seed_activa_con_api_key(db_session)
+        mañana = hoy_local() + timedelta(days=1)
+
+        pacientes = []
+        for nombre, apellido, dni in (
+            ("leonardo", "gomez", "35539792"),
+            ("nahir", "jurado", "35662276"),
+        ):
+            p = Paciente(
+                nombre=nombre,
+                apellido=apellido,
+                dni=dni,
+                telefono="2612094262",
+                profesional_id=prof.id,
+            )
+            db_session.add(p)
+            pacientes.append(p)
+        await db_session.commit()
+
+        for p, hora in zip(pacientes, (time(9, 0), time(16, 30))):
+            turno = await _seed_turno(
+                db_session,
+                prof.id,
+                fecha=mañana,
+                hora_inicio=hora,
+                hora_fin=time(hora.hour + 1, hora.minute),
+            )
+            turno.paciente_id = p.id
+            await db_session.commit()
+
+        response = client.get(
+            "/turnos/activos",
+            params={"telegram_chat_id": CHAT_ID},
+            headers={"X-API-Key": prof.api_key},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert len(body) == 2
+
+        nombres = {
+            (t["paciente"]["nombre"], t["paciente"]["apellido"]) for t in body
+        }
+        assert nombres == {("leonardo", "gomez"), ("nahir", "jurado")}
+
+    @pytest.mark.asyncio
+    async def test_turno_sin_paciente_no_rompe_la_lista(self, client, db_session):
+        """Triangula: un turno sin paciente asignado sigue listándose.
+
+        Un CONFIRMADO sin ``paciente_id`` no debería existir, pero la columna es
+        nullable y la lista es lo único que le queda al paciente para salir de
+        un estado raro. Devolver 500 acá lo dejaría sin ninguna salida.
+        """
+        prof = await _seed_activa_con_api_key(db_session)
+        mañana = hoy_local() + timedelta(days=1)
+        await _seed_turno(
+            db_session, prof.id, fecha=mañana, hora_inicio=time(9, 0), hora_fin=time(10, 0)
+        )
+
+        response = client.get(
+            "/turnos/activos",
+            params={"telegram_chat_id": CHAT_ID},
+            headers={"X-API-Key": prof.api_key},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert len(body) == 1
+        assert body[0]["paciente"] is None
